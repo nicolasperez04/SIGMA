@@ -92,6 +92,7 @@ public enum ModalityProcessStatus {
     GRADED_APPROVED,
     GRADED_FAILED,
     MODALITY_CLOSED,
+    SEMINAR_CANCELED,
 
     // ========== CANCELACIONES ==========
     MODALITY_CANCELLED,

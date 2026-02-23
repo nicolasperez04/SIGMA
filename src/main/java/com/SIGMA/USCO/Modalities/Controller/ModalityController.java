@@ -476,7 +476,7 @@ public class ModalityController {
 
     @GetMapping("/seminar/{seminarId}/detail")
     public ResponseEntity<?> getSeminarDetail(@PathVariable Long seminarId) {
-        return modalityService.getSeminarDetail(seminarId);
+        return modalityService.FgetSeminarDetailForProgramHead(seminarId);
     }
 
     @GetMapping("/seminar/available")

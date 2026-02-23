@@ -14,11 +14,13 @@ import com.SIGMA.USCO.academic.repository.*;
 import com.SIGMA.USCO.documents.dto.*;
 import com.SIGMA.USCO.documents.entity.*;
 import com.SIGMA.USCO.documents.repository.*;
+import com.SIGMA.USCO.notifications.entity.Notification;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.*;
 import com.SIGMA.USCO.notifications.listeners.ExaminerNotificationListener;
 import com.SIGMA.USCO.notifications.publisher.NotificationEventPublisher;
+import com.SIGMA.USCO.notifications.repository.NotificationRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +69,7 @@ public class ModalityService {
     private final ExaminerEvaluationRepository examinerEvaluationRepository;
     private final SeminarRepository seminarRepository;
     private final ExaminerNotificationListener examinerNotificationListener;
+    private final NotificationRepository notificationRepository;
 
 
     @Value("${file.upload-dir}")
@@ -2231,6 +2234,7 @@ public class ModalityService {
                                     .hasPendingActions(pending)
                                     .build();
                         })
+                        .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                         .toList();
 
         return ResponseEntity.ok(response);
@@ -2330,6 +2334,7 @@ public class ModalityService {
                                     .hasPendingActions(pending)
                                     .build();
                         })
+                        .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                         .toList();
 
 
@@ -2415,6 +2420,7 @@ public class ModalityService {
                             .hasPendingActions(pending)
                             .build();
                 })
+                .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                 .toList();
 
         return ResponseEntity.ok(response);
@@ -2493,6 +2499,7 @@ public class ModalityService {
                             .hasPendingActions(pending)
                             .build();
                 })
+                .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                 .toList();
 
         return ResponseEntity.ok(response);
@@ -6641,69 +6648,6 @@ public class ModalityService {
         }
     }
 
-
-    public ResponseEntity<?> getSeminarDetail(Long seminarId) {
-        try {
-            Seminar seminar = seminarRepository.findById(seminarId)
-                    .orElseThrow(() -> new IllegalArgumentException("Seminar not found"));
-
-            SeminarDetailDTO.SeminarDetailDTOBuilder builder = SeminarDetailDTO.builder()
-                    .id(seminar.getId())
-                    .name(seminar.getName())
-                    .description(seminar.getDescription())
-                    .totalCost(seminar.getTotalCost())
-                    .minParticipants(seminar.getMinParticipants())
-                    .maxParticipants(seminar.getMaxParticipants())
-                    .currentParticipants(seminar.getCurrentParticipants())
-                    .totalHours(seminar.getTotalHours())
-                    .active(seminar.isActive())
-                    .status(seminar.getStatus() != null ? seminar.getStatus().name() : null)
-                    .startDate(seminar.getStartDate())
-                    .endDate(seminar.getEndDate())
-                    .createdAt(seminar.getCreatedAt())
-                    .updatedAt(seminar.getUpdatedAt())
-                    .academicProgramId(seminar.getAcademicProgram() != null ? seminar.getAcademicProgram().getId() : null)
-                    .academicProgramName(seminar.getAcademicProgram() != null ? seminar.getAcademicProgram().getName() : null)
-                    .facultyName(seminar.getAcademicProgram() != null && seminar.getAcademicProgram().getFaculty() != null ? seminar.getAcademicProgram().getFaculty().getName() : null)
-                    .availableSeats(seminar.getMaxParticipants() - seminar.getCurrentParticipants())
-                    .fillPercentage(seminar.getMaxParticipants() > 0 ? (seminar.getCurrentParticipants() * 100.0 / seminar.getMaxParticipants()) : 0.0)
-                    .hasMinimumParticipants(seminar.getCurrentParticipants() >= seminar.getMinParticipants());
-
-
-            List<SeminarDetailDTO.EnrolledStudentDTO> enrolledStudents = seminar.getEnrolledStudents().stream()
-                    .map(student -> {
-                        User user = student.getUser();
-                        return SeminarDetailDTO.EnrolledStudentDTO.builder()
-                                .studentId(student.getId())
-                                .studentCode(student.getStudentCode())
-                                .name(user.getName())
-                                .lastName(user.getLastName())
-                                .email(user.getEmail())
-                                .approvedCredits(student.getApprovedCredits() != null ? student.getApprovedCredits().intValue() : null)
-                                .build();
-                    })
-                    .toList();
-
-            builder.enrolledStudents(enrolledStudents);
-            SeminarDetailDTO seminarDetailDTO = builder.build();
-            return ResponseEntity.ok(seminarDetailDTO);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error getting seminar detail: " + e.getMessage()
-                    )
-            );
-        }
-    }
-
     public ResponseEntity<?> listActiveSeminarsWithSeats() {
         try {
 
@@ -6785,8 +6729,6 @@ public class ModalityService {
             );
         }
     }
-
-
 
     @Transactional
     public ResponseEntity<?> enrollInSeminar(Long seminarId) {
@@ -7284,6 +7226,15 @@ public class ModalityService {
 
             List<StudentProfile> enrolledStudents = seminarRepository.findEnrolledStudentsBySeminarId(seminarId);
 
+            // Cambiar el status de la modalidad de cada estudiante a SEMINAR_CANCELED
+            for (StudentProfile studentProfile : enrolledStudents) {
+                List<StudentModality> modalities = studentModalityRepository.findByLeaderId(studentProfile.getId());
+                for (StudentModality modality : modalities) {
+                    modality.setStatus(ModalityProcessStatus.MODALITY_CANCELLED);
+                    studentModalityRepository.save(modality);
+                }
+            }
+
             seminar.setStatus(SeminarStatus.CLOSED);
             seminar.setActive(false);
             seminar.setUpdatedAt(LocalDateTime.now());
@@ -7612,8 +7563,6 @@ public class ModalityService {
         }
     }
 
-
-
     @Transactional
     public ResponseEntity<?> modalityReadyForDefenseByDirector(Long studentModalityId) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -7625,7 +7574,33 @@ public class ModalityService {
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        // Validar que el usuario sea el director de proyecto asignado
+        // Validación de documentos subidos (excepto para "Emprendimiento y fortalecimiento de empresa")
+        String modalidadNombre = studentModality.getProgramDegreeModality().getDegreeModality().getName();
+        if (!modalidadNombre.equalsIgnoreCase("Emprendimiento y fortalecimiento de empresa")) {
+            Long degreeModalityId = studentModality.getProgramDegreeModality().getDegreeModality().getId();
+            List<RequiredDocument> mandatoryDocs = requiredDocumentRepository.findByModalityIdAndActiveTrueAndDocumentType(degreeModalityId, DocumentType.MANDATORY);
+            List<RequiredDocument> secondaryDocs = requiredDocumentRepository.findByModalityIdAndActiveTrueAndDocumentType(degreeModalityId, DocumentType.SECONDARY);
+            List<RequiredDocument> requiredDocs = new ArrayList<>();
+            requiredDocs.addAll(mandatoryDocs);
+            requiredDocs.addAll(secondaryDocs);
+            List<StudentDocument> uploadedDocs = studentDocumentRepository.findByStudentModalityId(studentModalityId);
+            for (RequiredDocument reqDoc : requiredDocs) {
+                StudentDocument doc = uploadedDocs.stream()
+                    .filter(d -> d.getDocumentConfig().getId().equals(reqDoc.getId()))
+                    .findFirst()
+                    .orElse(null);
+                // Si no existe documento o está vacío (por ejemplo, fileName es null o vacío)
+                if (doc == null || doc.getFileName() == null || doc.getFileName().isBlank()) {
+                    return ResponseEntity.badRequest().body(
+                        Map.of(
+                            "success", false,
+                            "message", "El estudiante debe subir todos los documentos para marcar la modalidad como lista para defensa"
+                        )
+                    );
+                }
+            }
+        }
+
         if (studentModality.getProjectDirector() == null ||
                 !studentModality.getProjectDirector().getId().equals(projectDirector.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
@@ -7652,7 +7627,6 @@ public class ModalityService {
         studentModality.setUpdatedAt(LocalDateTime.now());
         studentModalityRepository.save(studentModality);
 
-        // Registrar en historial
         historyRepository.save(
                 ModalityProcessStatusHistory.builder()
                         .studentModality(studentModality)
@@ -7663,7 +7637,7 @@ public class ModalityService {
                         .build()
         );
 
-        // Notificar a los jueces asignados
+
         List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(studentModalityId);
         for (DefenseExaminer examinerAssignment : examiners) {
             User examiner = examinerAssignment.getExaminer();
