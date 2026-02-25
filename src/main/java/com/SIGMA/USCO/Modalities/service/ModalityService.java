@@ -80,7 +80,6 @@ public class ModalityService {
 
         if (request.getName() == null || request.getName().isBlank()) {
             throw new IllegalArgumentException("El nombre de la modalidad es obligatorio.");
-
         }
 
         if (request.getFacultyId() == null) {
@@ -107,6 +106,8 @@ public class ModalityService {
 
         return degreeModalityRepository.save(modality);
     }
+
+
     public ResponseEntity<?> updateModality(Long modalityId, ModalityDTO request) {
 
         if (!degreeModalityRepository.existsById(modalityId)) {
@@ -1863,69 +1864,73 @@ public class ModalityService {
     }
 
     private String describeModalityStatus(ModalityProcessStatus status) {
-
         return switch (status) {
-
             case MODALITY_SELECTED ->
                     "Haz seleccionado una modalidad de grado. Debes cargar los documentos requeridos para esta modalidad.";
-
             case UNDER_REVIEW_PROGRAM_HEAD ->
                     "La jefatura del programa está revisando la modalidad de grado. Asegúrate de que todos los documentos obligatorios estén cargados.";
-
             case CORRECTIONS_REQUESTED_PROGRAM_HEAD ->
                     "La jefatura del programa solicitó correcciones. Debes ajustar la información requerida.";
-
+            case CORRECTIONS_SUBMITTED ->
+                    "Has enviado las correcciones solicitadas por la jefatura del programa. Espera la revisión y respuesta.";
+            case CORRECTIONS_APPROVED ->
+                    "Las correcciones enviadas han sido aprobadas por la jefatura del programa. El proceso continúa con la siguiente etapa.";
+            case CORRECTIONS_REJECTED_FINAL ->
+                    "Las correcciones enviadas no fueron aprobadas por la jefatura del programa. El proceso ha sido cerrado o cancelado.";
             case READY_FOR_PROGRAM_CURRICULUM_COMMITTEE ->
                     "La jefatura de programa aprobó la modalidad de grado. Está pendiente de revisión por el comité de currículo de programa.";
-
             case UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE ->
                     "El comité de currículo de programa está revisando la modalidad de grado.";
-
             case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE ->
                     "El comité de currículo de programa solicitó correcciones. Debes ajustar la información requerida.";
-
             case PROPOSAL_APPROVED ->
                     "La modalidad fue aprobada por el comité de currículo de programa y los jurados asignados.";
-
             case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR ->
                     "El director de proyecto ha propuesto fecha y lugar de sustentación. Pendiente de aprobación por el comité de currículo de programa.";
-
             case DEFENSE_SCHEDULED ->
                     "La sustentación ha sido programada por el comité de currículo de programa.";
-
             case EXAMINERS_ASSIGNED ->
                     "Los jueces han sido asignados a tu sustentación. Están revisando tu documentación.";
-
+            case READY_FOR_EXAMINERS ->
+                    "La modalidad está lista para ser revisada por los jueces asignados. Próximo paso: sustentación y evaluación.";
             case CORRECTIONS_REQUESTED_EXAMINERS ->
                     "Uno o más jueces solicitaron correcciones en la documentación. Por favor, ajusta los documentos según las observaciones recibidas.";
-
             case READY_FOR_DEFENSE ->
                     "El director de proyecto ha marcado la modalidad como lista para sustentar. Esperando que comité de curriculum del programa junto a los jueces designados, revisen los documentos finales y den su aprobación.";
-
+            case FINAL_REVIEW_COMPLETED ->
+                    "La revisión final de los jueces ha sido completada. Próximo paso: calificación y cierre del proceso.";
             case DEFENSE_COMPLETED ->
                     "La sustentación se ha completado. Pendiente de calificación final.";
-
+            case UNDER_EVALUATION_PRIMARY_EXAMINERS ->
+                    "Los jueces principales están evaluando la sustentación. Cada juez registra su calificación y decisión de forma independiente.";
+            case DISAGREEMENT_REQUIRES_TIEBREAKER ->
+                    "Los jueces principales no llegaron a un acuerdo. Se requiere asignar un tercer juez (desempate).";
+            case UNDER_EVALUATION_TIEBREAKER ->
+                    "El juez de desempate está evaluando la sustentación. Su decisión será definitiva.";
+            case EVALUATION_COMPLETED ->
+                    "La evaluación de la sustentación ha sido completada por los jueces. Próximo paso: resultado final.";
             case GRADED_APPROVED ->
                     "¡Felicitaciones! Tu modalidad de grado ha sido aprobada.";
-
             case GRADED_FAILED ->
                     "La modalidad de grado no fue aprobada.";
-
-            case MODALITY_CANCELLED ->
-                    "La modalidad fue cancelada.";
-
-            case CANCELLATION_REQUESTED ->
-                    "Solicitud de cancelación enviada. Pendiente de revisión.";
-
-            case CANCELLATION_REJECTED ->
-                    "La solicitud de cancelación fue rechazada.";
-
-            case CANCELLED_WITHOUT_REPROVAL ->
-                    "La modalidad fue cancelada sin reprobación.";
-
             case MODALITY_CLOSED ->
                     "La modalidad fue cerrada.";
-
+            case SEMINAR_CANCELED ->
+                    "El seminario asociado a la modalidad fue cancelado por la jefatura o el comité correspondiente.";
+            case MODALITY_CANCELLED ->
+                    "La modalidad fue cancelada.";
+            case CANCELLATION_REQUESTED ->
+                    "Solicitud de cancelación enviada. Pendiente de revisión.";
+            case CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR ->
+                    "La solicitud de cancelación fue aprobada por el director de proyecto. Pendiente de revisión por el comité de currículo.";
+            case CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR ->
+                    "La solicitud de cancelación fue rechazada por el director de proyecto.";
+            case CANCELLED_WITHOUT_REPROVAL ->
+                    "La modalidad fue cancelada sin reprobación.";
+            case CANCELLATION_REJECTED ->
+                    "La solicitud de cancelación fue rechazada por el comité de currículo.";
+            case CANCELLED_BY_CORRECTION_TIMEOUT ->
+                    "La modalidad fue cancelada automáticamente por no entregar las correcciones en el plazo establecido.";
             default ->
                     "Estado del proceso no definido.";
         };
@@ -2563,6 +2568,7 @@ public class ModalityService {
                                 .observations(h.getObservations())
                                 .build()
                         )
+                        .sorted((h1, h2) -> h2.getChangeDate().compareTo(h1.getChangeDate())) // Ordenar de más reciente a más antiguo
                         .toList();
 
 
@@ -2823,6 +2829,7 @@ public class ModalityService {
                                 .observations(h.getObservations())
                                 .build()
                         )
+                        .sorted((h1, h2) -> h2.getChangeDate().compareTo(h1.getChangeDate())) // Ordenar de más reciente a más antiguo
                         .toList();
 
 
@@ -5065,6 +5072,50 @@ public class ModalityService {
             return processPrimaryExaminerEvaluation(studentModality, evaluation, examiner);
         }
     }
+
+    @Transactional
+    public ResponseEntity<?> getFinalDefenseEvaluationForExaminer(Long studentModalityId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String email = auth.getName();
+        User examiner = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
+                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+
+        DefenseExaminer defenseExaminer = defenseExaminerRepository
+                .findByStudentModalityIdAndExaminerId(studentModalityId, examiner.getId())
+                .orElseThrow(() -> new RuntimeException(
+                        "No está asignado como juez de esta sustentación"
+                ));
+
+        ExaminerEvaluation evaluation = examinerEvaluationRepository
+                .findByDefenseExaminerId(defenseExaminer.getId())
+                .orElse(null);
+
+        if (evaluation == null) {
+            return ResponseEntity.ok(
+                    Map.of(
+                            "success", false,
+                            "message", "No hay evaluación registrada para este jurado en esta modalidad"
+                    )
+            );
+        }
+
+        return ResponseEntity.ok(
+                Map.of(
+                        "success", true,
+                        "evaluationId", evaluation.getId(),
+                        "grade", evaluation.getGrade(),
+                        "decision", evaluation.getDecision(),
+                        "observations", evaluation.getObservations(),
+                        "evaluationDate", evaluation.getEvaluationDate(),
+                        "isFinalDecision", evaluation.getIsFinalDecision(),
+                        "examinerType", defenseExaminer.getExaminerType()
+                )
+        );
+    }
+
 
 
     private boolean isGradeConsistentWithDecision(Double grade, ExaminerDecision decision) {
@@ -7780,6 +7831,52 @@ public class ModalityService {
                         "message", "Revisión final completada por el jurado. Se notificó al director para programar la sustentación."
                 )
         );
+    }
+
+    /**
+     * Devuelve un calendario de próximas sustentaciones para el jurado autenticado.
+     * Solo incluye modalidades en estado DEFENSE_SCHEDULED, ordenadas por fecha de defensa ascendente.
+     */
+    public ResponseEntity<?> getExaminerDefenseCalendar() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String email = auth.getName();
+        User examiner = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        // Buscar todas las modalidades asignadas al jurado en estado DEFENSE_SCHEDULED
+        List<StudentModality> modalities = studentModalityRepository.findForExaminerWithStatus(
+                examiner.getId(),
+                List.of(ModalityProcessStatus.DEFENSE_SCHEDULED)
+        );
+
+        // Filtrar solo las que tienen fecha de defensa futura o igual a hoy
+        LocalDateTime now = LocalDateTime.now();
+        List<ModalityListDTO> calendar = modalities.stream()
+                .filter(sm -> sm.getDefenseDate() != null && !sm.getDefenseDate().isBefore(now))
+                .sorted(Comparator.comparing(StudentModality::getDefenseDate))
+                .map(sm -> {
+                    List<StudentModalityMember> activeMembers = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
+                            sm.getId(), MemberStatus.ACTIVE);
+                    String studentNames = activeMembers.stream()
+                            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName())
+                            .collect(Collectors.joining(", "));
+                    String studentEmails = activeMembers.stream()
+                            .map(m -> m.getStudent().getEmail())
+                            .collect(Collectors.joining(", "));
+                    return ModalityListDTO.builder()
+                            .studentModalityId(sm.getId())
+                            .studentName(studentNames)
+                            .studentEmail(studentEmails)
+                            .modalityName(sm.getProgramDegreeModality().getDegreeModality().getName())
+                            .currentStatus(sm.getStatus().name())
+                            .currentStatusDescription(describeModalityStatus(sm.getStatus()))
+                            .defenseDate(sm.getDefenseDate())
+                            .defenseLocation(sm.getDefenseLocation())
+                            .lastUpdatedAt(sm.getUpdatedAt())
+                            .build();
+                })
+                .toList();
+        return ResponseEntity.ok(calendar);
     }
 
 }

@@ -545,4 +545,21 @@ public class ModalityController {
         return modalityService.examinerFinalReviewCompleted(studentModalityId);
     }
 
+
+    @GetMapping("/{studentModalityId}/examiner-evaluation")
+    @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_EVALUATION')")
+    public ResponseEntity<?> getFinalDefenseEvaluationForExaminer(@PathVariable Long studentModalityId) {
+        return modalityService.getFinalDefenseEvaluationForExaminer(studentModalityId);
+    }
+
+    /**
+     * Endpoint para que el jurado autenticado obtenga su calendario de próximas sustentaciones.
+     * Solo incluye modalidades en estado DEFENSE_SCHEDULED, ordenadas por fecha de defensa ascendente.
+     */
+    @GetMapping("/examiner/defense-calendar")
+    @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
+    public ResponseEntity<?> getExaminerDefenseCalendar() {
+        return modalityService.getExaminerDefenseCalendar();
+    }
+
 }

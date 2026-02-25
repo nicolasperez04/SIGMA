@@ -21,5 +21,7 @@ public class ModalityListDTO {
     private String currentStatusDescription;
     private LocalDateTime lastUpdatedAt;
     private boolean hasPendingActions;
+    private LocalDateTime defenseDate;
+    private String defenseLocation;
 
 }

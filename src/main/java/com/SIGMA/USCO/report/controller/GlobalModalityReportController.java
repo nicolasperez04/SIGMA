@@ -313,9 +313,7 @@ public class GlobalModalityReportController {
      */
     @GetMapping("/directors/{directorId}/modalities/pdf")
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
-    public ResponseEntity<Resource> exportSpecificDirectorReportToPDF(
-            @PathVariable Long directorId
-    ) {
+    public ResponseEntity<Resource> exportSpecificDirectorReportToPDF(@PathVariable Long directorId) {
         try {
             DirectorReportFilterDTO filters = DirectorReportFilterDTO.builder()
                     .directorId(directorId)

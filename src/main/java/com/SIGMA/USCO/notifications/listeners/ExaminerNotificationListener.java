@@ -20,6 +20,10 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
+import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
+import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 
 @Component
 @RequiredArgsConstructor
@@ -31,6 +35,7 @@ public class ExaminerNotificationListener {
     private final NotificationDispatcherService dispatcher;
     private final UserRepository userRepository;
     private final StudentModalityRepository studentModalityRepository;
+    private final StudentModalityMemberRepository studentModalityMemberRepository;
 
     public void notifyExaminersAssignment(Long studentModalityId) {
         StudentModality modality = studentModalityRepository.findById(studentModalityId)
@@ -96,19 +101,47 @@ public class ExaminerNotificationListener {
     public void handleDefenseReadyByDirectorEvent(DefenseReadyByDirectorEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
-        User examiner = userRepository.findById(event.getExaminerId())
-                .orElseThrow(() -> new RuntimeException("Juez no encontrado"));
 
-        // Construir el mensaje personalizado aquí
-        String subject = "Modalidad lista para defensa";
-        String message = String.format(
-            """
-            Estimado/a %s %s,\n\nLa modalidad de grado \"%s\" del estudiante %s %s ha sido marcada como lista para defensa por el director de proyecto.\n\nPor favor, ingrese al sistema SIGMA para revisar los documentos y continuar con el proceso de sustentación.\n\nCordialmente,\nSistema de Gestión Académica\n""",
-            examiner.getName(),
-            examiner.getLastName(),
-            modality.getProgramDegreeModality().getDegreeModality().getName(),
-            modality.getLeader().getName(),
-            modality.getLeader().getLastName()
+        User examiner = userRepository.findById(event.getExaminerId())
+                .orElseThrow(() -> new RuntimeException("Jurado no encontrado"));
+
+
+        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+        String miembros = members.stream()
+            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
+            .collect(Collectors.joining(", "));
+
+        String subject = "Notificación de modalidad lista para sustentación";
+
+        String message = """
+            Estimado/a %s %s,
+            
+            Reciba un cordial saludo.
+            
+            Le informamos que la siguiente modalidad de grado ha sido marcada oficialmente como lista para sustentación por parte del Director de Proyecto:
+            
+            Estudiantes:
+            %s
+            
+            Modalidad de grado:
+            "%s"
+            
+            A partir de este momento, el proceso se encuentra disponible para su revisión en calidad de jurado evaluador.
+            
+            Le solicitamos ingresar a la plataforma institucional para:
+            - Revisar la documentación final presentada.
+            - Verificar el cumplimiento de los requisitos académicos.
+            - Continuar con las etapas correspondientes al proceso de sustentación.
+            
+            Agradecemos su disposición y compromiso con el proceso evaluativo.
+            
+            Cordialmente,
+            Sistema de Gestión Académica
+            """.formatted(
+                examiner.getName(),
+                examiner.getLastName(),
+                miembros,
+                modality.getProgramDegreeModality().getDegreeModality().getName()
         );
 
         Notification notification = Notification.builder()
@@ -121,26 +154,58 @@ public class ExaminerNotificationListener {
                 .message(message)
                 .createdAt(LocalDateTime.now())
                 .build();
+
         notificationRepository.save(notification);
         dispatcher.dispatch(notification);
     }
 
     @EventListener
-    public void handleExaminerFinalReviewCompletedEvent(com.SIGMA.USCO.notifications.event.ExaminerFinalReviewCompletedEvent event) {
+    public void handleExaminerFinalReviewCompletedEvent(
+            com.SIGMA.USCO.notifications.event.ExaminerFinalReviewCompletedEvent event) {
+
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+
         User director = userRepository.findById(event.getProjectDirectorId())
                 .orElseThrow(() -> new RuntimeException("Director de proyecto no encontrado"));
 
-        String subject = "Documentos aprobados por el jurado - Puede programar la sustentación";
-        String message = String.format(
-                """
-                Estimado/a %s %s,\n\nEl jurado ha aprobado todos los documentos requeridos para la modalidad de grado \"%s\" del estudiante líder %s %s.\n\nAhora puede programar la fecha y lugar de la sustentación en el sistema SIGMA.\n\nCordialmente,\nSistema de Gestión Académica\n""",
+        // Obtener todos los miembros ACTIVOS de la modalidad
+        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+        String miembros = members.stream()
+            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
+            .collect(Collectors.joining(", "));
+
+        String subject = "Aprobación final de documentos – Puede programar la sustentación";
+
+        String message = """
+            Estimado/a %s %s,
+            
+            Reciba un cordial saludo.
+            
+            Le informamos que el jurado evaluador ha aprobado la totalidad de los documentos requeridos para la siguiente modalidad de grado:
+            
+            Estudiantes:
+            %s
+            
+            Modalidad de grado:
+            "%s"
+            
+            Con esta aprobación, el proceso académico cumple los requisitos necesarios para avanzar a la etapa de sustentación.
+            
+            En su calidad de Director/a de Proyecto, ahora puede:
+            - Programar la fecha y hora de la sustentación.
+            - Definir el lugar correspondiente.
+            - Continuar con la gestión formal del cierre del proceso.
+            
+            Le invitamos a ingresar al sistema para realizar la programación y dar continuidad al procedimiento institucional.
+            
+            Cordialmente,
+            Sistema de Gestión Académica
+            """.formatted(
                 director.getName(),
                 director.getLastName(),
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
-                modality.getLeader().getName(),
-                modality.getLeader().getLastName()
+                miembros,
+                modality.getProgramDegreeModality().getDegreeModality().getName()
         );
 
         Notification notification = Notification.builder()
@@ -153,9 +218,11 @@ public class ExaminerNotificationListener {
                 .message(message)
                 .createdAt(LocalDateTime.now())
                 .build();
+
         notificationRepository.save(notification);
         dispatcher.dispatch(notification);
     }
+
 
     @EventListener
     public void handleDefenseScheduled(DefenseScheduledEvent event) {
@@ -168,20 +235,33 @@ public class ExaminerNotificationListener {
             String subject = "Sustentación programada – Modalidad de Grado";
             String message = String.format(
                 """
-                Estimado/a %s %s,
-
-                Se ha programado la sustentación de la modalidad de grado:
-
-                Modalidad: "%s"
-                Fecha y hora: %s
-                Lugar: %s
-                Director asignado: %s
-
-                Estudiantes asociados: %s
-
-                Por favor ingrese al sistema SIGMA para revisar los documentos y prepararse para la sustentación.
-
-                Sistema SIGMA
+                         Estimado/a %s %s,
+                        
+                                Reciba un cordial saludo.
+                        
+                                Le informamos que ha sido programada la sustentación de la siguiente modalidad de grado:
+                        
+                                Modalidad:
+                                "%s"
+                        
+                                Fecha y hora:
+                                %s
+                        
+                                Lugar:
+                                %s
+                        
+                                Director/a asignado/a:
+                                %s
+                        
+                                Estudiantes asociados:
+                                %s
+                        
+                                En su calidad de jurado evaluador, le solicitamos ingresar al sistema SIGMA para revisar la documentación final, verificar los lineamientos académicos y prepararse para la jornada de sustentación.
+                        
+                                Agradecemos su compromiso con el proceso evaluativo.
+                        
+                                Cordialmente,
+                                Sistema de Gestión Académica
                 """,
                 examiner.getName(),
                 examiner.getLastName(),
@@ -217,18 +297,30 @@ public class ExaminerNotificationListener {
             String subject = "Sustentación programada – Modalidad de Grado";
             String message = String.format(
                 """
-                Estimado/a %s,
-
-                Te informamos que la sustentación de tu modalidad de grado ha sido programada:
-
-                Modalidad: "%s"
-                Fecha y hora: %s
-                Lugar: %s
-                Director asignado: %s
-
-                Por favor preséntate con antelación y cumple con los lineamientos académicos establecidos.
-
-                Sistema SIGMA
+                         Estimado/a %s,
+                        
+                                Reciba un cordial saludo.
+                        
+                                Le informamos que la sustentación de su modalidad de grado ha sido programada con los siguientes detalles:
+                        
+                                Modalidad:
+                                "%s"
+                        
+                                Fecha y hora:
+                                %s
+                        
+                                Lugar:
+                                %s
+                        
+                                Director/a asignado/a:
+                                %s
+                        
+                                Le recomendamos presentarse con la debida antelación y cumplir con los lineamientos académicos establecidos para la sustentación.
+                        
+                                Puede consultar la información completa en el sistema SIGMA.
+                        
+                                Cordialmente,
+                                Sistema de Gestión Académica
                 """,
                 student.getName(),
                 modality.getProgramDegreeModality().getDegreeModality().getName(),

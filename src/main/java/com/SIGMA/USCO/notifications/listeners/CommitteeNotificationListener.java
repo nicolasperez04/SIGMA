@@ -5,6 +5,7 @@ import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.repository.UserRepository;
+import com.SIGMA.USCO.documents.entity.DocumentStatus;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.Notification;
@@ -43,15 +44,16 @@ public class CommitteeNotificationListener {
         String subject = "Solicitud de cancelación de modalidad";
 
         String message = """
-                Se ha recibido una solicitud de cancelación
-                de modalidad de grado por parte del estudiante:
-
-                "%s"
-
-                Por favor, revise la solicitud y tome las
-                acciones necesarias.
-
-                Sistema SIGMA
+                Se ha recibido formalmente una *solicitud de cancelación de modalidad de grado* presentada por el siguiente estudiante:
+                
+                **"%s"**
+                
+                La solicitud ha sido registrada en el sistema y se encuentra pendiente de revisión por parte del Comité de Currículo del Programa.
+                
+                Se solicita amablemente evaluar la petición conforme a la normativa institucional vigente y proceder con el análisis, validación y decisión correspondiente dentro de los plazos establecidos.
+                
+                Este mensaje constituye una notificación oficial generada automáticamente para garantizar la trazabilidad y gestión oportuna del proceso.
+                
                 """.formatted(
                 studentModality.getLeader().getName() + " " + studentModality.getLeader().getLastName()
         );
@@ -146,24 +148,27 @@ public class CommitteeNotificationListener {
         String subject = "Documento actualizado – Modalidad en revisión";
 
         String message = """
-                El estudiante %s ha actualizado un documento
-                asociado a una modalidad en revisión.
+                Se informa que el estudiante %s ha realizado la actualización de un documento asociado a una modalidad de grado que actualmente se encuentra en estado de revisión.
+                
+                A continuación, se detallan los datos relevantes del proceso:
 
                 Modalidad:
                 "%s"
 
-                Documento:
+                Documento actualizado:
                 "%s"
 
-                Estado:
+                Estado del documento:
                 %s
 
-                Sistema SIGMA
+                Dado que la modalidad se encuentra en una fase activa de evaluación, se solicita al Comité de Currículo del Programa verificar la nueva versión del documento, validar su contenido conforme a los lineamientos académicos establecidos y continuar con el trámite correspondiente dentro del flujo definido.
+                
+                Esta notificación es generada automáticamente como parte del mecanismo de control y trazabilidad de las actualizaciones realizadas durante el proceso de evaluación.
                 """.formatted(
                 student.getName() + " " + student.getLastName(),
                 modality.getProgramDegreeModality().getAcademicProgram().getName(),
                 document.getDocumentConfig().getDocumentName(),
-                document.getStatus()
+                translateDocumentStatus(document.getStatus())
         );
 
         List<User> committeeMembers =
@@ -185,6 +190,22 @@ public class CommitteeNotificationListener {
             notificationRepository.save(notification);
             dispatcher.dispatch(notification);
         }
+    }
+
+    private String translateDocumentStatus(DocumentStatus status) {
+        return switch (status) {
+            case PENDING -> "Pendiente";
+            case ACCEPTED_FOR_PROGRAM_HEAD_REVIEW -> "Aceptado para revisión de Jefatura";
+            case REJECTED_FOR_PROGRAM_HEAD_REVIEW -> "Rechazado por Jefatura";
+            case CORRECTIONS_REQUESTED_BY_PROGRAM_HEAD -> "Correcciones solicitadas por Jefatura";
+            case CORRECTION_RESUBMITTED -> "Corrección reenviada";
+            case ACCEPTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW -> "Aceptado para revisión de Comité de Currículo";
+            case REJECTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW -> "Rechazado por Comité de Currículo";
+            case CORRECTIONS_REQUESTED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones solicitadas por Comité de Currículo";
+            case ACCEPTED_FOR_EXAMINER_REVIEW -> "Aceptado para revisión de Jurado";
+            case REJECTED_FOR_EXAMINER_REVIEW -> "Rechazado por Jurado";
+            case CORRECTIONS_REQUESTED_BY_EXAMINER -> "Correcciones solicitadas por Jurado";
+        };
     }
 
 

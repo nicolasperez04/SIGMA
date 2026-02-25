@@ -39,20 +39,30 @@ public class AcademicCertificatePdfService {
     @Value("${file.upload-dir}")
     private String uploadDir;
 
+    // COLORES INSTITUCIONALES
+    private static final BaseColor INSTITUTIONAL_RED = new BaseColor(143, 30, 30); // #8F1E1E
+    private static final BaseColor INSTITUTIONAL_GOLD = new BaseColor(213, 203, 160); // #D5CBA0
+    private static final BaseColor WHITE = BaseColor.WHITE;
+    private static final BaseColor LIGHT_GOLD = new BaseColor(245, 242, 235);
+    private static final BaseColor TEXT_BLACK = BaseColor.BLACK;
+    private static final BaseColor TEXT_GRAY = new BaseColor(80, 80, 80);
+
+    // FUENTES INSTITUCIONALES
+    private static final Font TITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22, INSTITUTIONAL_RED);
+    private static final Font SUBTITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, INSTITUTIONAL_RED);
+    private static final Font HEADER_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, INSTITUTIONAL_RED);
+    private static final Font LABEL_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_BLACK);
+    private static final Font DATA_FONT = FontFactory.getFont(FontFactory.HELVETICA, 10, TEXT_BLACK);
+    private static final Font FOOTER_FONT = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY);
+    private static final Font SIGNATURE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, TEXT_BLACK);
+    private static final Font SIGNATURE_LABEL_FONT = FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY);
+    private static final Font ACTA_NUMBER_FONT = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 10, TEXT_GRAY);
+    private static final Font DISTINCTION_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, new BaseColor(0, 100, 0));
+
     @Transactional
     public AcademicCertificate generateCertificate(StudentModality studentModality) throws IOException {
-
-
-        if (certificateRepository.existsByStudentModalityId(studentModality.getId())) {
-            log.info("Ya existe un certificado para la modalidad {}. Regenerando con diseño actualizado...",
-                    studentModality.getId());
-
-
-            AcademicCertificate existingCertificate = certificateRepository
-                    .findByStudentModalityId(studentModality.getId())
-                    .orElseThrow();
-
-
+        AcademicCertificate existingCertificate = certificateRepository.findByStudentModalityId(studentModality.getId()).orElse(null);
+        if (existingCertificate != null) {
             try {
                 Path oldFilePath = Paths.get(existingCertificate.getFilePath());
                 if (Files.exists(oldFilePath)) {
@@ -62,28 +72,19 @@ public class AcademicCertificatePdfService {
             } catch (IOException e) {
                 log.warn("No se pudo eliminar el archivo PDF antiguo: {}", e.getMessage());
             }
-
-
             certificateRepository.delete(existingCertificate);
             log.info("Registro de certificado antiguo eliminado de BD");
         }
-
         User student = studentModality.getLeader();
         String certificateNumber = generateCertificateNumber(studentModality);
-
         Path certificatesPath = Paths.get(uploadDir, "certificates",
                 String.valueOf(studentModality.getProgramDegreeModality().getAcademicProgram().getId()));
         Files.createDirectories(certificatesPath);
-
         String fileName = "ACTA_" + certificateNumber + "_" + student.getId() + ".pdf";
         Path filePath = certificatesPath.resolve(fileName);
-
-
         generatePdfDocument(filePath, studentModality, certificateNumber);
         log.info("Nuevo certificado PDF generado: {}", filePath);
-
         String fileHash = calculateFileHash(filePath);
-
         AcademicCertificate certificate = AcademicCertificate.builder()
                 .studentModality(studentModality)
                 .certificateNumber(certificateNumber)
@@ -92,108 +93,69 @@ public class AcademicCertificatePdfService {
                 .fileHash(fileHash)
                 .status(CertificateStatus.GENERATED)
                 .build();
-
         return certificateRepository.save(certificate);
     }
 
     private void generatePdfDocument(Path filePath, StudentModality studentModality, String certificateNumber) {
         try {
-
-            Document document = new Document(PageSize.A4, 50, 50, 60, 60);
+            Document document = new Document(PageSize.A4, 50, 50, 50, 50);
             PdfWriter.getInstance(document, new FileOutputStream(filePath.toFile()));
             document.open();
 
             User student = studentModality.getLeader();
             User director = studentModality.getProjectDirector();
 
+            // 1. Banda superior institucional
+            PdfPTable headerBand = new PdfPTable(1);
+            headerBand.setWidthPercentage(100);
+            headerBand.setSpacingAfter(30);
+            PdfPCell bandCell = new PdfPCell();
+            bandCell.setBackgroundColor(INSTITUTIONAL_RED);
+            bandCell.setPadding(25);
+            bandCell.setBorder(Rectangle.NO_BORDER);
+            Paragraph bandContent = new Paragraph();
+            bandContent.setAlignment(Element.ALIGN_CENTER);
+            // Texto en blanco
+            bandContent.add(new Chunk("UNIVERSIDAD SURCOLOMBIANA\n", new Font(Font.FontFamily.HELVETICA, 22, Font.BOLD, WHITE)));
+            bandContent.add(new Chunk(studentModality.getProgramDegreeModality().getAcademicProgram().getFaculty().getName().toUpperCase() + "\n", new Font(Font.FontFamily.HELVETICA, 16, Font.BOLD, WHITE)));
+            bandContent.add(new Chunk(studentModality.getProgramDegreeModality().getAcademicProgram().getName(), new Font(Font.FontFamily.HELVETICA, 13, Font.BOLD, WHITE)));
+            bandCell.addElement(bandContent);
+            headerBand.addCell(bandCell);
+            document.add(headerBand);
 
-            BaseColor institutionalBlue = new BaseColor(0, 51, 102); // Azul institucional
-            BaseColor accentGray = new BaseColor(80, 80, 80);
+            // 2. Título principal
+            Paragraph title = new Paragraph("ACTA DE APROBACIÓN DE MODALIDAD DE GRADO", TITLE_FONT);
+            title.setAlignment(Element.ALIGN_CENTER);
+            title.setSpacingAfter(10);
+            document.add(title);
 
-            Font titleMainFont = new Font(Font.FontFamily.HELVETICA, 22, Font.BOLD, institutionalBlue);
-            Font institutionFont = new Font(Font.FontFamily.HELVETICA, 16, Font.BOLD, BaseColor.BLACK);
-            Font facultyFont = new Font(Font.FontFamily.HELVETICA, 13, Font.BOLD, accentGray);
-            Font programFont = new Font(Font.FontFamily.HELVETICA, 11, Font.NORMAL, accentGray);
-            Font sectionTitleFont = new Font(Font.FontFamily.HELVETICA, 13, Font.BOLD, institutionalBlue);
-            Font actaNumberFont = new Font(Font.FontFamily.HELVETICA, 10, Font.ITALIC, accentGray);
-            Font labelFont = new Font(Font.FontFamily.HELVETICA, 10, Font.BOLD, BaseColor.BLACK);
-            Font dataFont = new Font(Font.FontFamily.HELVETICA, 10, Font.NORMAL, BaseColor.BLACK);
-            Font bodyFont = new Font(Font.FontFamily.HELVETICA, 11, Font.NORMAL, BaseColor.BLACK);
-            Font footerFont = new Font(Font.FontFamily.HELVETICA, 8, Font.ITALIC, BaseColor.GRAY);
-            Font signatureFont = new Font(Font.FontFamily.HELVETICA, 9, Font.BOLD, BaseColor.BLACK);
-            Font signatureLabelFont = new Font(Font.FontFamily.HELVETICA, 8, Font.NORMAL, accentGray);
-
-
-
-
-            Paragraph institution = new Paragraph("UNIVERSIDAD SURCOLOMBIANA", institutionFont);
-            institution.setAlignment(Element.ALIGN_CENTER);
-            institution.setSpacingAfter(8);
-            document.add(institution);
-
-
-            Paragraph faculty = new Paragraph(
-                    studentModality.getProgramDegreeModality().getAcademicProgram().getFaculty().getName().toUpperCase(),
-                    facultyFont
-            );
-            faculty.setAlignment(Element.ALIGN_CENTER);
-            faculty.setSpacingAfter(5);
-            document.add(faculty);
-
-
-            Paragraph program = new Paragraph(
-                    studentModality.getProgramDegreeModality().getAcademicProgram().getName(),
-                    programFont
-            );
-            program.setAlignment(Element.ALIGN_CENTER);
-            program.setSpacingAfter(15);
-            document.add(program);
-
-
-            addHorizontalLine(document, institutionalBlue);
-            document.add(Chunk.NEWLINE);
-
-
-
-            Paragraph mainTitle = new Paragraph("ACTA DE APROBACIÓN", titleMainFont);
-            mainTitle.setAlignment(Element.ALIGN_CENTER);
-            mainTitle.setSpacingAfter(5);
-            document.add(mainTitle);
-
-            Paragraph subtitle = new Paragraph("MODALIDAD DE GRADO", titleMainFont);
-            subtitle.setAlignment(Element.ALIGN_CENTER);
-            subtitle.setSpacingAfter(10);
-            document.add(subtitle);
-
-
-            Paragraph actaNum = new Paragraph("Acta No. " + certificateNumber, actaNumberFont);
+            Paragraph actaNum = new Paragraph("Acta No. " + certificateNumber, ACTA_NUMBER_FONT);
             actaNum.setAlignment(Element.ALIGN_CENTER);
-            actaNum.setSpacingAfter(25);
+            actaNum.setSpacingAfter(20);
             document.add(actaNum);
 
+            // Línea dorada decorativa
+            addHorizontalLine(document, INSTITUTIONAL_GOLD);
+            document.add(Chunk.NEWLINE);
 
-
-            Paragraph resultSection = new Paragraph("RESULTADO DE LA EVALUACIÓN", sectionTitleFont);
+            // 3. Resultado de la evaluación
+            Paragraph resultSection = new Paragraph("RESULTADO DE LA EVALUACIÓN", HEADER_FONT);
             resultSection.setSpacingBefore(10);
-            resultSection.setSpacingAfter(12);
+            resultSection.setSpacingAfter(8);
             document.add(resultSection);
 
             Paragraph resultText = new Paragraph(
-                    "Una vez realizada la sustentación correspondiente y efectuada la evaluación " +
-                    "por parte de los jurados designados, el Comité de Currículo del programa académico " +
-                    "certifica que el(la) estudiante que a continuación se identifica ha APROBADO " +
-                    "satisfactoriamente su modalidad de grado, cumpliendo con los requisitos académicos " +
-                    "y normativos establecidos por la Universidad Surcolombiana.",
-                    bodyFont
+                "El Comité de Currículo del programa académico, tras la realización de la sustentación oficial y la evaluación exhaustiva por parte de los jurados designados, certifica que el(la) estudiante identificado en este documento ha cumplido satisfactoriamente con todos los requisitos académicos, normativos y procedimentales establecidos por la Universidad Surcolombiana para la modalidad de grado.\n\n" +
+                "En virtud de lo anterior, se otorga la aprobación formal de la modalidad, reconociendo el esfuerzo, la dedicación y el cumplimiento de los estándares institucionales exigidos para la culminación del proceso académico.",
+                DATA_FONT
             );
             resultText.setAlignment(Element.ALIGN_JUSTIFIED);
-            resultText.setSpacingAfter(20);
+            resultText.setSpacingAfter(18);
             document.add(resultText);
 
-
-
-            Paragraph studentSection = new Paragraph("DATOS DEL ESTUDIANTE", sectionTitleFont);
-            studentSection.setSpacingAfter(10);
+            // 4. Datos del estudiante (en tabla con fondo dorado claro)
+            Paragraph studentSection = new Paragraph("DATOS DEL ESTUDIANTE", HEADER_FONT);
+            studentSection.setSpacingAfter(8);
             document.add(studentSection);
 
             String studentCode = "No registrado";
@@ -206,111 +168,182 @@ public class AcademicCertificatePdfService {
                 log.warn("No se pudo obtener el código del estudiante: {}", e.getMessage());
             }
 
-            PdfPTable studentTable = createStyledDataTable(2);
-            addStyledTableRow(studentTable, "Nombre completo:",
-                    student.getName() + " " + student.getLastName(), labelFont, dataFont);
-            addStyledTableRow(studentTable, "Código estudiantil:", studentCode, labelFont, dataFont);
-            addStyledTableRow(studentTable, "Correo electrónico:", student.getEmail(), labelFont, dataFont);
-
-            studentTable.setSpacingAfter(20);
+            PdfPTable studentTable = new PdfPTable(2);
+            studentTable.setWidthPercentage(100);
+            studentTable.setSpacingBefore(5);
+            studentTable.setSpacingAfter(15);
+            addStyledTableRow(studentTable, "Nombre completo:", student.getName() + " " + student.getLastName(), LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            addStyledTableRow(studentTable, "Código estudiantil:", studentCode, LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            addStyledTableRow(studentTable, "Correo institucional:", student.getEmail(), LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            addStyledTableRow(studentTable, "Programa académico:", studentModality.getProgramDegreeModality().getAcademicProgram().getName(), LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            addStyledTableRow(studentTable, "Facultad:", studentModality.getProgramDegreeModality().getAcademicProgram().getFaculty().getName(), LABEL_FONT, DATA_FONT, LIGHT_GOLD);
             document.add(studentTable);
 
-
-
-            Paragraph modalitySection = new Paragraph("INFORMACIÓN DE LA MODALIDAD", sectionTitleFont);
-            modalitySection.setSpacingAfter(10);
+            // 5. Información de la modalidad
+            Paragraph modalitySection = new Paragraph("INFORMACIÓN DE LA MODALIDAD", HEADER_FONT);
+            modalitySection.setSpacingAfter(8);
             document.add(modalitySection);
 
-            PdfPTable modalityTable = createStyledDataTable(2);
-            addStyledTableRow(modalityTable, "Modalidad de grado:",
-                    studentModality.getProgramDegreeModality().getDegreeModality().getName(),
-                    labelFont, dataFont);
-            addStyledTableRow(modalityTable, "Director de proyecto:",
-                    director != null ? director.getName() + " " + director.getLastName() : "No asignado",
-                    labelFont, dataFont);
-            addStyledTableRow(modalityTable, "Fecha de sustentación:",
-                    studentModality.getDefenseDate() != null ?
-                            studentModality.getDefenseDate().format(DateTimeFormatter.ofPattern("dd 'de' MMMM 'de' yyyy, HH:mm"))
-                            : "No registrada",
-                    labelFont, dataFont);
-
-
-            AcademicDistinction distinction = studentModality.getAcademicDistinction();
-            if (distinction != null && distinction != AcademicDistinction.NO_DISTINCTION) {
-                addStyledTableRow(modalityTable, "Mención académica:",
-                        translateDistinction(distinction), labelFont,
-                        new Font(Font.FontFamily.HELVETICA, 10, Font.BOLD, new BaseColor(0, 100, 0)));
+            PdfPTable modalityTable = new PdfPTable(2);
+            modalityTable.setWidthPercentage(100);
+            modalityTable.setSpacingBefore(5);
+            modalityTable.setSpacingAfter(15);
+            addStyledTableRow(modalityTable, "Modalidad de grado:", studentModality.getProgramDegreeModality().getDegreeModality().getName(), LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            // Integrantes
+            String members = studentModality.getMembers() != null && !studentModality.getMembers().isEmpty() ?
+                    studentModality.getMembers().stream()
+                            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
+                            .collect(java.util.stream.Collectors.joining(", ")) :
+                    student.getName() + " " + student.getLastName() + " (" + student.getEmail() + ")";
+            addStyledTableRow(modalityTable, "Integrantes:", members, LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            // Jurados
+            String examiners = "No asignados";
+            try {
+                java.util.List<com.SIGMA.USCO.Modalities.Entity.DefenseExaminer> defenseExaminers = studentModality.getDefenseExaminers();
+                if (defenseExaminers != null && !defenseExaminers.isEmpty()) {
+                    examiners = defenseExaminers.stream()
+                        .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName())
+                        .collect(java.util.stream.Collectors.joining(", "));
+                }
+            } catch (Exception e) {
+                // Si hay error, dejar "No asignados"
             }
 
-            modalityTable.setSpacingAfter(25);
+            // Estado actual (en español)
+            addStyledTableRow(modalityTable, "Estado de la modalidad:", studentModality.getStatus() != null ? translateModalityStatus(studentModality.getStatus()) : "No registrado", LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            // Nota final
+            addStyledTableRow(modalityTable, "Nota final:", studentModality.getFinalGrade() != null ? studentModality.getFinalGrade().toString() : "No registrada", LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            // Mención académica (en español)
+            AcademicDistinction distinction = studentModality.getAcademicDistinction();
+            if (distinction != null && distinction != AcademicDistinction.NO_DISTINCTION) {
+                addStyledTableRow(modalityTable, "Mención académica:", translateDistinction(distinction), LABEL_FONT, DISTINCTION_FONT, LIGHT_GOLD);
+            }
+            addStyledTableRow(modalityTable, "Director de proyecto:", director != null ? director.getName() + " " + director.getLastName() : "No asignado", LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            addStyledTableRow(modalityTable, "Jurados:", examiners, LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            addStyledTableRow(modalityTable, "Fecha de sustentación:", studentModality.getDefenseDate() != null ? studentModality.getDefenseDate().format(DateTimeFormatter.ofPattern("dd 'de' MMMM 'de' yyyy, HH:mm")) : "No registrada", LABEL_FONT, DATA_FONT, LIGHT_GOLD);
+            // Lugar de sustentación
+            addStyledTableRow(modalityTable, "Lugar de sustentación:", studentModality.getDefenseLocation() != null ? studentModality.getDefenseLocation() : "No registrado", LABEL_FONT, DATA_FONT, LIGHT_GOLD);
             document.add(modalityTable);
 
-
-
+            // 6. Fecha de emisión
             Paragraph issueDateParagraph = new Paragraph();
-            issueDateParagraph.add(new Chunk("Fecha de emisión: ", labelFont));
-            issueDateParagraph.add(new Chunk(
-                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd 'de' MMMM 'de' yyyy")),
-                    dataFont
-            ));
+            issueDateParagraph.add(new Chunk("Fecha de emisión: ", LABEL_FONT));
+            issueDateParagraph.add(new Chunk(LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd 'de' MMMM 'de' yyyy")), DATA_FONT));
             issueDateParagraph.setAlignment(Element.ALIGN_RIGHT);
             issueDateParagraph.setSpacingBefore(10);
-            issueDateParagraph.setSpacingAfter(40);
+            issueDateParagraph.setSpacingAfter(30);
             document.add(issueDateParagraph);
 
-
-
-            PdfPTable signaturesTable = new PdfPTable(2);
+            // 7. Firmas
+            PdfPTable signaturesTable = new PdfPTable(3);
             signaturesTable.setWidthPercentage(100);
             signaturesTable.setSpacingBefore(20);
-            signaturesTable.setSpacingAfter(30);
+            signaturesTable.setSpacingAfter(25);
 
+            // Director de proyecto
+            if (director != null) {
+                PdfPCell directorCell = new PdfPCell();
+                directorCell.setBorder(Rectangle.NO_BORDER);
+                directorCell.setHorizontalAlignment(Element.ALIGN_CENTER);
+                directorCell.setPaddingTop(20);
+                // Línea de firma (borde inferior)
+                PdfPTable firmaTable = new PdfPTable(1);
+                firmaTable.setWidthPercentage(80);
+                PdfPCell firmaLine = new PdfPCell();
+                firmaLine.setBorder(Rectangle.BOTTOM);
+                firmaLine.setBorderWidthBottom(1.5f);
+                firmaLine.setFixedHeight(18f);
+                firmaLine.setBorderColorBottom(TEXT_BLACK);
+                firmaLine.setPadding(0);
+                firmaLine.setHorizontalAlignment(Element.ALIGN_CENTER);
+                firmaTable.addCell(firmaLine);
+                directorCell.addElement(firmaTable);
+                // Texto debajo de la línea
+                Paragraph directorSign = new Paragraph();
+                directorSign.add(new Chunk("Firma\n", SIGNATURE_FONT));
+                directorSign.add(new Chunk("Director de Proyecto\n", SIGNATURE_LABEL_FONT));
+                directorSign.add(new Chunk(director.getName() + " " + director.getLastName(), FOOTER_FONT));
+                directorSign.setAlignment(Element.ALIGN_CENTER);
+                directorCell.addElement(directorSign);
+                signaturesTable.addCell(directorCell);
+            }
 
-            PdfPCell signCell1 = new PdfPCell();
-            signCell1.setBorder(Rectangle.NO_BORDER);
-            signCell1.setHorizontalAlignment(Element.ALIGN_CENTER);
-            signCell1.setPaddingTop(20);
+            // Jurados principales
+            java.util.List<com.SIGMA.USCO.Modalities.Entity.DefenseExaminer> defenseExaminers = studentModality.getDefenseExaminers();
+            int juradoCount = defenseExaminers != null ? defenseExaminers.size() : 0;
+            for (int i = 0; i < Math.min(juradoCount, 2); i++) {
+                com.SIGMA.USCO.Modalities.Entity.DefenseExaminer examiner = defenseExaminers.get(i);
+                User jurado = examiner.getExaminer();
+                PdfPCell juradoCell = new PdfPCell();
+                juradoCell.setBorder(Rectangle.NO_BORDER);
+                juradoCell.setHorizontalAlignment(Element.ALIGN_CENTER);
+                juradoCell.setPaddingTop(20);
+                PdfPTable firmaTable = new PdfPTable(1);
+                firmaTable.setWidthPercentage(80);
+                PdfPCell firmaLine = new PdfPCell();
+                firmaLine.setBorder(Rectangle.BOTTOM);
+                firmaLine.setBorderWidthBottom(1.5f);
+                firmaLine.setFixedHeight(18f);
+                firmaLine.setBorderColorBottom(TEXT_BLACK);
+                firmaLine.setPadding(0);
+                firmaLine.setHorizontalAlignment(Element.ALIGN_CENTER);
+                firmaTable.addCell(firmaLine);
+                juradoCell.addElement(firmaTable);
+                Paragraph juradoSign = new Paragraph();
+                juradoSign.add(new Chunk("Firma\n", SIGNATURE_FONT));
+                juradoSign.add(new Chunk("Jurado Principal\n", SIGNATURE_LABEL_FONT));
+                juradoSign.add(new Chunk(jurado.getName() + " " + jurado.getLastName(), FOOTER_FONT));
+                juradoSign.setAlignment(Element.ALIGN_CENTER);
+                juradoCell.addElement(juradoSign);
+                signaturesTable.addCell(juradoCell);
+            }
 
-            Paragraph sign1 = new Paragraph();
-            sign1.add(new Chunk("\n\n\n\n", dataFont)); // Espacio para firma manuscrita
-            sign1.add(new Chunk("_________________________________\n", dataFont));
-            sign1.add(new Chunk("Firma\n", signatureFont));
-            sign1.add(new Chunk("Comité de Currículo\n", signatureLabelFont));
-            sign1.add(new Chunk(studentModality.getProgramDegreeModality().getAcademicProgram().getName(),
-                    footerFont));
-            sign1.setAlignment(Element.ALIGN_CENTER);
-            signCell1.addElement(sign1);
-            signaturesTable.addCell(signCell1);
-
-
-            PdfPCell signCell2 = new PdfPCell();
-            signCell2.setBorder(Rectangle.NO_BORDER);
-            signCell2.setHorizontalAlignment(Element.ALIGN_CENTER);
-            signCell2.setPaddingTop(20);
-
-            Paragraph sign2 = new Paragraph();
-            sign2.add(new Chunk("\n\n\n\n", dataFont));
-            sign2.add(new Chunk("_________________________________\n", dataFont));
-            sign2.add(new Chunk("Firma\n", signatureFont));
-            sign2.add(new Chunk("Jefatura de Programa\n", signatureLabelFont));
-            sign2.add(new Chunk(studentModality.getProgramDegreeModality().getAcademicProgram().getName(),
-                    footerFont));
-            sign2.setAlignment(Element.ALIGN_CENTER);
-            signCell2.addElement(sign2);
-            signaturesTable.addCell(signCell2);
-
+            // Jurado de desempate (solo si aplica)
+            boolean showTieBreaker = false;
+            com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus status = studentModality.getStatus();
+            if (juradoCount >= 3 && status != null) {
+                showTieBreaker = switch (status) {
+                    case DISAGREEMENT_REQUIRES_TIEBREAKER, UNDER_EVALUATION_TIEBREAKER, EVALUATION_COMPLETED -> true;
+                    default -> false;
+                };
+            }
+            if (showTieBreaker) {
+                com.SIGMA.USCO.Modalities.Entity.DefenseExaminer tieBreakerExaminer = defenseExaminers.get(2);
+                User tieBreaker = tieBreakerExaminer.getExaminer();
+                PdfPCell tieBreakerCell = new PdfPCell();
+                tieBreakerCell.setBorder(Rectangle.NO_BORDER);
+                tieBreakerCell.setHorizontalAlignment(Element.ALIGN_CENTER);
+                tieBreakerCell.setPaddingTop(20);
+                PdfPTable firmaTable = new PdfPTable(1);
+                firmaTable.setWidthPercentage(80);
+                PdfPCell firmaLine = new PdfPCell();
+                firmaLine.setBorder(Rectangle.BOTTOM);
+                firmaLine.setBorderWidthBottom(1.5f);
+                firmaLine.setFixedHeight(18f);
+                firmaLine.setBorderColorBottom(TEXT_BLACK);
+                firmaLine.setPadding(0);
+                firmaLine.setHorizontalAlignment(Element.ALIGN_CENTER);
+                firmaTable.addCell(firmaLine);
+                tieBreakerCell.addElement(firmaTable);
+                Paragraph tieBreakerSign = new Paragraph();
+                tieBreakerSign.add(new Chunk("Firma\n", SIGNATURE_FONT));
+                tieBreakerSign.add(new Chunk("Jurado de Desempate\n", SIGNATURE_LABEL_FONT));
+                tieBreakerSign.add(new Chunk(tieBreaker.getName() + " " + tieBreaker.getLastName(), FOOTER_FONT));
+                tieBreakerSign.setAlignment(Element.ALIGN_CENTER);
+                tieBreakerCell.addElement(tieBreakerSign);
+                signaturesTable.addCell(tieBreakerCell);
+            }
             document.add(signaturesTable);
 
+            // Línea dorada decorativa
+            addHorizontalLine(document, INSTITUTIONAL_GOLD);
 
-
-
-            addHorizontalLine(document, BaseColor.LIGHT_GRAY);
-
+            // 8. Nota legal y código de verificación
             Paragraph legalNote = new Paragraph(
-                    "Este documento certifica la aprobación oficial de la modalidad de grado " +
-                    "conforme a la normatividad académica vigente de la Universidad Surcolombiana. " +
-                    "La información contenida en este acta es auténtica y verificable.",
-                    footerFont
+                "Este documento certifica la aprobación oficial de la modalidad de grado " +
+                "conforme a la normatividad académica vigente de la Universidad Surcolombiana. " +
+                "La información contenida en este acta es auténtica y verificable.",
+                FOOTER_FONT
             );
             legalNote.setAlignment(Element.ALIGN_CENTER);
             legalNote.setSpacingBefore(10);
@@ -318,19 +351,34 @@ public class AcademicCertificatePdfService {
             document.add(legalNote);
 
             Paragraph verificationCode = new Paragraph(
-                    "Código de verificación: " + certificateNumber,
-                    new Font(Font.FontFamily.COURIER, 8, Font.BOLD, accentGray)
+                "Código de verificación: " + certificateNumber,
+                FontFactory.getFont(FontFactory.COURIER_BOLD, 8, TEXT_GRAY)
             );
             verificationCode.setAlignment(Element.ALIGN_CENTER);
             document.add(verificationCode);
 
             document.close();
             log.info("PDF generado exitosamente en: {}", filePath);
-
         } catch (DocumentException | IOException e) {
             log.error("Error generando PDF: {}", e.getMessage(), e);
             throw new RuntimeException("Error al generar el certificado PDF", e);
         }
+    }
+
+    // Nuevo método para filas de tabla con fondo personalizado
+    private void addStyledTableRow(PdfPTable table, String label, String value, Font labelFont, Font valueFont, BaseColor bgColor) {
+        PdfPCell labelCell = new PdfPCell(new Phrase(label, labelFont));
+        labelCell.setBorder(Rectangle.NO_BORDER);
+        labelCell.setBackgroundColor(bgColor);
+        labelCell.setPadding(8);
+        labelCell.setHorizontalAlignment(Element.ALIGN_LEFT);
+        table.addCell(labelCell);
+        PdfPCell valueCell = new PdfPCell(new Phrase(value, valueFont));
+        valueCell.setBorder(Rectangle.NO_BORDER);
+        valueCell.setBackgroundColor(bgColor);
+        valueCell.setPadding(8);
+        valueCell.setHorizontalAlignment(Element.ALIGN_LEFT);
+        table.addCell(valueCell);
     }
 
 
@@ -380,16 +428,21 @@ public class AcademicCertificatePdfService {
     private String generateCertificateNumber(StudentModality studentModality) {
         Long programId = studentModality.getProgramDegreeModality().getAcademicProgram().getId();
         int year = LocalDateTime.now().getYear();
-
-        long count = certificateRepository.findAll().stream()
-                .filter(cert -> cert.getStudentModality()
-                        .getProgramDegreeModality()
-                        .getAcademicProgram()
-                        .getId().equals(programId))
-                .filter(cert -> cert.getIssueDate().getYear() == year)
-                .count();
-
-        return String.format("ACTA-PROG%d-%d-%04d", programId, year, count + 1);
+        // Buscar el siguiente número disponible
+        int nextNumber = 1;
+        boolean unique = false;
+        while (!unique) {
+            String candidate = String.format("ACTA-PROG%d-%d-%04d", programId, year, nextNumber);
+            boolean exists = certificateRepository.findAll().stream()
+                .anyMatch(cert -> cert.getCertificateNumber().equals(candidate));
+            if (!exists) {
+                unique = true;
+                return candidate;
+            }
+            nextNumber++;
+        }
+        // fallback
+        return String.format("ACTA-PROG%d-%d-%04d", programId, year, nextNumber);
     }
 
     private String calculateFileHash(Path filePath) {
@@ -436,6 +489,46 @@ public class AcademicCertificatePdfService {
         };
     }
 
+    // Traducción de estados de modalidad
+    private String translateModalityStatus(com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus status) {
+        if (status == null) return "No registrado";
+        return switch (status) {
+            case MODALITY_SELECTED -> "Modalidad seleccionada";
+            case UNDER_REVIEW_PROGRAM_HEAD -> "En revisión por Jefatura de Programa";
+            case CORRECTIONS_REQUESTED_PROGRAM_HEAD -> "Correcciones solicitadas por Jefatura de Programa";
+            case CORRECTIONS_SUBMITTED -> "Correcciones enviadas";
+            case CORRECTIONS_APPROVED -> "Correcciones aprobadas";
+            case CORRECTIONS_REJECTED_FINAL -> "Correcciones rechazadas (final)";
+            case READY_FOR_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para Comité de Currículo";
+            case UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE -> "En revisión por Comité de Currículo";
+            case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones solicitadas por Comité de Currículo";
+            case PROPOSAL_APPROVED -> "Propuesta aprobada";
+            case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR -> "Sustentación solicitada por Director de Proyecto";
+            case DEFENSE_SCHEDULED -> "Sustentación programada";
+            case EXAMINERS_ASSIGNED -> "Jueces asignados";
+            case READY_FOR_EXAMINERS -> "Lista para jueces";
+            case CORRECTIONS_REQUESTED_EXAMINERS -> "Correcciones solicitadas por jueces";
+            case READY_FOR_DEFENSE -> "Lista para sustentación";
+            case FINAL_REVIEW_COMPLETED -> "Revisión final completada";
+            case DEFENSE_COMPLETED -> "Sustentación realizada";
+            case UNDER_EVALUATION_PRIMARY_EXAMINERS -> "En evaluación por jueces principales";
+            case DISAGREEMENT_REQUIRES_TIEBREAKER -> "Desacuerdo, requiere desempate";
+            case UNDER_EVALUATION_TIEBREAKER -> "En evaluación por juez de desempate";
+            case EVALUATION_COMPLETED -> "Evaluación completada";
+            case GRADED_APPROVED -> "Aprobada";
+            case GRADED_FAILED -> "No aprobada";
+            case MODALITY_CLOSED -> "Modalidad cerrada";
+            case SEMINAR_CANCELED -> "Seminario cancelado";
+            case MODALITY_CANCELLED -> "Modalidad cancelada";
+            case CANCELLATION_REQUESTED -> "Cancelación solicitada";
+            case CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR -> "Cancelación aprobada por Director de Proyecto";
+            case CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR -> "Cancelación rechazada por Director de Proyecto";
+            case CANCELLED_WITHOUT_REPROVAL -> "Cancelada sin reprobación";
+            case CANCELLATION_REJECTED -> "Cancelación rechazada";
+            case CANCELLED_BY_CORRECTION_TIMEOUT -> "Cancelada por vencimiento de plazo de corrección";
+        };
+    }
+
     public Path getCertificatePath(Long studentModalityId) {
         AcademicCertificate certificate = certificateRepository.findByStudentModalityId(studentModalityId)
                 .orElseThrow(() -> new RuntimeException("Certificado no encontrado"));
@@ -450,4 +543,31 @@ public class AcademicCertificatePdfService {
         certificateRepository.save(certificate);
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
