@@ -85,6 +85,7 @@ public class DataInitializer {
             Permission approvModalityByExaminer = createPermission("APPROVE_MODALITY_BY_EXAMINER");
             Permission approveFinalModalityByExaminer = createPermission("APPROVE_FINAL_MODALITY_BY_EXAMINER");
             Permission viewExaminerEvaluation = createPermission("VIEW_EXAMINER_EVALUATION");
+            Permission studentList = createPermission("STUDENT_LIST");
 
 
 
@@ -95,7 +96,7 @@ public class DataInitializer {
 
             createRole("PROGRAM_HEAD", Set.of(verDocumentos, crearUsuario, editarUsuario, activateOrDeactivateUser, createRole, updateRole, assignRole, createModality, updateModality, createRequiredDocument, updateRequiredDocument, reviewDocuments, viewDocuments, approveModality, viewAllModalities, approveCancellation, rejectCancellation, assignProjectDirector, scheduleDefense, viewReports, viewCancellations, viewRole, createPermission, viewPermission, viewUser, desactiveModality, viewModalityAdmin, deleteRequirement, deleteRequiredDocument, viewRequiredDocument, viewProjectDirector, viewFinalDefenseResult, createFaculty, createProgram, createProgramDegreeModality, assignProgramHead, viewFaculties, updateFaculty, deleteFaculty, viewPrograms, updateProgram, viewProgramHead, viewCommitteeMembers, createSeminar) );
 
-            createRole("PROGRAM_CURRICULUM_COMMITTEE", Set.of(verDocumentos, crearUsuario, editarUsuario, activateOrDeactivateUser, createRole, updateRole, assignRole, createModality, updateModality, createRequiredDocument, updateRequiredDocument, reviewDocuments, viewDocuments, approveModality, viewAllModalities, approveCancellation, rejectCancellation, assignProjectDirector, scheduleDefense, viewReports, viewCancellations, viewRole, createPermission, viewPermission, viewUser, desactiveModality, viewModalityAdmin, deleteRequirement, deleteRequiredDocument, viewRequiredDocument, viewProjectDirector, viewFinalDefenseResult, createFaculty, createProgram, createProgramDegreeModality, assignProgramHead, viewFaculties, updateFaculty, deleteFaculty, viewPrograms, updateProgram, viewProgramHead, viewExaminers, viewExaminer, approveModalityByCommittee, rejectModalityByCommittee, createSeminar, viewReport, viewExaminerModalities ) );
+            createRole("PROGRAM_CURRICULUM_COMMITTEE", Set.of(verDocumentos, crearUsuario, editarUsuario, activateOrDeactivateUser, createRole, updateRole, assignRole, createModality, updateModality, createRequiredDocument, updateRequiredDocument, reviewDocuments, viewDocuments, approveModality, viewAllModalities, approveCancellation, rejectCancellation, assignProjectDirector, scheduleDefense, viewReports, viewCancellations, viewRole, createPermission, viewPermission, viewUser, desactiveModality, viewModalityAdmin, deleteRequirement, deleteRequiredDocument, viewRequiredDocument, viewProjectDirector, viewFinalDefenseResult, createFaculty, createProgram, createProgramDegreeModality, assignProgramHead, viewFaculties, updateFaculty, deleteFaculty, viewPrograms, updateProgram, viewProgramHead, viewExaminers, viewExaminer, approveModalityByCommittee, rejectModalityByCommittee, createSeminar, viewReport, viewExaminerModalities, studentList ) );
 
             createRole("STUDENT", Set.of(verDocumentos));
 

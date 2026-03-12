@@ -5,8 +5,10 @@ import com.SIGMA.USCO.report.dto.DefenseCalendarReportDTO.*;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.PdfPCell;
 import com.itextpdf.text.pdf.PdfPTable;
+import com.itextpdf.text.pdf.ColumnText;
+import com.itextpdf.text.pdf.PdfContentByte;
+import com.itextpdf.text.pdf.PdfPageEventHelper;
 import com.itextpdf.text.pdf.PdfWriter;
-import com.itextpdf.text.pdf.draw.LineSeparator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -49,7 +51,8 @@ public class DefenseCalendarPdfGenerator {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         Document document = new Document(PageSize.A4, 40, 40, 40, 40);
 
-        PdfWriter.getInstance(document, outputStream);
+        PdfWriter writer = PdfWriter.getInstance(document, outputStream);
+        writer.setPageEvent(new DefenseCalendarPageEventHelper(report));
         document.open();
 
         // Portada
@@ -57,100 +60,221 @@ public class DefenseCalendarPdfGenerator {
         document.newPage();
 
         // Resumen Ejecutivo
+        addInternalHeader(document, report);
         addExecutiveSummary(document, report);
 
         // Sustentaciones Próximas
         if (report.getUpcomingDefenses() != null && !report.getUpcomingDefenses().isEmpty()) {
             document.newPage();
+            addInternalHeader(document, report);
             addUpcomingDefenses(document, report.getUpcomingDefenses());
         }
 
         // Sustentaciones en Progreso
         if (report.getInProgressDefenses() != null && !report.getInProgressDefenses().isEmpty()) {
             document.newPage();
+            addInternalHeader(document, report);
             addInProgressDefenses(document, report.getInProgressDefenses());
         }
 
         // Sustentaciones Completadas
         if (report.getRecentCompletedDefenses() != null && !report.getRecentCompletedDefenses().isEmpty()) {
             document.newPage();
+            addInternalHeader(document, report);
             addCompletedDefenses(document, report.getRecentCompletedDefenses());
         }
 
         // Estadísticas
         document.newPage();
+        addInternalHeader(document, report);
         addStatistics(document, report.getStatistics());
 
         // Análisis Mensual
         if (report.getMonthlyAnalysis() != null && !report.getMonthlyAnalysis().isEmpty()) {
             document.newPage();
+            addInternalHeader(document, report);
             addMonthlyAnalysis(document, report.getMonthlyAnalysis());
         }
 
         // Alertas
         if (report.getAlerts() != null && !report.getAlerts().isEmpty()) {
             document.newPage();
+            addInternalHeader(document, report);
             addAlerts(document, report.getAlerts());
         }
 
-        // Footer con metadata
+        // Información del reporte (cierre)
         document.newPage();
+        addInternalHeader(document, report);
         addFooter(document, report);
+        addInstitutionalClosing(document, report);
 
         document.close();
         return outputStream.toByteArray();
     }
 
-    private void addCoverPage(Document document, DefenseCalendarReportDTO report) throws DocumentException {
-        // Logo y título principal
-        Paragraph title = new Paragraph("UNIVERSIDAD SURCOLOMBIANA", TITLE_FONT);
-        title.setAlignment(Element.ALIGN_CENTER);
-        title.setSpacingAfter(10);
-        document.add(title);
+    private void addCoverPage(Document document, DefenseCalendarReportDTO report) throws DocumentException, IOException {
+        // 1. Encabezado institucional con logo
+        InstitutionalPdfHeader.addHeader(
+                document,
+                "Facultad de Ingeniería",
+                report.getAcademicProgramName() + (report.getAcademicProgramCode() != null
+                        ? " — Cód. " + report.getAcademicProgramCode() : ""),
+                "Reporte de Calendario de Sustentaciones y Evaluaciones"
+        );
 
-        Paragraph subtitle = new Paragraph("Facultad de Ingeniería", SUBTITLE_FONT);
-        subtitle.setAlignment(Element.ALIGN_CENTER);
-        subtitle.setSpacingAfter(40);
-        document.add(subtitle);
+        // 2. Caja de título principal roja
+        PdfPTable titleBox = new PdfPTable(1);
+        titleBox.setWidthPercentage(100);
+        titleBox.setSpacingAfter(18);
 
-        // Título del reporte
-        Paragraph reportTitle = new Paragraph("REPORTE DE CALENDARIO DE\nSUSTENTACIONES Y EVALUACIONES",
-                new Font(Font.FontFamily.HELVETICA, 18, Font.BOLD, INSTITUTIONAL_RED));
-        reportTitle.setAlignment(Element.ALIGN_CENTER);
-        reportTitle.setSpacingAfter(30);
-        document.add(reportTitle);
+        PdfPCell titleCell = new PdfPCell();
+        titleCell.setBackgroundColor(INSTITUTIONAL_RED);
+        titleCell.setPadding(18);
+        titleCell.setBorder(Rectangle.NO_BORDER);
 
-        // Información del programa
+        Paragraph titlePara = new Paragraph(
+                "REPORTE DE CALENDARIO DE\nSUSTENTACIONES Y EVALUACIONES",
+                new Font(Font.FontFamily.HELVETICA, 18, Font.BOLD, WHITE));
+        titlePara.setAlignment(Element.ALIGN_CENTER);
+        titleCell.addElement(titlePara);
+        titleBox.addCell(titleCell);
+        document.add(titleBox);
+
+        // 3. Línea dorada decorativa
+        InstitutionalPdfHeader.addGoldLine(document);
+
+        // 4. Tabla de información con bordes dorados
         PdfPTable infoTable = new PdfPTable(2);
-        infoTable.setWidthPercentage(60);
+        infoTable.setWidthPercentage(80);
         infoTable.setHorizontalAlignment(Element.ALIGN_CENTER);
-        infoTable.setSpacingBefore(30);
+        infoTable.setSpacingBefore(18);
+        infoTable.setSpacingAfter(22);
+        try { infoTable.setWidths(new float[]{42f, 58f}); } catch (DocumentException ignored) {}
 
-        addInfoRow(infoTable, "Programa Académico:", report.getAcademicProgramName());
-        addInfoRow(infoTable, "Código:", report.getAcademicProgramCode());
-        addInfoRow(infoTable, "Fecha de Generación:", report.getGeneratedAt().format(DATE_FORMATTER));
-        addInfoRow(infoTable, "Generado por:", report.getGeneratedBy());
-
+        addCoverInfoRow(infoTable, "Programa académico:", report.getAcademicProgramName());
+        if (report.getAcademicProgramCode() != null) {
+            addCoverInfoRow(infoTable, "Código del programa:", report.getAcademicProgramCode());
+        }
+        addCoverInfoRow(infoTable, "Fecha de generación:", report.getGeneratedAt().format(DATE_FORMATTER));
+        addCoverInfoRow(infoTable, "Generado por:", report.getGeneratedBy());
+        if (report.getAppliedFilters() != null && report.getAppliedFilters().getHasFilters()) {
+            addCoverInfoRow(infoTable, "Filtros aplicados:", report.getAppliedFilters().getFilterDescription());
+        }
         document.add(infoTable);
 
-        // Filtros aplicados
-        if (report.getAppliedFilters() != null && report.getAppliedFilters().getHasFilters()) {
-            Paragraph filtersTitle = new Paragraph("Filtros Aplicados", BOLD_FONT);
-            filtersTitle.setAlignment(Element.ALIGN_CENTER);
-            filtersTitle.setSpacingBefore(30);
-            document.add(filtersTitle);
+        // 5. Líneas de cierre institucionales
+        InstitutionalPdfHeader.addRedLine(document);
+        InstitutionalPdfHeader.addGoldLine(document);
 
-            Paragraph filtersDesc = new Paragraph(report.getAppliedFilters().getFilterDescription(), NORMAL_FONT);
-            filtersDesc.setAlignment(Element.ALIGN_CENTER);
-            filtersDesc.setSpacingAfter(10);
-            document.add(filtersDesc);
-        }
+        // 6. Nota informativa
+        Paragraph spacing = new Paragraph(" ");
+        spacing.setSpacingAfter(10f);
+        document.add(spacing);
 
-        // Pie de portada
-        Paragraph footer = new Paragraph("Sistema SIGMA - Gestión Integral de Modalidades Académicas", SMALL_FONT);
-        footer.setAlignment(Element.ALIGN_CENTER);
-        footer.setSpacingBefore(100);
-        document.add(footer);
+        Paragraph disclaimer = new Paragraph(
+                "Este reporte presenta el calendario de sustentaciones y evaluaciones de modalidades de grado, " +
+                "incluyendo sustentaciones próximas, en progreso, completadas y estadísticas de desempeño académico. " +
+                "La información es generada automáticamente por el Sistema SIGMA.",
+                new Font(Font.FontFamily.HELVETICA, 9, Font.ITALIC, TEXT_GRAY));
+        disclaimer.setAlignment(Element.ALIGN_JUSTIFIED);
+        disclaimer.setIndentationLeft(40);
+        disclaimer.setIndentationRight(40);
+        document.add(disclaimer);
+
+        Paragraph spacing2 = new Paragraph(" ");
+        spacing2.setSpacingAfter(14f);
+        document.add(spacing2);
+
+        Paragraph closing = new Paragraph(
+                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
+                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila",
+                new Font(Font.FontFamily.HELVETICA, 8, Font.ITALIC, TEXT_GRAY));
+        closing.setAlignment(Element.ALIGN_CENTER);
+        document.add(closing);
+    }
+
+    /**
+     * Encabezado compacto institucional para páginas internas.
+     */
+    private void addInternalHeader(Document document, DefenseCalendarReportDTO report) throws DocumentException {
+        PdfPTable header = new PdfPTable(2);
+        header.setWidthPercentage(100);
+        header.setSpacingAfter(10f);
+        try { header.setWidths(new float[]{65f, 35f}); } catch (DocumentException ignored) {}
+
+        PdfPCell leftCell = new PdfPCell(new Phrase(
+                "UNIVERSIDAD SURCOLOMBIANA — SIGMA",
+                new Font(Font.FontFamily.HELVETICA, 9, Font.BOLD, INSTITUTIONAL_RED)));
+        leftCell.setBorder(Rectangle.NO_BORDER);
+        leftCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        leftCell.setPaddingBottom(4f);
+        header.addCell(leftCell);
+
+        PdfPCell rightCell = new PdfPCell(new Phrase(
+                report.getAcademicProgramName(),
+                new Font(Font.FontFamily.HELVETICA, 8, Font.NORMAL, TEXT_GRAY)));
+        rightCell.setBorder(Rectangle.NO_BORDER);
+        rightCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+        rightCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        rightCell.setPaddingBottom(4f);
+        header.addCell(rightCell);
+
+        document.add(header);
+        InstitutionalPdfHeader.addGoldLine(document);
+
+        Paragraph gap = new Paragraph(" ");
+        gap.setSpacingAfter(6f);
+        document.add(gap);
+    }
+
+    /**
+     * Cierre institucional al final del reporte.
+     */
+    private void addInstitutionalClosing(Document document, DefenseCalendarReportDTO report) throws DocumentException {
+        Paragraph gap = new Paragraph(" ");
+        gap.setSpacingBefore(20f);
+        document.add(gap);
+
+        InstitutionalPdfHeader.addRedLine(document);
+        InstitutionalPdfHeader.addGoldLine(document);
+
+        PdfPTable closingTable = new PdfPTable(1);
+        closingTable.setWidthPercentage(100);
+        closingTable.setSpacingBefore(8f);
+
+        PdfPCell closingCell = new PdfPCell();
+        closingCell.setBackgroundColor(LIGHT_GOLD);
+        closingCell.setPadding(12f);
+        closingCell.setBorder(Rectangle.NO_BORDER);
+
+        Paragraph closingText = new Paragraph(
+                "Documento generado automáticamente por el Sistema SIGMA.\n" +
+                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila\n" +
+                "www.usco.edu.co  •  NIT: 891180084-2",
+                new Font(Font.FontFamily.HELVETICA, 8, Font.ITALIC, TEXT_GRAY));
+        closingText.setAlignment(Element.ALIGN_CENTER);
+        closingCell.addElement(closingText);
+        closingTable.addCell(closingCell);
+        document.add(closingTable);
+    }
+
+    /**
+     * Fila de información en la portada con estilo institucional.
+     */
+    private void addCoverInfoRow(PdfPTable table, String label, String value) {
+        PdfPCell labelCell = new PdfPCell(new Phrase(label,
+                new Font(Font.FontFamily.HELVETICA, 10, Font.BOLD, INSTITUTIONAL_RED)));
+        labelCell.setBackgroundColor(LIGHT_GOLD);
+        labelCell.setPadding(8f);
+        labelCell.setBorderColor(INSTITUTIONAL_GOLD);
+        table.addCell(labelCell);
+
+        PdfPCell valueCell = new PdfPCell(new Phrase(value != null ? value : "—",
+                new Font(Font.FontFamily.HELVETICA, 10, Font.NORMAL, TEXT_BLACK)));
+        valueCell.setPadding(8f);
+        valueCell.setBorderColor(INSTITUTIONAL_GOLD);
+        table.addCell(valueCell);
     }
 
     private void addExecutiveSummary(Document document, DefenseCalendarReportDTO report) throws DocumentException {
@@ -1052,13 +1176,12 @@ public class DefenseCalendarPdfGenerator {
     private void addSectionTitle(Document document, String title) throws DocumentException {
         Paragraph p = new Paragraph(title, SECTION_FONT);
         p.setSpacingBefore(20);
-        p.setSpacingAfter(15);
+        p.setSpacingAfter(8);
         document.add(p);
-
-        LineSeparator line = new LineSeparator();
-        line.setLineColor(INSTITUTIONAL_RED);
-        document.add(new Chunk(line));
-        document.add(Chunk.NEWLINE);
+        InstitutionalPdfHeader.addGoldLine(document);
+        Paragraph gap = new Paragraph(" ");
+        gap.setSpacingAfter(6f);
+        document.add(gap);
     }
 
     private void addSubsectionTitle(Document document, String title) throws DocumentException {
@@ -1146,6 +1269,53 @@ public class DefenseCalendarPdfGenerator {
         cell.setPadding(6);
         cell.setBorderColor(COLOR_BORDER);
         table.addCell(cell);
+    }
+
+    // ==================== PAGE EVENT HELPER INSTITUCIONAL ====================
+
+    private static class DefenseCalendarPageEventHelper extends PdfPageEventHelper {
+
+        private final DefenseCalendarReportDTO report;
+        private static final BaseColor GOLD = new BaseColor(213, 203, 160);
+        private static final BaseColor RED  = new BaseColor(143, 30, 30);
+        private static final BaseColor GRAY = new BaseColor(80, 80, 80);
+
+        DefenseCalendarPageEventHelper(DefenseCalendarReportDTO report) {
+            this.report = report;
+        }
+
+        @Override
+        public void onEndPage(PdfWriter writer, Document document) {
+            PdfContentByte cb = writer.getDirectContent();
+            float left   = document.leftMargin();
+            float right  = document.right();
+            float bottom = document.bottom() - 15f;
+
+            // Línea dorada sobre el pie
+            cb.setLineWidth(1f);
+            cb.setColorStroke(GOLD);
+            cb.moveTo(left, bottom + 10f);
+            cb.lineTo(right, bottom + 10f);
+            cb.stroke();
+
+            // Izquierda: sistema
+            ColumnText.showTextAligned(cb, Element.ALIGN_LEFT,
+                    new Phrase("SIGMA — Universidad Surcolombiana",
+                            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, RED)),
+                    left, bottom, 0);
+
+            // Centro: programa
+            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER,
+                    new Phrase(report.getAcademicProgramName(),
+                            FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, GRAY)),
+                    (left + right) / 2f, bottom, 0);
+
+            // Derecha: número de página
+            ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT,
+                    new Phrase("Pág. " + writer.getPageNumber(),
+                            FontFactory.getFont(FontFactory.HELVETICA, 8, GRAY)),
+                    right, bottom, 0);
+        }
     }
 }
 

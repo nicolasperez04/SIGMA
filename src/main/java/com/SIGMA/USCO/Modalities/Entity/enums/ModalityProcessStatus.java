@@ -43,9 +43,24 @@ public enum ModalityProcessStatus {
     READY_FOR_DIRECTOR_ASSIGNMENT,
 
     READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE,
+    APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE,
+
 
 
     PROPOSAL_APPROVED,
+
+    // ========== REVISIÓN FINAL POR JEFATURA (PASO INTERMEDIO ANTES DE JURADOS) ==========
+    /**
+     * El director notificó a jefatura que los documentos finales están listos.
+     * Jefatura de programa debe revisarlos antes de notificar a los jurados.
+     */
+    PENDING_PROGRAM_HEAD_FINAL_REVIEW,
+
+    /**
+     * Jefatura revisó los documentos finales y los aprobó.
+     * Ahora jefatura notifica a los jurados para que revisen la documentación.
+     */
+    APPROVED_BY_PROGRAM_HEAD_FINAL_REVIEW,
 
     // ========== PROGRAMACIÓN DE SUSTENTACIÓN ==========
     DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR,
@@ -128,6 +143,13 @@ public enum ModalityProcessStatus {
     EVALUATION_COMPLETED,
 
     // ========== RESULTADO FINAL ==========
+    /**
+     * Los jurados propusieron una distinción honorífica (Meritoria o Laureada) de forma unánime.
+     * El comité de currículo debe revisar y decidir si acepta o rechaza la distinción propuesta.
+     * El estudiante ya fue APROBADO en calificación, pero la distinción está pendiente.
+     */
+    PENDING_DISTINCTION_COMMITTEE_REVIEW,
+
     GRADED_APPROVED,
     GRADED_FAILED,
     MODALITY_CLOSED,

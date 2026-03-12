@@ -3,7 +3,6 @@ package com.SIGMA.USCO.report.service;
 import com.SIGMA.USCO.report.dto.DirectorAssignedModalitiesReportDTO;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.*;
-import com.itextpdf.text.pdf.draw.LineSeparator;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -57,166 +56,216 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         // 2. Resumen Ejecutivo
         document.newPage();
+        addInternalHeader(document, report);
         addExecutiveSummary(document, report);
 
         // 3. Análisis de Carga de Trabajo (si está disponible)
         if (report.getWorkloadAnalysis() != null) {
             document.newPage();
+            addInternalHeader(document, report);
             addWorkloadAnalysis(document, report);
         }
 
         // 4. Directores y sus Modalidades
         document.newPage();
+        addInternalHeader(document, report);
         addDirectorsAndModalities(document, report);
 
         // 5. Estadísticas por Estado y Tipo
         document.newPage();
+        addInternalHeader(document, report);
         addStatisticsByStatusAndType(document, report);
 
         // 6. Recomendaciones
         document.newPage();
+        addInternalHeader(document, report);
         addRecommendations(document, report);
+
+        // 7. Pie institucional de cierre
+        addFooterSection(document, report);
 
         document.close();
         return outputStream;
     }
 
     /**
-     * Portada del reporte con diseño profesional
+     * Portada institucional del reporte
      */
     private void addCoverPage(Document document, DirectorAssignedModalitiesReportDTO report)
-            throws DocumentException {
+            throws DocumentException, IOException {
 
-        // Banda superior institucional
-        PdfPTable headerBand = new PdfPTable(1);
-        headerBand.setWidthPercentage(100);
-        headerBand.setSpacingAfter(30);
+        // 1. Encabezado con logo institucional
+        InstitutionalPdfHeader.addHeader(
+                document,
+                "Facultad de Ingeniería",
+                report.getAcademicProgramName() + (report.getAcademicProgramCode() != null
+                        ? " — Cód. " + report.getAcademicProgramCode() : ""),
+                "Reporte de Modalidades por Director Asignado"
+        );
 
-        PdfPCell bandCell = new PdfPCell();
-        bandCell.setBackgroundColor(INSTITUTIONAL_RED);
-        bandCell.setPadding(20);
-        bandCell.setBorder(Rectangle.NO_BORDER);
+        // 2. Caja de título principal roja
+        PdfPTable titleBox = new PdfPTable(1);
+        titleBox.setWidthPercentage(100);
+        titleBox.setSpacingAfter(18);
 
-        // Nombre de la institución
-        Paragraph institution = new Paragraph("UNIVERSIDAD SURCOLOMBIANA",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22, BaseColor.WHITE));
-        institution.setAlignment(Element.ALIGN_CENTER);
-        bandCell.addElement(institution);
+        PdfPCell titleCell = new PdfPCell();
+        titleCell.setBackgroundColor(INSTITUTIONAL_RED);
+        titleCell.setPadding(18);
+        titleCell.setBorder(Rectangle.NO_BORDER);
 
-        Paragraph faculty = new Paragraph("Facultad de Ingeniería",
-                FontFactory.getFont(FontFactory.HELVETICA, 14, BaseColor.WHITE));
-        faculty.setAlignment(Element.ALIGN_CENTER);
-        faculty.setSpacingBefore(5);
-        bandCell.addElement(faculty);
+        Paragraph titlePara = new Paragraph("REPORTE DE MODALIDADES\nPOR DIRECTOR ASIGNADO",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, WHITE));
+        titlePara.setAlignment(Element.ALIGN_CENTER);
+        titleCell.addElement(titlePara);
 
-        headerBand.addCell(bandCell);
-        document.add(headerBand);
-
-        // Programa académico
-        PdfPTable programBox = new PdfPTable(1);
-        programBox.setWidthPercentage(85);
-        programBox.setHorizontalAlignment(Element.ALIGN_CENTER);
-        programBox.setSpacingAfter(30);
-
-        PdfPCell programCell = new PdfPCell();
-        programCell.setBackgroundColor(LIGHT_GOLD);
-        programCell.setPadding(12);
-        programCell.setBorder(Rectangle.BOX);
-        programCell.setBorderColor(INSTITUTIONAL_GOLD);
-        programCell.setBorderWidth(1.5f);
-
-        Paragraph program = new Paragraph(report.getAcademicProgramName().toUpperCase(),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, INSTITUTIONAL_RED));
-        program.setAlignment(Element.ALIGN_CENTER);
-        programCell.addElement(program);
-
-        programBox.addCell(programCell);
-        document.add(programBox);
-
-        // Título del reporte
-        Paragraph title = new Paragraph("REPORTE DE MODALIDADES\nPOR DIRECTOR ASIGNADO",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, INSTITUTIONAL_RED));
-        title.setAlignment(Element.ALIGN_CENTER);
-        title.setSpacingAfter(35);
-        document.add(title);
-
-        // Si es reporte de un director específico
+        // Si es reporte de un director específico, mostrarlo
         if (report.getDirectorInfo() != null) {
-            PdfPTable directorBox = new PdfPTable(1);
-            directorBox.setWidthPercentage(70);
-            directorBox.setHorizontalAlignment(Element.ALIGN_CENTER);
-            directorBox.setSpacingAfter(35);
-
-            PdfPCell directorCell = new PdfPCell();
-            directorCell.setBackgroundColor(INSTITUTIONAL_GOLD);
-            directorCell.setPadding(10);
-            directorCell.setBorder(Rectangle.NO_BORDER);
-
-            Paragraph directorPara = new Paragraph("Director: " + report.getDirectorInfo().getFullName(),
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, BaseColor.WHITE));
-            directorPara.setAlignment(Element.ALIGN_CENTER);
-            directorCell.addElement(directorPara);
-
-            directorBox.addCell(directorCell);
-            document.add(directorBox);
+            Paragraph dirPara = new Paragraph(report.getDirectorInfo().getFullName(),
+                    FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 13, INSTITUTIONAL_GOLD));
+            dirPara.setAlignment(Element.ALIGN_CENTER);
+            dirPara.setSpacingBefore(6);
+            titleCell.addElement(dirPara);
         }
 
-        // Información del reporte en tabla profesional
-        PdfPTable infoTable = new PdfPTable(2);
-        infoTable.setWidthPercentage(75);
-        infoTable.setHorizontalAlignment(Element.ALIGN_CENTER);
-        infoTable.setSpacingBefore(40);
-        infoTable.setWidths(new float[]{45, 55});
+        titleBox.addCell(titleCell);
+        document.add(titleBox);
 
-        addCoverInfoRow(infoTable, "Programa:", report.getAcademicProgramName());
-        addCoverInfoRow(infoTable, "Código:", report.getAcademicProgramCode());
-        addCoverInfoRow(infoTable, "Fecha de Generación:",
-                report.getGeneratedAt().format(DateTimeFormatter.ofPattern("dd 'de' MMMM 'de' yyyy - HH:mm")));
+        // Línea dorada decorativa
+        InstitutionalPdfHeader.addGoldLine(document);
+
+        // 3. Tabla de información con fondo dorado claro
+        PdfPTable infoTable = new PdfPTable(2);
+        infoTable.setWidthPercentage(85);
+        infoTable.setHorizontalAlignment(Element.ALIGN_CENTER);
+        infoTable.setSpacingBefore(18);
+        infoTable.setSpacingAfter(22);
+        try { infoTable.setWidths(new float[]{42f, 58f}); } catch (DocumentException ignored) {}
+
+        addCoverInfoRow(infoTable, "Programa académico:", report.getAcademicProgramName());
+        if (report.getAcademicProgramCode() != null) {
+            addCoverInfoRow(infoTable, "Código del programa:", report.getAcademicProgramCode());
+        }
+        addCoverInfoRow(infoTable, "Fecha de generación:",
+                report.getGeneratedAt().format(DateTimeFormatter.ofPattern("dd 'de' MMMM 'de' yyyy  HH:mm")));
         addCoverInfoRow(infoTable, "Generado por:", report.getGeneratedBy().split(" \\(")[0]);
-        addCoverInfoRow(infoTable, "Total de Directores:", String.valueOf(report.getSummary().getTotalDirectors()));
-        addCoverInfoRow(infoTable, "Total de Modalidades:", String.valueOf(report.getSummary().getTotalModalitiesAssigned()));
+        addCoverInfoRow(infoTable, "Total de directores:", String.valueOf(report.getSummary().getTotalDirectors()));
+        addCoverInfoRow(infoTable, "Total de modalidades asignadas:", String.valueOf(report.getSummary().getTotalModalitiesAssigned()));
 
         document.add(infoTable);
 
-        // Footer institucional de portada
-        PdfPTable footerTable = new PdfPTable(1);
-        footerTable.setWidthPercentage(100);
-        footerTable.setSpacingBefore(70);
+        // 4. Líneas de cierre institucionales
+        InstitutionalPdfHeader.addRedLine(document);
+        InstitutionalPdfHeader.addGoldLine(document);
 
-        PdfPCell footerCell = new PdfPCell();
-        footerCell.setBackgroundColor(LIGHT_GOLD);
-        footerCell.setPadding(12);
-        footerCell.setBorder(Rectangle.TOP);
-        footerCell.setBorderColor(INSTITUTIONAL_RED);
-
-        Paragraph footer = new Paragraph("Sistema SIGMA - Sistema Integral de Gestión de Modalidades de Grado",
-                FontFactory.getFont(FontFactory.HELVETICA, 9, TEXT_GRAY));
-        footer.setAlignment(Element.ALIGN_CENTER);
-        footerCell.addElement(footer);
-
-        footerTable.addCell(footerCell);
-        document.add(footerTable);
+        // 5. Nota al pie de portada
+        Paragraph note = new Paragraph(
+                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
+                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila",
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
+        note.setAlignment(Element.ALIGN_CENTER);
+        note.setSpacingBefore(10);
+        document.add(note);
     }
 
     /**
-     * Agregar fila de información en la portada con diseño mejorado
+     * Encabezado compacto institucional para páginas internas.
+     */
+    private void addInternalHeader(Document document, DirectorAssignedModalitiesReportDTO report)
+            throws DocumentException {
+        PdfPTable strip = new PdfPTable(2);
+        strip.setWidthPercentage(100);
+        strip.setSpacingAfter(8f);
+        try { strip.setWidths(new float[]{65f, 35f}); } catch (DocumentException ignored) {}
+
+        PdfPCell leftCell = new PdfPCell(new Phrase(
+                "UNIVERSIDAD SURCOLOMBIANA — SIGMA",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, INSTITUTIONAL_RED)));
+        leftCell.setBorder(Rectangle.BOTTOM);
+        leftCell.setBorderColorBottom(INSTITUTIONAL_RED);
+        leftCell.setBorderWidthBottom(1.5f);
+        leftCell.setPadding(4f);
+        strip.addCell(leftCell);
+
+        PdfPCell rightCell = new PdfPCell(new Phrase(
+                "Modalidades por Director — " + report.getAcademicProgramName(),
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY)));
+        rightCell.setBorder(Rectangle.BOTTOM);
+        rightCell.setBorderColorBottom(INSTITUTIONAL_GOLD);
+        rightCell.setBorderWidthBottom(1.5f);
+        rightCell.setPadding(4f);
+        rightCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+        strip.addCell(rightCell);
+
+        document.add(strip);
+    }
+
+    /**
+     * Pie institucional de cierre del reporte.
+     */
+    private void addFooterSection(Document document, DirectorAssignedModalitiesReportDTO report)
+            throws DocumentException {
+        addSpacingParagraph(document, 20f);
+        InstitutionalPdfHeader.addRedLine(document);
+        InstitutionalPdfHeader.addGoldLine(document);
+        addSpacingParagraph(document, 8f);
+
+        PdfPTable noteTable = new PdfPTable(1);
+        noteTable.setWidthPercentage(100);
+
+        PdfPCell noteCell = new PdfPCell();
+        noteCell.setBackgroundColor(LIGHT_GOLD);
+        noteCell.setPadding(12f);
+        noteCell.setBorder(Rectangle.NO_BORDER);
+
+        Paragraph note = new Paragraph(
+                "Este reporte fue generado automáticamente por el sistema SIGMA a partir de los datos académicos " +
+                "registrados para el programa: " + report.getAcademicProgramName() + ". " +
+                "Para consultas o asignaciones de directores, contacte con la coordinación del programa académico.",
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
+        note.setAlignment(Element.ALIGN_JUSTIFIED);
+        noteCell.addElement(note);
+        noteTable.addCell(noteCell);
+        document.add(noteTable);
+
+        addSpacingParagraph(document, 10f);
+        Paragraph closing = new Paragraph(
+                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
+                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila",
+                FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
+        closing.setAlignment(Element.ALIGN_CENTER);
+        document.add(closing);
+    }
+
+    /** Párrafo de espaciado auxiliar. */
+    private void addSpacingParagraph(Document document, float height) throws DocumentException {
+        Paragraph spacer = new Paragraph(" ");
+        spacer.setSpacingAfter(height);
+        document.add(spacer);
+    }
+
+    /**
+     * Fila de la tabla de portada con estilo institucional.
      */
     private void addCoverInfoRow(PdfPTable table, String label, String value) {
+        if (value == null) value = "—";
+
         PdfPCell labelCell = new PdfPCell(new Phrase(label,
                 FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_GRAY)));
         labelCell.setBackgroundColor(LIGHT_GOLD);
+        labelCell.setPadding(8f);
+        labelCell.setBorder(Rectangle.BOX);
+        labelCell.setBorderColor(INSTITUTIONAL_GOLD);
+        labelCell.setBorderWidth(0.8f);
         labelCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        labelCell.setPadding(8);
-        labelCell.setBorder(Rectangle.NO_BORDER);
         table.addCell(labelCell);
 
         PdfPCell valueCell = new PdfPCell(new Phrase(value,
                 FontFactory.getFont(FontFactory.HELVETICA, 10, TEXT_BLACK)));
+        valueCell.setPadding(8f);
+        valueCell.setBorder(Rectangle.BOX);
+        valueCell.setBorderColor(INSTITUTIONAL_GOLD);
+        valueCell.setBorderWidth(0.8f);
         valueCell.setHorizontalAlignment(Element.ALIGN_LEFT);
-        valueCell.setPadding(8);
-        valueCell.setBorder(Rectangle.BOTTOM);
-        valueCell.setBorderColor(LIGHT_GOLD);
-        valueCell.setBorderWidth(0.5f);
         table.addCell(valueCell);
     }
 
@@ -1353,21 +1402,21 @@ public class DirectorAssignedModalitiesPdfGenerator {
     private void addSectionTitle(Document document, String title) throws DocumentException {
         Paragraph titlePara = new Paragraph(title, HEADER_FONT);
         titlePara.setSpacingBefore(10);
-        titlePara.setSpacingAfter(15);
+        titlePara.setSpacingAfter(8);
         document.add(titlePara);
-
-        LineSeparator line = new LineSeparator();
-        line.setLineColor(INSTITUTIONAL_RED);
-        line.setLineWidth(2);
-        document.add(new Chunk(line));
-        document.add(Chunk.NEWLINE);
+        InstitutionalPdfHeader.addGoldLine(document);
+        addSpacingParagraph(document, 6f);
     }
 
     /**
-     * Clase para manejar encabezados y pies de página
+     * Clase para manejar el pie de página institucional.
      */
     private static class PageEventHelper extends PdfPageEventHelper {
         private final DirectorAssignedModalitiesReportDTO report;
+
+        private static final BaseColor INSTITUTIONAL_GOLD = new BaseColor(213, 203, 160);
+        private static final BaseColor INSTITUTIONAL_RED  = new BaseColor(143, 30, 30);
+        private static final BaseColor TEXT_GRAY          = new BaseColor(80, 80, 80);
 
         public PageEventHelper(DirectorAssignedModalitiesReportDTO report) {
             this.report = report;
@@ -1377,17 +1426,32 @@ public class DirectorAssignedModalitiesPdfGenerator {
         public void onEndPage(PdfWriter writer, Document document) {
             PdfContentByte cb = writer.getDirectContent();
 
-            // Pie de página
-            Phrase footer = new Phrase(
-                    "Página " + writer.getPageNumber() + " | " +
-                            report.getAcademicProgramName() + " | " +
-                            "Generado: " + report.getGeneratedAt().format(
-                            DateTimeFormatter.ofPattern("dd/MM/yyyy")),
-                    FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
+            float left   = document.leftMargin();
+            float right  = document.right();
+            float bottom = document.bottom() - 15f;
 
-            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, footer,
-                    (document.right() - document.left()) / 2 + document.leftMargin(),
-                    document.bottom() - 10, 0);
+            // Línea dorada encima del pie
+            cb.setLineWidth(1f);
+            cb.setColorStroke(INSTITUTIONAL_GOLD);
+            cb.moveTo(left, bottom + 10f);
+            cb.lineTo(right, bottom + 10f);
+            cb.stroke();
+
+            // Sistema — izquierda
+            Phrase systemPhrase = new Phrase("SIGMA — Universidad Surcolombiana",
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, INSTITUTIONAL_RED));
+            ColumnText.showTextAligned(cb, Element.ALIGN_LEFT, systemPhrase, left, bottom, 0);
+
+            // Programa — centro
+            Phrase centerPhrase = new Phrase(report.getAcademicProgramName(),
+                    FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
+            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, centerPhrase,
+                    (left + right) / 2f, bottom, 0);
+
+            // Número de página — derecha
+            Phrase pagePhrase = new Phrase("Pág. " + writer.getPageNumber(),
+                    FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
+            ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT, pagePhrase, right, bottom, 0);
         }
     }
 }

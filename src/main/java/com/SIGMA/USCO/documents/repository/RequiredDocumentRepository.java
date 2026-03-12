@@ -17,4 +17,8 @@ public interface RequiredDocumentRepository extends JpaRepository<RequiredDocume
 
     List<RequiredDocument> findByModalityIdAndActiveTrueAndDocumentTypeIn(Long modalityId, List<DocumentType> documentTypes);
 
+    List<RequiredDocument> findByModalityIdAndActiveTrueAndDocumentTypeAndRequiresProposalEvaluationTrue(Long modalityId, DocumentType documentType);
 }
+
+
+

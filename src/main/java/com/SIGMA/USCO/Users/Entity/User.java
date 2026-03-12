@@ -1,5 +1,6 @@
 package com.SIGMA.USCO.Users.Entity;
 
+import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.Entity.enums.Status;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;

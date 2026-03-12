@@ -13,5 +13,29 @@ public enum AcademicDistinction {
     TIEBREAKER_MERITORIOUS,
     TIEBREAKER_LAUREATE,
     TIEBREAKER_REJECTED,
-    REJECTED_BY_COMMITTEE
+    REJECTED_BY_COMMITTEE,
+
+    /**
+     * Los jurados principales propusieron unánimemente mención Meritoria.
+     * Pendiente de decisión del comité de currículo.
+     */
+    PENDING_COMMITTEE_MERITORIOUS,
+
+    /**
+     * Los jurados principales propusieron unánimemente mención Laureada.
+     * Pendiente de decisión del comité de currículo.
+     */
+    PENDING_COMMITTEE_LAUREATE,
+
+    /**
+     * El jurado de desempate propuso mención Meritoria.
+     * Pendiente de decisión del comité de currículo.
+     */
+    TIEBREAKER_PENDING_COMMITTEE_MERITORIOUS,
+
+    /**
+     * El jurado de desempate propuso mención Laureada.
+     * Pendiente de decisión del comité de currículo.
+     */
+    TIEBREAKER_PENDING_COMMITTEE_LAUREATE
 }

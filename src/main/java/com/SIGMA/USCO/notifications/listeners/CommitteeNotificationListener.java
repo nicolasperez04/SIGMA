@@ -44,15 +44,22 @@ public class CommitteeNotificationListener {
         String subject = "Solicitud de cancelación de modalidad";
 
         String message = """
-                Se ha recibido formalmente una *solicitud de cancelación de modalidad de grado* presentada por el siguiente estudiante:
+                La modalidad de grado del estudiante:
                 
-                **"%s"**
+                "%s"
                 
-                La solicitud ha sido registrada en el sistema y se encuentra pendiente de revisión por parte del Comité de Currículo del Programa.
+                ha sido revisada y aprobada por la Jefatura del Programa.
                 
-                Se solicita amablemente evaluar la petición conforme a la normativa institucional vigente y proceder con el análisis, validación y decisión correspondiente dentro de los plazos establecidos.
+                En consecuencia, el proceso ha sido habilitado para la revisión y gestión
+                por parte del Comité de Currículo del Programa. Se solicita a los miembros
+                del comité proceder con las etapas correspondientes del proceso académico,
+                de acuerdo con las funciones y responsabilidades establecidas.
                 
-                Este mensaje constituye una notificación oficial generada automáticamente para garantizar la trazabilidad y gestión oportuna del proceso.
+                Por favor, ingrese al sistema  para consultar los detalles de la
+                modalidad registrada y continuar con el flujo de evaluación y seguimiento.
+                
+                Sistema SIGMA
+                Plataforma de Gestión de Modalidades de Grado
                 
                 """.formatted(
                 studentModality.getLeader().getName() + " " + studentModality.getLeader().getLastName()
@@ -148,22 +155,35 @@ public class CommitteeNotificationListener {
         String subject = "Documento actualizado – Modalidad en revisión";
 
         String message = """
-                Se informa que el estudiante %s ha realizado la actualización de un documento asociado a una modalidad de grado que actualmente se encuentra en estado de revisión.
+                Se informa que el estudiante:
                 
-                A continuación, se detallan los datos relevantes del proceso:
-
-                Modalidad:
                 "%s"
-
+                
+                ha realizado la actualización de un documento asociado a su modalidad de grado,
+                la cual actualmente se encuentra en una etapa activa de revisión por parte del
+                Comité de Currículo del Programa.
+                
+                Información del proceso:
+                
+                Programa académico:
+                "%s"
+                
                 Documento actualizado:
                 "%s"
-
-                Estado del documento:
-                %s
-
-                Dado que la modalidad se encuentra en una fase activa de evaluación, se solicita al Comité de Currículo del Programa verificar la nueva versión del documento, validar su contenido conforme a los lineamientos académicos establecidos y continuar con el trámite correspondiente dentro del flujo definido.
                 
-                Esta notificación es generada automáticamente como parte del mecanismo de control y trazabilidad de las actualizaciones realizadas durante el proceso de evaluación.
+                Estado actual del documento:
+                %s
+                
+                Debido a que la modalidad se encuentra en fase de evaluación, se solicita a los
+                miembros del Comité de Currículo revisar la nueva versión del documento,
+                verificar que su contenido cumpla con los lineamientos académicos establecidos
+                y continuar con el procedimiento correspondiente dentro del flujo de evaluación
+                definido para las modalidades de grado.
+                
+                Para consultar el documento actualizado y realizar el seguimiento respectivo,
+                por favor ingrese al sistema.
+                
+                Plataforma de Gestión de Modalidades de Grado
                 """.formatted(
                 student.getName() + " " + student.getLastName(),
                 modality.getProgramDegreeModality().getAcademicProgram().getName(),

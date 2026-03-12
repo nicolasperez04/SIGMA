@@ -41,6 +41,18 @@ public class RequiredDocument {
 
     private boolean active = true;
 
+    /**
+     * Indica si este documento requiere que el jurado complete la evaluación
+     * detallada de propuesta (resumen, antecedentes, objetivos, etc.)
+     * mediante ProposalEvaluation.
+     *
+     * Solo debe ser true para el documento de propuesta de grado.
+     * Documentos MANDATORY que no son propuesta (contratos, formularios, etc.)
+     * deben tener este campo en false.
+     */
+    @Column(name = "requires_proposal_evaluation", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private boolean requiresProposalEvaluation = false;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

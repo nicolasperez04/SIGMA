@@ -11,6 +11,7 @@ import com.SIGMA.USCO.report.dto.GlobalModalityReportDTO;
 import com.SIGMA.USCO.report.dto.ModalityComparisonFilterDTO;
 import com.SIGMA.USCO.report.dto.ModalityHistoricalReportDTO;
 import com.SIGMA.USCO.report.dto.ModalityReportFilterDTO;
+import com.SIGMA.USCO.report.dto.ModalityTraceabilityReportDTO;
 import com.SIGMA.USCO.report.dto.ModalityTypeComparisonReportDTO;
 import com.SIGMA.USCO.report.dto.StudentListingFilterDTO;
 import com.SIGMA.USCO.report.dto.StudentListingReportDTO;
@@ -24,6 +25,8 @@ import com.SIGMA.USCO.report.service.DirectorAssignedModalitiesPdfGenerator;
 import com.SIGMA.USCO.report.service.DirectorReportService;
 import com.SIGMA.USCO.report.service.ModalityComparisonPdfGenerator;
 import com.SIGMA.USCO.report.service.ModalityHistoricalPdfGenerator;
+import com.SIGMA.USCO.report.service.ModalityTraceabilityPdfGenerator;
+import com.SIGMA.USCO.report.service.ModalityTraceabilityReportService;
 import com.SIGMA.USCO.report.service.PdfReport;
 import com.SIGMA.USCO.report.service.ReportService;
 import com.SIGMA.USCO.report.service.StudentListingPdfGenerator;
@@ -63,6 +66,8 @@ public class GlobalModalityReportController {
     private final CompletedModalitiesPdfGenerator completedModalitiesPdfGenerator;
     private final DefenseCalendarReportService defenseCalendarReportService;
     private final DefenseCalendarPdfGenerator defenseCalendarPdfGenerator;
+    private final ModalityTraceabilityReportService modalityTraceabilityReportService;
+    private final ModalityTraceabilityPdfGenerator modalityTraceabilityPdfGenerator;
 
 
     @GetMapping("/global/modalities")
@@ -795,6 +800,153 @@ public class GlobalModalityReportController {
                 baseName,
                 LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss"))
         );
+    }
+
+    // ==================== REPORTE DE TRAZABILIDAD DE MODALIDAD ====================
+
+    /**
+     * Endpoint JSON: trazabilidad completa de una modalidad por su ID directo.
+     * Uso: el comité consulta el estado en tiempo real de cualquier modalidad.
+     */
+    @GetMapping("/modality-traceability/{studentModalityId}")
+    @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
+    public ResponseEntity<?> getModalityTraceabilityReport(
+            @PathVariable Long studentModalityId) {
+        try {
+            ModalityTraceabilityReportDTO report =
+                    modalityTraceabilityReportService.generateReport(studentModalityId);
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Reporte de trazabilidad generado exitosamente",
+                    "reportType", "MODALITY_TRACEABILITY",
+                    "data", report,
+                    "timestamp", LocalDateTime.now()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "error", e.getMessage(),
+                    "timestamp", LocalDateTime.now()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "error", "Error al generar el reporte: " + e.getMessage(),
+                    "timestamp", LocalDateTime.now()
+            ));
+        }
+    }
+
+    /**
+     * Endpoint JSON: trazabilidad completa de la modalidad activa de un estudiante por su ID.
+     * Uso: el comité selecciona al estudiante de la lista y obtiene su modalidad automáticamente.
+     */
+    @GetMapping("/modality-traceability/by-student/{studentId}")
+    @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
+    public ResponseEntity<?> getModalityTraceabilityReportByStudent(
+            @PathVariable Long studentId) {
+        try {
+            ModalityTraceabilityReportDTO report =
+                    modalityTraceabilityReportService.generateReportByStudentId(studentId);
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Reporte de trazabilidad generado exitosamente",
+                    "reportType", "MODALITY_TRACEABILITY",
+                    "studentId", studentId,
+                    "data", report,
+                    "timestamp", LocalDateTime.now()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "error", e.getMessage(),
+                    "timestamp", LocalDateTime.now()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "error", "Error al generar el reporte: " + e.getMessage(),
+                    "timestamp", LocalDateTime.now()
+            ));
+        }
+    }
+
+    /**
+     * Endpoint PDF: exporta el reporte de trazabilidad de una modalidad por su ID.
+     */
+    @GetMapping("/modality-traceability/{studentModalityId}/pdf")
+    @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
+    public ResponseEntity<Resource> exportModalityTraceabilityToPdf(
+            @PathVariable Long studentModalityId) {
+        try {
+            ModalityTraceabilityReportDTO report =
+                    modalityTraceabilityReportService.generateReport(studentModalityId);
+
+            byte[] pdfBytes = modalityTraceabilityPdfGenerator.generatePdf(report);
+            ByteArrayResource resource = new ByteArrayResource(pdfBytes);
+
+            String fileName = generateFileName("Trazabilidad_Modalidad_" + studentModalityId);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + fileName);
+            headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE);
+            headers.add("X-Report-Generated-At", LocalDateTime.now().toString());
+            headers.add("X-Report-Type", "MODALITY_TRACEABILITY");
+            headers.add("X-Modality-Id", String.valueOf(studentModalityId));
+
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .contentLength(resource.contentLength())
+                    .contentType(MediaType.APPLICATION_PDF)
+                    .body(resource);
+
+        } catch (RuntimeException e) {
+            return buildErrorResponse("No se pudo generar el reporte: " + e.getMessage());
+        } catch (DocumentException | IOException e) {
+            return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
+        } catch (Exception e) {
+            return buildErrorResponse("Error inesperado: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Endpoint PDF: exporta el reporte de trazabilidad buscando por ID de estudiante.
+     */
+    @GetMapping("/modality-traceability/by-student/{studentId}/pdf")
+    @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
+    public ResponseEntity<Resource> exportModalityTraceabilityByStudentToPdf(
+            @PathVariable Long studentId) {
+        try {
+            ModalityTraceabilityReportDTO report =
+                    modalityTraceabilityReportService.generateReportByStudentId(studentId);
+
+            byte[] pdfBytes = modalityTraceabilityPdfGenerator.generatePdf(report);
+            ByteArrayResource resource = new ByteArrayResource(pdfBytes);
+
+            String fileName = generateFileName("Trazabilidad_Estudiante_" + studentId);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + fileName);
+            headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_PDF_VALUE);
+            headers.add("X-Report-Generated-At", LocalDateTime.now().toString());
+            headers.add("X-Report-Type", "MODALITY_TRACEABILITY");
+            headers.add("X-Student-Id", String.valueOf(studentId));
+
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .contentLength(resource.contentLength())
+                    .contentType(MediaType.APPLICATION_PDF)
+                    .body(resource);
+
+        } catch (RuntimeException e) {
+            return buildErrorResponse("No se pudo generar el reporte: " + e.getMessage());
+        } catch (DocumentException | IOException e) {
+            return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
+        } catch (Exception e) {
+            return buildErrorResponse("Error inesperado: " + e.getMessage());
+        }
     }
 
     private ResponseEntity<Resource> buildPdfResponse(

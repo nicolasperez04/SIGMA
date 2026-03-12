@@ -60,7 +60,7 @@ public class ReportService {
             throw new IllegalArgumentException("El usuario no tiene asignado ningún programa académico");
         }
 
-        // Obtener el primer programa académico asociado al usuario
+        // Obtener programa académico del usuario
         AcademicProgram userProgram = programAuthorities.get(0).getAcademicProgram();
         Long userProgramId = userProgram.getId();
         String programName = userProgram.getName();
@@ -78,7 +78,7 @@ public class ReportService {
         // Generar detalles de modalidades
         List<ModalityDetailReportDTO> modalityDetails = generateModalityDetails(activeModalities);
 
-        // Generar estadísticas por programa (en este caso será solo un programa)
+        // Generar estadísticas del programa
         List<ProgramStatisticsDTO> programStatistics = generateProgramStatistics(activeModalities);
 
         // Calcular tiempo de generación
@@ -262,9 +262,9 @@ public class ReportService {
         return ModalityDetailReportDTO.builder()
                 .studentModalityId(modality.getId())
                 .modalityName(modality.getProgramDegreeModality().getDegreeModality().getName())
-                .modalityType(modality.getModalityType().name())
+                .modalityType(translateSessionType(modality.getModalityType()))
                 .academicProgram(modality.getAcademicProgram().getName())
-                .currentStatus(modality.getStatus().name())
+                .currentStatus(translateModalityProcessStatus(modality.getStatus()))
                 .statusDescription(ReportUtils.describeModalityStatus(modality.getStatus()))
                 .students(students)
                 .director(director)
@@ -626,8 +626,8 @@ public class ReportService {
         // Generar comparación histórica si se solicita
         List<ModalityTypeComparisonReportDTO.PeriodComparisonDTO> historicalComparison = null;
         if (filters != null && Boolean.TRUE.equals(filters.getIncludeHistoricalComparison())) {
-            int periods = filters.getHistoricalPeriodsCount() != null ? filters.getHistoricalPeriodsCount() : 3;
-            historicalComparison = generateHistoricalComparison(userProgram.getId(), periods, filters);
+            int periodsCount = filters.getHistoricalPeriodsCount() != null ? filters.getHistoricalPeriodsCount() : 4;
+            historicalComparison = generateHistoricalComparison(userProgram.getId(), periodsCount, filters);
         }
 
         // Generar análisis de tendencias si se solicita
@@ -1267,10 +1267,10 @@ public class ReportService {
 
         return DirectorAssignedModalitiesReportDTO.ModalityDetailDTO.builder()
                 .modalityId(modality.getId())
-                .modalityType(modality.getModalityType().name())
+                .modalityType(translateSessionType(modality.getModalityType()))
                 .modalityTypeName(modality.getProgramDegreeModality().getDegreeModality().getName())
                 .students(students)
-                .currentStatus(modality.getStatus().name())
+                .currentStatus(translateModalityProcessStatus(modality.getStatus()))
                 .statusDescription(ReportUtils.describeModalityStatus(modality.getStatus()))
                 .startDate(modality.getSelectionDate())
                 .lastUpdate(modality.getUpdatedAt())
@@ -2685,8 +2685,6 @@ public class ReportService {
         // Generar resumen ejecutivo
         StudentListingReportDTO.ExecutiveSummaryDTO executiveSummary = buildStudentExecutiveSummary(studentDetails, filteredModalities);
 
-        // Generar estadísticas generales
-        StudentListingReportDTO.GeneralStatisticsDTO generalStatistics = buildGeneralStatistics(studentDetails, filteredModalities);
 
         // Generar análisis de distribución
         StudentListingReportDTO.DistributionAnalysisDTO distributionAnalysis = buildDistributionAnalysis(studentDetails, filteredModalities);
@@ -2699,6 +2697,9 @@ public class ReportService {
 
         // Generar estadísticas por semestre
         List<StudentListingReportDTO.SemesterStatisticsDTO> semesterStatistics = buildSemesterStatistics(filteredModalities);
+
+        // Generar estadísticas generales
+        StudentListingReportDTO.GeneralStatisticsDTO generalStatistics = buildGeneralStatistics(studentDetails, filteredModalities);
 
         // Aplicar ordenamiento
         studentDetails = applySorting(studentDetails, filters);
@@ -2915,7 +2916,7 @@ public class ReportService {
                         .modalityId(modality.getId())
                         .modalityType(modality.getProgramDegreeModality().getDegreeModality().getName())
                         .modalityName(modality.getProgramDegreeModality().getDegreeModality().getName())
-                        .modalityStatus(modality.getStatus().name())
+                        .modalityStatus(translateModalityProcessStatus(modality.getStatus()))
                         .modalityStatusDescription(ReportUtils.describeModalityStatus(modality.getStatus()))
                         .selectionDate(modality.getSelectionDate())
                         .lastUpdateDate(modality.getUpdatedAt())
@@ -3786,8 +3787,7 @@ public class ReportService {
                     .completionDays(completionDays)
                     .finalGrade(modality.getFinalGrade())
                     .gradeDescription(describeGrade(modality.getFinalGrade()))
-                    .academicDistinction(modality.getAcademicDistinction() != null ?
-                            modality.getAcademicDistinction().name() : null)
+                    .academicDistinction(translateAcademicDistinction(modality.getAcademicDistinction()))
                     .students(students)
                     .studentCount(students.size())
                     .isGroup(students.size() > 1)
@@ -3823,7 +3823,7 @@ public class ReportService {
         List<String> observations = new ArrayList<>();
 
         if (modality.getAcademicDistinction() != null) {
-            observations.add("Con distinción académica: " + modality.getAcademicDistinction().name());
+            observations.add("Con distinción académica: " + translateAcademicDistinction(modality.getAcademicDistinction()));
         }
 
         if (modality.getFinalGrade() != null && modality.getFinalGrade() >= 4.5) {
@@ -4421,5 +4421,88 @@ public class ReportService {
         return details.stream()
                 .sorted(comparator)
                 .collect(Collectors.toList());
+    }
+
+    // ─── Métodos de traducción de enums ───────────────────────────────────────
+
+    private String translateSessionType(com.SIGMA.USCO.Modalities.Entity.enums.ModalityType type) {
+        if (type == null) return "Individual";
+        return switch (type) {
+            case INDIVIDUAL -> "Individual";
+            case GROUP -> "Grupal";
+        };
+    }
+
+    private String translateModalityProcessStatus(com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus status) {
+        if (status == null) return "Sin estado";
+        return switch (status) {
+            case MODALITY_SELECTED -> "Modalidad seleccionada";
+            case UNDER_REVIEW_PROGRAM_HEAD -> "En revisión por Jefatura de Programa";
+            case CORRECTIONS_REQUESTED_PROGRAM_HEAD -> "Correcciones solicitadas por Jefatura";
+            case CORRECTIONS_SUBMITTED -> "Correcciones enviadas";
+            case CORRECTIONS_SUBMITTED_TO_PROGRAM_HEAD -> "Correcciones enviadas a Jefatura";
+            case CORRECTIONS_SUBMITTED_TO_COMMITTEE -> "Correcciones enviadas al Comité";
+            case CORRECTIONS_SUBMITTED_TO_EXAMINERS -> "Correcciones enviadas a los Jurados";
+            case CORRECTIONS_APPROVED -> "Correcciones aprobadas";
+            case CORRECTIONS_REJECTED_FINAL -> "Rechazado definitivamente";
+            case READY_FOR_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para Comité de Currículo";
+            case UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE -> "En revisión por Comité de Currículo";
+            case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones solicitadas por Comité";
+            case READY_FOR_DIRECTOR_ASSIGNMENT -> "Lista para asignar Director";
+            case READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para aprobación por Comité";
+            case APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Aprobado por Comité de Currículo";
+            case PROPOSAL_APPROVED -> "Propuesta aprobada";
+            case PENDING_PROGRAM_HEAD_FINAL_REVIEW -> "Pendiente revisión final por Jefatura";
+            case APPROVED_BY_PROGRAM_HEAD_FINAL_REVIEW -> "Documentos finales aprobados por Jefatura";
+            case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR -> "Sustentación propuesta por Director";
+            case DEFENSE_SCHEDULED -> "Sustentación programada";
+            case EXAMINERS_ASSIGNED -> "Jurados asignados";
+            case READY_FOR_EXAMINERS -> "Lista para revisión de jurados";
+            case DOCUMENTS_APPROVED_BY_EXAMINERS -> "Documentos aprobados por jurados";
+            case SECONDARY_DOCUMENTS_APPROVED_BY_EXAMINERS -> "Documentos finales aprobados por jurados";
+            case DOCUMENT_REVIEW_TIEBREAKER_REQUIRED -> "Requiere jurado de desempate (documentos)";
+            case EDIT_REQUESTED_BY_STUDENT -> "Edición solicitada por el estudiante";
+            case CORRECTIONS_REQUESTED_EXAMINERS -> "Correcciones solicitadas por jurados";
+            case READY_FOR_DEFENSE -> "Lista para sustentación";
+            case FINAL_REVIEW_COMPLETED -> "Revisión final completada";
+            case DEFENSE_COMPLETED -> "Sustentación completada";
+            case UNDER_EVALUATION_PRIMARY_EXAMINERS -> "En evaluación por jurados principales";
+            case DISAGREEMENT_REQUIRES_TIEBREAKER -> "Desacuerdo – Requiere jurado de desempate";
+            case UNDER_EVALUATION_TIEBREAKER -> "En evaluación por jurado de desempate";
+            case EVALUATION_COMPLETED -> "Evaluación completada";
+            case PENDING_DISTINCTION_COMMITTEE_REVIEW -> "Aprobado – Distinción honorífica pendiente del comité";
+            case GRADED_APPROVED -> "Aprobado";
+            case GRADED_FAILED -> "Reprobado";
+            case MODALITY_CLOSED -> "Modalidad cerrada";
+            case SEMINAR_CANCELED -> "Seminario cancelado";
+            case MODALITY_CANCELLED -> "Modalidad cancelada";
+            case CANCELLATION_REQUESTED -> "Cancelación solicitada";
+            case CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR -> "Cancelación aprobada por Director";
+            case CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR -> "Cancelación rechazada por Director";
+            case CANCELLED_WITHOUT_REPROVAL -> "Cancelada sin reprobación";
+            case CANCELLATION_REJECTED -> "Cancelación rechazada";
+            case CANCELLED_BY_CORRECTION_TIMEOUT -> "Cancelada por vencimiento de plazo";
+        };
+    }
+
+    private String translateAcademicDistinction(com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction distinction) {
+        if (distinction == null) return null;
+        return switch (distinction) {
+            case NO_DISTINCTION -> "Sin distinción";
+            case AGREED_APPROVED -> "Aprobado por consenso";
+            case AGREED_MERITORIOUS -> "Mención Meritoria";
+            case AGREED_LAUREATE -> "Mención Laureada";
+            case AGREED_REJECTED -> "Reprobado por consenso";
+            case DISAGREEMENT_PENDING_TIEBREAKER -> "Desacuerdo – Pendiente de desempate";
+            case TIEBREAKER_APPROVED -> "Aprobado por desempate";
+            case TIEBREAKER_MERITORIOUS -> "Mención Meritoria (desempate)";
+            case TIEBREAKER_LAUREATE -> "Mención Laureada (desempate)";
+            case TIEBREAKER_REJECTED -> "Reprobado por desempate";
+            case REJECTED_BY_COMMITTEE -> "Rechazado por el comité";
+            case PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria propuesta (pendiente del comité)";
+            case PENDING_COMMITTEE_LAUREATE -> "Mención Laureada propuesta (pendiente del comité)";
+            case TIEBREAKER_PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria por desempate (pendiente del comité)";
+            case TIEBREAKER_PENDING_COMMITTEE_LAUREATE -> "Mención Laureada por desempate (pendiente del comité)";
+        };
     }
 }

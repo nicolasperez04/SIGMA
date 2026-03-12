@@ -3,7 +3,6 @@ package com.SIGMA.USCO.report.service;
 import com.SIGMA.USCO.report.dto.StudentListingReportDTO;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.*;
-import com.itextpdf.text.pdf.draw.LineSeparator;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -58,30 +57,41 @@ public class StudentListingPdfGenerator {
 
         // 2. Filtros Aplicados y Resumen Ejecutivo
         document.newPage();
+        addInternalHeader(document, report);
         addFiltersAndExecutiveSummary(document, report);
 
         // 3. Estadísticas Generales
         document.newPage();
+        addInternalHeader(document, report);
         addGeneralStatistics(document, report);
 
         // 4. Análisis de Distribución
+        document.newPage();
+        addInternalHeader(document, report);
         addDistributionAnalysis(document, report);
 
         // 5. Listado Detallado de Estudiantes
         document.newPage();
+        addInternalHeader(document, report);
         addStudentListing(document, report);
 
         // 6. Estadísticas por Modalidad
         document.newPage();
+        addInternalHeader(document, report);
         addModalityStatistics(document, report);
 
         // 7. Estadísticas por Estado
         document.newPage();
+        addInternalHeader(document, report);
         addStatusStatistics(document, report);
 
         // 8. Estadísticas por Semestre
         document.newPage();
+        addInternalHeader(document, report);
         addSemesterStatistics(document, report);
+
+        // 9. Pie institucional de cierre
+        addFooterSection(document, report);
 
         document.close();
         return outputStream;
@@ -91,91 +101,184 @@ public class StudentListingPdfGenerator {
      * Portada del reporte
      */
     private void addCoverPage(Document document, StudentListingReportDTO report)
-            throws DocumentException {
+            throws DocumentException, IOException {
 
-        // Banda superior institucional
-        PdfPTable headerBand = new PdfPTable(1);
-        headerBand.setWidthPercentage(100);
-        headerBand.setSpacingAfter(40);
+        // 1. Encabezado con logo institucional
+        InstitutionalPdfHeader.addHeader(
+                document,
+                "Facultad de Ingeniería",
+                report.getAcademicProgramName() + (report.getAcademicProgramCode() != null
+                        ? " — Cód. " + report.getAcademicProgramCode() : ""),
+                "Reporte de Listado de Estudiantes"
+        );
 
-        PdfPCell bandCell = new PdfPCell();
-        bandCell.setBackgroundColor(INSTITUTIONAL_RED);
-        bandCell.setPadding(30);
-        bandCell.setBorder(Rectangle.NO_BORDER);
+        // 2. Caja de título principal roja
+        PdfPTable titleBox = new PdfPTable(1);
+        titleBox.setWidthPercentage(100);
+        titleBox.setSpacingAfter(18);
 
-        Paragraph bandContent = new Paragraph();
-        bandContent.setAlignment(Element.ALIGN_CENTER);
+        PdfPCell titleCell = new PdfPCell();
+        titleCell.setBackgroundColor(INSTITUTIONAL_RED);
+        titleCell.setPadding(18);
+        titleCell.setBorder(Rectangle.NO_BORDER);
 
-        Chunk universityName = new Chunk("UNIVERSIDAD SURCOLOMBIANA\n",
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 18, WHITE));
-        bandContent.add(universityName);
+        Paragraph titlePara = new Paragraph("REPORTE DE LISTADO DE ESTUDIANTES\nModalidades de Grado",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, WHITE));
+        titlePara.setAlignment(Element.ALIGN_CENTER);
+        titleCell.addElement(titlePara);
+        titleBox.addCell(titleCell);
+        document.add(titleBox);
 
-        Chunk programName = new Chunk(report.getAcademicProgramName() + "\n",
-            FontFactory.getFont(FontFactory.HELVETICA, 14, WHITE));
-        bandContent.add(programName);
+        // 3. Línea dorada decorativa
+        InstitutionalPdfHeader.addGoldLine(document);
 
-        Chunk programCode = new Chunk("Código: " + report.getAcademicProgramCode(),
-            FontFactory.getFont(FontFactory.HELVETICA, 12, WHITE));
-        bandContent.add(programCode);
-
-        bandCell.addElement(bandContent);
-        headerBand.addCell(bandCell);
-        document.add(headerBand);
-
-        // Espacio
-        document.add(new Paragraph("\n\n"));
-
-        // Título principal
-        Paragraph title = new Paragraph("REPORTE DE LISTADO DE ESTUDIANTES", TITLE_FONT);
-        title.setAlignment(Element.ALIGN_CENTER);
-        title.setSpacingAfter(15);
-        document.add(title);
-
-        Paragraph subtitle = new Paragraph("Modalidades de Grado", SUBTITLE_FONT);
-        subtitle.setAlignment(Element.ALIGN_CENTER);
-        subtitle.setSpacingAfter(40);
-        document.add(subtitle);
-
-        // Cuadro de información del reporte
+        // 4. Tabla de información con bordes dorados
         PdfPTable infoTable = new PdfPTable(2);
-        infoTable.setWidthPercentage(80);
-        infoTable.setWidths(new float[]{1.2f, 1.8f});
-        infoTable.setSpacingBefore(30);
+        infoTable.setWidthPercentage(85);
         infoTable.setHorizontalAlignment(Element.ALIGN_CENTER);
+        infoTable.setSpacingBefore(18);
+        infoTable.setSpacingAfter(22);
+        try { infoTable.setWidths(new float[]{42f, 58f}); } catch (DocumentException ignored) {}
 
-        addInfoRow(infoTable, "Fecha de Generación:",
-            report.getGeneratedAt().format(DATETIME_FORMATTER));
-        addInfoRow(infoTable, "Generado Por:", report.getGeneratedBy());
-        addInfoRow(infoTable, "Total de Estudiantes:",
-            String.valueOf(report.getStudents() != null ? report.getStudents().size() : 0));
-
-        if (report.getAppliedFilters() != null && report.getAppliedFilters().getHasFilters()) {
-            addInfoRow(infoTable, "Filtros Aplicados:", "Sí");
-        } else {
-            addInfoRow(infoTable, "Filtros Aplicados:", "No - Listado Completo");
+        addCoverInfoRow(infoTable, "Programa académico:", report.getAcademicProgramName());
+        if (report.getAcademicProgramCode() != null) {
+            addCoverInfoRow(infoTable, "Código del programa:", report.getAcademicProgramCode());
         }
-
+        addCoverInfoRow(infoTable, "Fecha de generación:",
+                report.getGeneratedAt().format(DATETIME_FORMATTER));
+        addCoverInfoRow(infoTable, "Generado por:", report.getGeneratedBy());
+        int totalStudents = report.getStudents() != null ? report.getStudents().size() : 0;
+        addCoverInfoRow(infoTable, "Total de estudiantes:", String.valueOf(totalStudents));
+        addCoverInfoRow(infoTable, "Filtros aplicados:",
+                (report.getAppliedFilters() != null && report.getAppliedFilters().getHasFilters())
+                        ? "Sí" : "No — Listado completo");
         document.add(infoTable);
 
-        // Línea separadora decorativa
-        document.add(new Paragraph("\n\n\n"));
-        LineSeparator line = new LineSeparator();
-        line.setLineColor(INSTITUTIONAL_GOLD);
-        line.setLineWidth(2);
-        document.add(new Chunk(line));
+        // 5. Líneas de cierre institucionales
+        InstitutionalPdfHeader.addRedLine(document);
+        InstitutionalPdfHeader.addGoldLine(document);
 
-        // Nota informativa
-        document.add(new Paragraph("\n\n"));
+        // 6. Nota informativa
+        addSpacingParagraph(document, 10f);
         Paragraph disclaimer = new Paragraph(
-            "Este reporte presenta un listado detallado de estudiantes con sus modalidades de grado, " +
-            "incluyendo información académica, estado de avance, directores asignados y estadísticas " +
-            "generales. La información es generada automáticamente por el sistema SIGMA.",
-            SMALL_FONT
-        );
+                "Este reporte presenta un listado detallado de estudiantes con sus modalidades de grado, " +
+                "incluyendo información académica, estado de avance, directores asignados y estadísticas " +
+                "generales. La información es generada automáticamente por el Sistema SIGMA.",
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 9, TEXT_GRAY));
         disclaimer.setAlignment(Element.ALIGN_JUSTIFIED);
-        disclaimer.setIndentationLeft(60);
-        disclaimer.setIndentationRight(60);
+        disclaimer.setIndentationLeft(40);
+        disclaimer.setIndentationRight(40);
         document.add(disclaimer);
+
+        addSpacingParagraph(document, 14f);
+        Paragraph closing = new Paragraph(
+                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
+                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila",
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
+        closing.setAlignment(Element.ALIGN_CENTER);
+        document.add(closing);
+    }
+
+    /**
+     * Encabezado compacto institucional para páginas internas.
+     */
+    private void addInternalHeader(Document document, StudentListingReportDTO report)
+            throws DocumentException {
+        PdfPTable strip = new PdfPTable(2);
+        strip.setWidthPercentage(100);
+        strip.setSpacingAfter(8f);
+        try { strip.setWidths(new float[]{65f, 35f}); } catch (DocumentException ignored) {}
+
+        PdfPCell leftCell = new PdfPCell(new Phrase(
+                "UNIVERSIDAD SURCOLOMBIANA — SIGMA",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, INSTITUTIONAL_RED)));
+        leftCell.setBorder(Rectangle.BOTTOM);
+        leftCell.setBorderColorBottom(INSTITUTIONAL_RED);
+        leftCell.setBorderWidthBottom(1.5f);
+        leftCell.setPadding(4f);
+        strip.addCell(leftCell);
+
+        PdfPCell rightCell = new PdfPCell(new Phrase(
+                "Listado de Estudiantes — " + report.getAcademicProgramName(),
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY)));
+        rightCell.setBorder(Rectangle.BOTTOM);
+        rightCell.setBorderColorBottom(INSTITUTIONAL_GOLD);
+        rightCell.setBorderWidthBottom(1.5f);
+        rightCell.setPadding(4f);
+        rightCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+        strip.addCell(rightCell);
+
+        document.add(strip);
+    }
+
+    /**
+     * Pie institucional de cierre del reporte.
+     */
+    private void addFooterSection(Document document, StudentListingReportDTO report)
+            throws DocumentException {
+        addSpacingParagraph(document, 20f);
+        InstitutionalPdfHeader.addRedLine(document);
+        InstitutionalPdfHeader.addGoldLine(document);
+        addSpacingParagraph(document, 8f);
+
+        PdfPTable noteTable = new PdfPTable(1);
+        noteTable.setWidthPercentage(100);
+
+        PdfPCell noteCell = new PdfPCell();
+        noteCell.setBackgroundColor(LIGHT_GOLD);
+        noteCell.setPadding(12f);
+        noteCell.setBorder(Rectangle.NO_BORDER);
+
+        Paragraph note = new Paragraph(
+                "Este reporte fue generado automáticamente por el sistema SIGMA a partir de los datos académicos " +
+                "registrados para el programa: " + report.getAcademicProgramName() + ". " +
+                "Para consultas o modificaciones del listado, contacte con la coordinación del programa académico.",
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
+        note.setAlignment(Element.ALIGN_JUSTIFIED);
+        noteCell.addElement(note);
+        noteTable.addCell(noteCell);
+        document.add(noteTable);
+
+        addSpacingParagraph(document, 10f);
+        Paragraph closing = new Paragraph(
+                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
+                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila",
+                FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
+        closing.setAlignment(Element.ALIGN_CENTER);
+        document.add(closing);
+    }
+
+    /**
+     * Fila de la tabla de portada con estilo institucional.
+     */
+    private void addCoverInfoRow(PdfPTable table, String label, String value) {
+        if (value == null) value = "—";
+
+        PdfPCell labelCell = new PdfPCell(new Phrase(label,
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_GRAY)));
+        labelCell.setBackgroundColor(LIGHT_GOLD);
+        labelCell.setPadding(8f);
+        labelCell.setBorder(Rectangle.BOX);
+        labelCell.setBorderColor(INSTITUTIONAL_GOLD);
+        labelCell.setBorderWidth(0.8f);
+        labelCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+        table.addCell(labelCell);
+
+        PdfPCell valueCell = new PdfPCell(new Phrase(value,
+                FontFactory.getFont(FontFactory.HELVETICA, 10, TEXT_BLACK)));
+        valueCell.setPadding(8f);
+        valueCell.setBorder(Rectangle.BOX);
+        valueCell.setBorderColor(INSTITUTIONAL_GOLD);
+        valueCell.setBorderWidth(0.8f);
+        valueCell.setHorizontalAlignment(Element.ALIGN_LEFT);
+        table.addCell(valueCell);
+    }
+
+    /** Párrafo de espaciado auxiliar. */
+    private void addSpacingParagraph(Document document, float height) throws DocumentException {
+        Paragraph spacer = new Paragraph(" ");
+        spacer.setSpacingAfter(height);
+        document.add(spacer);
     }
 
     /**
@@ -1696,21 +1799,17 @@ public class StudentListingPdfGenerator {
         table.addCell(cell);
     }
 
+
     /**
-     * Título de sección
+     * Título de sección con línea dorada institucional.
      */
     private void addSectionTitle(Document document, String title) throws DocumentException {
         Paragraph section = new Paragraph(title, HEADER_FONT);
-        section.setSpacingBefore(15);
-        section.setSpacingAfter(10);
-
-        LineSeparator line = new LineSeparator();
-        line.setLineColor(INSTITUTIONAL_RED);
-        line.setLineWidth(2);
-
+        section.setSpacingBefore(10);
+        section.setSpacingAfter(8);
         document.add(section);
-        document.add(new Chunk(line));
-        document.add(new Paragraph("\n"));
+        InstitutionalPdfHeader.addGoldLine(document);
+        addSpacingParagraph(document, 6f);
     }
 
     /**
@@ -1748,13 +1847,14 @@ public class StudentListingPdfGenerator {
     // ==================== CLASE INTERNA: PAGE EVENT HELPER ====================
 
     /**
-     * Helper para eventos de página
+     * Helper para eventos de página con pie institucional.
      */
     private static class StudentListingPageEventHelper extends PdfPageEventHelper {
 
         private final StudentListingReportDTO report;
-        private final Font headerFont = FontFactory.getFont(FontFactory.HELVETICA, 8, BaseColor.GRAY);
-        private final Font footerFont = FontFactory.getFont(FontFactory.HELVETICA, 7, BaseColor.GRAY);
+        private static final BaseColor GOLD  = new BaseColor(213, 203, 160);
+        private static final BaseColor RED   = new BaseColor(143, 30, 30);
+        private static final BaseColor GRAY  = new BaseColor(80, 80, 80);
 
         public StudentListingPageEventHelper(StudentListingReportDTO report) {
             this.report = report;
@@ -1764,30 +1864,32 @@ public class StudentListingPdfGenerator {
         public void onEndPage(PdfWriter writer, Document document) {
             PdfContentByte cb = writer.getDirectContent();
 
-            // Encabezado
-            if (writer.getPageNumber() > 1) {
-                Phrase header = new Phrase(
-                    "Listado de Estudiantes - " + report.getAcademicProgramName(),
-                    headerFont
-                );
-                ColumnText.showTextAligned(cb, Element.ALIGN_LEFT, header,
-                        document.left(), document.top() + 20, 0);
-            }
+            float left   = document.leftMargin();
+            float right  = document.right();
+            float bottom = document.bottom() - 15f;
 
-            // Pie de página
-            Phrase footer = new Phrase(
-                "Página " + writer.getPageNumber() + " | " +
-                java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")),
-                footerFont
-            );
-            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, footer,
-                    (document.right() + document.left()) / 2,
-                    document.bottom() - 20, 0);
+            // Línea dorada encima del pie
+            cb.setLineWidth(1f);
+            cb.setColorStroke(GOLD);
+            cb.moveTo(left, bottom + 10f);
+            cb.lineTo(right, bottom + 10f);
+            cb.stroke();
 
-            // Sistema
-            Phrase system = new Phrase("SIGMA - Universidad Surcolombiana", footerFont);
-            ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT, system,
-                    document.right(), document.bottom() - 20, 0);
+            // SIGMA — izquierda
+            Phrase systemPhrase = new Phrase("SIGMA — Universidad Surcolombiana",
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, RED));
+            ColumnText.showTextAligned(cb, Element.ALIGN_LEFT, systemPhrase, left, bottom, 0);
+
+            // Programa — centro
+            Phrase centerPhrase = new Phrase(report.getAcademicProgramName(),
+                    FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, GRAY));
+            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, centerPhrase,
+                    (left + right) / 2f, bottom, 0);
+
+            // Número de página — derecha
+            Phrase pagePhrase = new Phrase("Pág. " + writer.getPageNumber(),
+                    FontFactory.getFont(FontFactory.HELVETICA, 8, GRAY));
+            ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT, pagePhrase, right, bottom, 0);
         }
     }
 }

@@ -22,19 +22,20 @@ public class ReportUtils {
             ModalityProcessStatus.UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE,
             ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE,
             ModalityProcessStatus.READY_FOR_DIRECTOR_ASSIGNMENT,
+            ModalityProcessStatus.APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE,
             ModalityProcessStatus.PROPOSAL_APPROVED,
             ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR,
             ModalityProcessStatus.DEFENSE_SCHEDULED,
             ModalityProcessStatus.EXAMINERS_ASSIGNED,
-            ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT,
+            ModalityProcessStatus.READY_FOR_EXAMINERS,
             ModalityProcessStatus.DOCUMENT_REVIEW_TIEBREAKER_REQUIRED,
             ModalityProcessStatus.READY_FOR_DEFENSE,
+            ModalityProcessStatus.FINAL_REVIEW_COMPLETED,
             ModalityProcessStatus.DEFENSE_COMPLETED,
             ModalityProcessStatus.UNDER_EVALUATION_PRIMARY_EXAMINERS,
             ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER,
             ModalityProcessStatus.UNDER_EVALUATION_TIEBREAKER,
-            ModalityProcessStatus.EVALUATION_COMPLETED
-    );
+            ModalityProcessStatus.EVALUATION_COMPLETED);
 
     public static List<ModalityProcessStatus> getActiveStatuses() {
         return ACTIVE_STATUSES;
@@ -59,12 +60,18 @@ public class ReportUtils {
             case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones Solicitadas - Comité";
             case READY_FOR_DIRECTOR_ASSIGNMENT -> "Listo para Asignar Director";
             case READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Listo para Aprobación por Comité";
+            case APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Aprobado por Comité";
             case PROPOSAL_APPROVED -> "Propuesta Aprobada";
+
+            // Estados de revisión final por jefatura (paso intermedio antes de jurados)
+            case PENDING_PROGRAM_HEAD_FINAL_REVIEW -> "Pendiente Revisión Final - Jefatura";
+            case APPROVED_BY_PROGRAM_HEAD_FINAL_REVIEW -> "Aprobado por Jefatura - Notificando Jurados";
 
             // Estados de programación de sustentación
             case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR -> "Sustentación Solicitada";
             case DEFENSE_SCHEDULED -> "Sustentación Programada";
             case EXAMINERS_ASSIGNED -> "Jurados Asignados";
+            case READY_FOR_EXAMINERS -> "Listo para Revisión por Jurados";
             case CORRECTIONS_REQUESTED_EXAMINERS -> "Correcciones Solicitadas - Jurados";
             case READY_FOR_DEFENSE -> "Listo para Sustentar";
             case DOCUMENTS_APPROVED_BY_EXAMINERS -> "Documentos Aprobados por Jurados";
@@ -82,6 +89,7 @@ public class ReportUtils {
             case EVALUATION_COMPLETED -> "Evaluación Completada";
 
             // Estados finales de resultado
+            case PENDING_DISTINCTION_COMMITTEE_REVIEW -> "Aprobado – Distinción Honorífica Pendiente del Comité";
             case GRADED_APPROVED -> "Aprobado";
             case GRADED_FAILED -> "Reprobado";
             case MODALITY_CLOSED -> "Modalidad Cerrada";
@@ -103,19 +111,25 @@ public class ReportUtils {
         return status == ModalityProcessStatus.MODALITY_SELECTED ||
                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE ||
+               status == ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS ||
                status == ModalityProcessStatus.READY_FOR_PROGRAM_CURRICULUM_COMMITTEE ||
                status == ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD ||
                status == ModalityProcessStatus.UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE ||
-               status == ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR;
+               status == ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR ||
+               status == ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT;
     }
 
     public static boolean isAdvancedStatus(ModalityProcessStatus status) {
         return status == ModalityProcessStatus.PROPOSAL_APPROVED ||
                status == ModalityProcessStatus.DEFENSE_SCHEDULED ||
                status == ModalityProcessStatus.EXAMINERS_ASSIGNED ||
+               status == ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR ||
                status == ModalityProcessStatus.READY_FOR_DEFENSE ||
+               status == ModalityProcessStatus.FINAL_REVIEW_COMPLETED ||
                status == ModalityProcessStatus.DEFENSE_COMPLETED ||
                status == ModalityProcessStatus.UNDER_EVALUATION_PRIMARY_EXAMINERS ||
+               status == ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER ||
+               status == ModalityProcessStatus.UNDER_EVALUATION_TIEBREAKER ||
                status == ModalityProcessStatus.EVALUATION_COMPLETED;
     }
 }

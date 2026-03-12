@@ -3,12 +3,10 @@ package com.SIGMA.USCO.report.service;
 import com.SIGMA.USCO.report.dto.ModalityHistoricalReportDTO;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.*;
-import com.itextpdf.text.pdf.draw.LineSeparator;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
@@ -60,145 +58,249 @@ public class ModalityHistoricalPdfGenerator {
 
         // 2. Información General de la Modalidad
         document.newPage();
+        addInternalHeader(document, report);
         addModalityGeneralInfo(document, report);
 
         // 3. Estado Actual
         document.newPage();
+        addInternalHeader(document, report);
         addCurrentState(document, report);
 
         // 4. Análisis Histórico por Periodos
         document.newPage();
+        addInternalHeader(document, report);
         addHistoricalAnalysis(document, report);
 
         // 5. Análisis de Tendencias y Evolución
         document.newPage();
+        addInternalHeader(document, report);
         addTrendsAnalysis(document, report);
 
         // 6. Análisis Comparativo
         document.newPage();
+        addInternalHeader(document, report);
         addComparativeAnalysis(document, report);
 
         // 7. Estadísticas de Directores
         if (report.getDirectorStatistics() != null &&
             report.getDirectorStatistics().getTotalUniqueDirectors() > 0) {
             document.newPage();
+            addInternalHeader(document, report);
             addDirectorStatistics(document, report);
         }
 
         // 8. Estadísticas de Estudiantes
         document.newPage();
+        addInternalHeader(document, report);
         addStudentStatistics(document, report);
 
         // 9. Análisis de Desempeño
         document.newPage();
+        addInternalHeader(document, report);
         addPerformanceAnalysis(document, report);
 
         // 10. Proyecciones y Recomendaciones
         document.newPage();
+        addInternalHeader(document, report);
         addProjectionsAndRecommendations(document, report);
+
+        // 11. Pie institucional de cierre
+        addFooterSection(document);
 
         document.close();
         return outputStream;
     }
 
     /**
-     * Portada del reporte con diseño profesional
+     * Encabezado compacto institucional para páginas internas.
+     */
+    private void addInternalHeader(Document document, ModalityHistoricalReportDTO report)
+            throws DocumentException {
+        PdfPTable strip = new PdfPTable(2);
+        strip.setWidthPercentage(100);
+        strip.setSpacingAfter(8f);
+        try { strip.setWidths(new float[]{65f, 35f}); } catch (DocumentException ignored) {}
+
+        PdfPCell leftCell = new PdfPCell(new Phrase(
+                "UNIVERSIDAD SURCOLOMBIANA — SIGMA",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, INSTITUTIONAL_RED)));
+        leftCell.setBorder(Rectangle.BOTTOM);
+        leftCell.setBorderColorBottom(INSTITUTIONAL_RED);
+        leftCell.setBorderWidthBottom(1.5f);
+        leftCell.setPadding(4f);
+        strip.addCell(leftCell);
+
+        String rightText = report.getModalityInfo() != null
+                ? report.getModalityInfo().getModalityName()
+                : "Análisis Histórico";
+        PdfPCell rightCell = new PdfPCell(new Phrase(
+                rightText,
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY)));
+        rightCell.setBorder(Rectangle.BOTTOM);
+        rightCell.setBorderColorBottom(INSTITUTIONAL_GOLD);
+        rightCell.setBorderWidthBottom(1.5f);
+        rightCell.setPadding(4f);
+        rightCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+        strip.addCell(rightCell);
+
+        document.add(strip);
+    }
+
+    /**
+     * Pie institucional de cierre del reporte.
+     */
+    private void addFooterSection(Document document)
+            throws DocumentException {
+        addSpacingParagraph(document, 20f);
+        InstitutionalPdfHeader.addRedLine(document);
+        InstitutionalPdfHeader.addGoldLine(document);
+        addSpacingParagraph(document, 8f);
+
+        PdfPTable noteTable = new PdfPTable(1);
+        noteTable.setWidthPercentage(100);
+
+        PdfPCell noteCell = new PdfPCell();
+        noteCell.setBackgroundColor(LIGHT_GOLD);
+        noteCell.setPadding(12f);
+        noteCell.setBorder(Rectangle.NO_BORDER);
+
+        Paragraph note = new Paragraph(
+                "Este análisis histórico ha sido generado automáticamente por el sistema SIGMA " +
+                "a partir de los datos académicos registrados. Las proyecciones son estimaciones " +
+                "basadas en tendencias históricas y deben complementarse con juicio profesional " +
+                "y el contexto actual del programa académico.",
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
+        note.setAlignment(Element.ALIGN_JUSTIFIED);
+        noteCell.addElement(note);
+        noteTable.addCell(noteCell);
+        document.add(noteTable);
+
+        addSpacingParagraph(document, 10f);
+        Paragraph closing = new Paragraph(
+                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
+                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila",
+                FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
+        closing.setAlignment(Element.ALIGN_CENTER);
+        document.add(closing);
+    }
+
+    /**
+     * Portada institucional del reporte histórico.
      */
     private void addCoverPage(Document document, ModalityHistoricalReportDTO report)
-            throws DocumentException {
+            throws DocumentException, IOException {
 
-        // Banda superior institucional
-        PdfPTable headerBand = new PdfPTable(1);
-        headerBand.setWidthPercentage(100);
-        headerBand.setSpacingAfter(40);
-
-        PdfPCell bandCell = new PdfPCell();
-        bandCell.setBackgroundColor(INSTITUTIONAL_RED);
-        bandCell.setPadding(30);
-        bandCell.setBorder(Rectangle.NO_BORDER);
-
-        Paragraph bandContent = new Paragraph();
-        bandContent.setAlignment(Element.ALIGN_CENTER);
-
-        Chunk universityName = new Chunk("UNIVERSIDAD SURCOLOMBIANA\n",
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 18, WHITE));
-        bandContent.add(universityName);
-
-        Chunk programName = new Chunk(report.getAcademicProgramName() + "\n",
-            FontFactory.getFont(FontFactory.HELVETICA, 14, WHITE));
-        bandContent.add(programName);
-
-        Chunk programCode = new Chunk("Código: " + report.getAcademicProgramCode(),
-            FontFactory.getFont(FontFactory.HELVETICA, 12, new BaseColor(200, 200, 200)));
-        bandContent.add(programCode);
-
-        bandCell.addElement(bandContent);
-        headerBand.addCell(bandCell);
-        document.add(headerBand);
-
-        // Espacio
-        document.add(new Paragraph("\n\n"));
-
-        // Título principal
-        Paragraph title = new Paragraph("ANÁLISIS HISTÓRICO DE MODALIDAD", TITLE_FONT);
-        title.setAlignment(Element.ALIGN_CENTER);
-        title.setSpacingAfter(20);
-        document.add(title);
-
-        // Nombre de la modalidad analizada
-        if (report.getModalityInfo() != null) {
-            Paragraph modalityName = new Paragraph(
-                report.getModalityInfo().getModalityName().toUpperCase(),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, INSTITUTIONAL_GOLD)
-            );
-            modalityName.setAlignment(Element.ALIGN_CENTER);
-            modalityName.setSpacingAfter(40);
-            document.add(modalityName);
-        }
-
-        // Cuadro de información del reporte
-        PdfPTable infoTable = new PdfPTable(2);
-        infoTable.setWidthPercentage(80);
-        infoTable.setWidths(new float[]{1f, 1.5f});
-        infoTable.setSpacingBefore(30);
-        infoTable.setHorizontalAlignment(Element.ALIGN_CENTER);
-
-        addInfoRow(infoTable, "Tipo de Reporte:", "Análisis Histórico Temporal");
-        addInfoRow(infoTable, "Fecha de Generación:",
-            report.getGeneratedAt().format(DATE_FORMATTER));
-        addInfoRow(infoTable, "Generado Por:", report.getGeneratedBy());
-
-        if (report.getModalityInfo() != null) {
-            addInfoRow(infoTable, "Periodos Analizados:",
-                String.valueOf(report.getHistoricalAnalysis() != null ?
-                    report.getHistoricalAnalysis().size() : 0));
-            addInfoRow(infoTable, "Años Activos:",
-                report.getModalityInfo().getYearsActive() + " años");
-            addInfoRow(infoTable, "Instancias Totales:",
-                String.valueOf(report.getModalityInfo().getTotalHistoricalInstances()));
-        }
-
-        document.add(infoTable);
-
-        // Línea separadora decorativa
-        document.add(new Paragraph("\n\n\n"));
-        LineSeparator line = new LineSeparator();
-        line.setLineColor(INSTITUTIONAL_GOLD);
-        line.setLineWidth(2);
-        document.add(new Chunk(line));
-
-        // Advertencia/Nota
-        document.add(new Paragraph("\n\n"));
-        Paragraph disclaimer = new Paragraph(
-            "Este reporte presenta un análisis detallado de la evolución histórica de la modalidad, " +
-            "incluyendo tendencias, estadísticas comparativas, desempeño y proyecciones futuras. " +
-            "La información es generada automáticamente por el sistema SIGMA.",
-            SMALL_FONT
+        // ── 1. Encabezado con logo ────────────────────────────────────────────
+        InstitutionalPdfHeader.addHeader(
+                document,
+                "Facultad de Ingeniería",
+                report.getAcademicProgramName()
+                        + (report.getAcademicProgramCode() != null
+                                ? " — Cód. " + report.getAcademicProgramCode() : ""),
+                "Análisis Histórico de Modalidad de Grado"
         );
-        disclaimer.setAlignment(Element.ALIGN_JUSTIFIED);
-        disclaimer.setIndentationLeft(50);
-        disclaimer.setIndentationRight(50);
-        document.add(disclaimer);
+
+        addSpacingParagraph(document, 10f);
+
+        // ── 2. Caja de título roja ─────────────────────────────────────────────
+        PdfPTable titleBox = new PdfPTable(1);
+        titleBox.setWidthPercentage(90);
+        titleBox.setHorizontalAlignment(Element.ALIGN_CENTER);
+        titleBox.setSpacingAfter(18f);
+
+        PdfPCell titleCell = new PdfPCell();
+        titleCell.setBackgroundColor(INSTITUTIONAL_RED);
+        titleCell.setPadding(16f);
+        titleCell.setBorder(Rectangle.NO_BORDER);
+
+        Paragraph titlePara = new Paragraph("ANÁLISIS HISTÓRICO DE MODALIDAD DE GRADO",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, WHITE));
+        titlePara.setAlignment(Element.ALIGN_CENTER);
+        titleCell.addElement(titlePara);
+
+        if (report.getModalityInfo() != null) {
+            Paragraph modalityPara = new Paragraph(
+                    report.getModalityInfo().getModalityName().toUpperCase(),
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, INSTITUTIONAL_GOLD));
+            modalityPara.setAlignment(Element.ALIGN_CENTER);
+            modalityPara.setSpacingBefore(6f);
+            titleCell.addElement(modalityPara);
+        }
+
+        Paragraph programPara = new Paragraph(
+                report.getAcademicProgramName() != null ? report.getAcademicProgramName() : "",
+                FontFactory.getFont(FontFactory.HELVETICA, 10, new BaseColor(220, 220, 220)));
+        programPara.setAlignment(Element.ALIGN_CENTER);
+        programPara.setSpacingBefore(4f);
+        titleCell.addElement(programPara);
+
+        titleBox.addCell(titleCell);
+        document.add(titleBox);
+
+        // ── 3. Tabla de información de portada ────────────────────────────────
+        PdfPTable infoBox = new PdfPTable(2);
+        infoBox.setWidthPercentage(80);
+        infoBox.setHorizontalAlignment(Element.ALIGN_CENTER);
+        infoBox.setSpacingAfter(20f);
+        try { infoBox.setWidths(new float[]{40f, 60f}); } catch (DocumentException ignored) {}
+
+        addCoverInfoRow(infoBox, "Tipo de Reporte:", "Análisis Histórico Temporal");
+        addCoverInfoRow(infoBox, "Fecha de generación:", report.getGeneratedAt().format(DATE_FORMATTER));
+        addCoverInfoRow(infoBox, "Generado por:", report.getGeneratedBy());
+        if (report.getHistoricalAnalysis() != null) {
+            addCoverInfoRow(infoBox, "Periodos analizados:",
+                    String.valueOf(report.getHistoricalAnalysis().size()));
+        }
+        if (report.getModalityInfo() != null) {
+            addCoverInfoRow(infoBox, "Años en operación:",
+                    report.getModalityInfo().getYearsActive() + " años");
+            addCoverInfoRow(infoBox, "Total instancias históricas:",
+                    String.valueOf(report.getModalityInfo().getTotalHistoricalInstances()));
+        }
+
+        document.add(infoBox);
+
+        // ── 4. Líneas decorativas de cierre de portada ────────────────────────
+        InstitutionalPdfHeader.addRedLine(document);
+        InstitutionalPdfHeader.addGoldLine(document);
+
+        // ── 5. Nota al pie de portada ─────────────────────────────────────────
+        addSpacingParagraph(document, 16f);
+        Paragraph footer = new Paragraph(
+                "Este reporte presenta un análisis detallado de la evolución histórica de la modalidad,\n" +
+                "incluyendo tendencias, estadísticas comparativas, desempeño y proyecciones futuras.\n" +
+                "La información es generada automáticamente por el sistema SIGMA.",
+                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
+        footer.setAlignment(Element.ALIGN_CENTER);
+        document.add(footer);
+    }
+
+    /** Fila de portada con etiqueta en fondo dorado claro y valor en blanco. */
+    private void addCoverInfoRow(PdfPTable table, String label, String value) {
+        PdfPCell labelCell = new PdfPCell(new Phrase(label,
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, TEXT_GRAY)));
+        labelCell.setBackgroundColor(LIGHT_GOLD);
+        labelCell.setPadding(7f);
+        labelCell.setBorder(Rectangle.BOX);
+        labelCell.setBorderColor(INSTITUTIONAL_GOLD);
+        labelCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+        table.addCell(labelCell);
+
+        PdfPCell valueCell = new PdfPCell(new Phrase(value != null ? value : "—",
+                FontFactory.getFont(FontFactory.HELVETICA, 9, TEXT_BLACK)));
+        valueCell.setBackgroundColor(WHITE);
+        valueCell.setPadding(7f);
+        valueCell.setBorder(Rectangle.BOX);
+        valueCell.setBorderColor(INSTITUTIONAL_GOLD);
+        table.addCell(valueCell);
+    }
+
+    /** Párrafo espaciador sin texto. */
+    private void addSpacingParagraph(Document document, float height) throws DocumentException {
+        Paragraph spacer = new Paragraph(" ");
+        spacer.setSpacingBefore(height / 2f);
+        spacer.setSpacingAfter(height / 2f);
+        document.add(spacer);
     }
 
     /**
@@ -1038,30 +1140,6 @@ public class ModalityHistoricalPdfGenerator {
 
             document.add(riskList);
         }
-
-        // Nota final
-        document.add(new Paragraph("\n\n"));
-        PdfPTable noteTable = new PdfPTable(1);
-        noteTable.setWidthPercentage(100);
-
-        PdfPCell noteCell = new PdfPCell();
-        noteCell.setBackgroundColor(LIGHT_GOLD);
-        noteCell.setPadding(15);
-        noteCell.setBorder(Rectangle.NO_BORDER);
-
-        Paragraph note = new Paragraph(
-            "Este análisis histórico ha sido generado automáticamente por el sistema SIGMA " +
-            "basándose en datos históricos recopilados. Las proyecciones son estimaciones " +
-            "basadas en tendencias pasadas y deben ser interpretadas como orientativas. " +
-            "Se recomienda complementar este análisis con juicio profesional y consideraciones " +
-            "del contexto actual del programa académico.",
-            SMALL_FONT
-        );
-        note.setAlignment(Element.ALIGN_JUSTIFIED);
-        noteCell.addElement(note);
-        noteTable.addCell(noteCell);
-
-        document.add(noteTable);
     }
 
     // ==================== MÉTODOS AUXILIARES ====================
@@ -1235,20 +1313,15 @@ public class ModalityHistoricalPdfGenerator {
     }
 
     /**
-     * Agregar título de sección
+     * Agregar título de sección con línea dorada institucional
      */
     private void addSectionTitle(Document document, String title) throws DocumentException {
         Paragraph section = new Paragraph(title, HEADER_FONT);
         section.setSpacingBefore(15);
-        section.setSpacingAfter(10);
-
-        LineSeparator line = new LineSeparator();
-        line.setLineColor(INSTITUTIONAL_RED);
-        line.setLineWidth(2);
-
+        section.setSpacingAfter(6);
         document.add(section);
-        document.add(new Chunk(line));
-        document.add(new Paragraph("\n"));
+        InstitutionalPdfHeader.addGoldLine(document);
+        document.add(new Paragraph(" "));
     }
 
     /**
@@ -1953,13 +2026,14 @@ public class ModalityHistoricalPdfGenerator {
     // ==================== CLASE INTERNA: PAGE EVENT HELPER ====================
 
     /**
-     * Helper para eventos de página (encabezado y pie de página)
+     * Helper para eventos de página (pie de página institucional)
      */
     private static class HistoricalPageEventHelper extends PdfPageEventHelper {
 
         private final ModalityHistoricalReportDTO report;
-        private final Font headerFont = FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY);
-        private final Font footerFont = FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY);
+        private final Font footerFont    = FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY);
+        private final Font footerBold    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, new BaseColor(143, 30, 30));
+        private static final BaseColor GOLD_LINE = new BaseColor(213, 203, 160);
 
         public HistoricalPageEventHelper(ModalityHistoricalReportDTO report) {
             this.report = report;
@@ -1968,30 +2042,33 @@ public class ModalityHistoricalPdfGenerator {
         @Override
         public void onEndPage(PdfWriter writer, Document document) {
             PdfContentByte cb = writer.getDirectContent();
+            float pageNum = writer.getPageNumber();
 
-            // Encabezado
-            if (writer.getPageNumber() > 1) {
-                Phrase header = new Phrase("Análisis Histórico - " +
-                    (report.getModalityInfo() != null ? report.getModalityInfo().getModalityName() : ""),
-                    headerFont);
-                ColumnText.showTextAligned(cb, Element.ALIGN_LEFT, header,
-                        document.left(), document.top() + 20, 0);
-            }
+            // Línea dorada superior del pie
+            cb.saveState();
+            cb.setColorStroke(GOLD_LINE);
+            cb.setLineWidth(1.5f);
+            cb.moveTo(document.left(), document.bottom() - 8f);
+            cb.lineTo(document.right(), document.bottom() - 8f);
+            cb.stroke();
+            cb.restoreState();
 
-            // Pie de página
-            Phrase footer = new Phrase(
-                "Página " + writer.getPageNumber() + " | Generado: " +
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")),
-                footerFont
-            );
-            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, footer,
-                    (document.right() + document.left()) / 2,
-                    document.bottom() - 20, 0);
+            // Nombre del sistema – izquierda
+            Phrase systemPhrase = new Phrase("SIGMA — Universidad Surcolombiana", footerBold);
+            ColumnText.showTextAligned(cb, Element.ALIGN_LEFT, systemPhrase,
+                    document.left(), document.bottom() - 20f, 0);
 
-            // Sistema
-            Phrase system = new Phrase("SIGMA - Universidad Surcolombiana", footerFont);
-            ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT, system,
-                    document.right(), document.bottom() - 20, 0);
+            // Número de página – centro
+            String modalityName = report.getModalityInfo() != null
+                    ? report.getModalityInfo().getModalityName() : "Análisis Histórico";
+            Phrase centerPhrase = new Phrase(modalityName, footerFont);
+            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, centerPhrase,
+                    (document.right() + document.left()) / 2f, document.bottom() - 20f, 0);
+
+            // Número de página – derecha
+            Phrase pagePhrase = new Phrase("Pág. " + (int) pageNum, footerFont);
+            ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT, pagePhrase,
+                    document.right(), document.bottom() - 20f, 0);
         }
     }
 }

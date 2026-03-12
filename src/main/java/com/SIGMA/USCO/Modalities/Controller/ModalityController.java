@@ -20,6 +20,7 @@ import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.service.DocumentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
@@ -45,6 +46,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/modalities")
 @RequiredArgsConstructor
+@Slf4j
 public class ModalityController {
 
     private final ModalityService modalityService;
@@ -555,6 +557,12 @@ public class ModalityController {
         return modalityService.modalityReadyForDefenseByDirector(studentModalityId);
     }
 
+    @PostMapping("/{studentModalityId}/program-head/approve-final-and-notify-examiners")
+    @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
+    public ResponseEntity<?> programHeadApprovesAndNotifiesExaminers(@PathVariable Long studentModalityId) {
+        return modalityService.programHeadApprovesAndNotifiesExaminers(studentModalityId);
+    }
+
     @PostMapping("/{studentModalityId}/final-review-completed")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY_BY_EXAMINER')")
     public ResponseEntity<?> examinerFinalReviewCompleted(@PathVariable Long studentModalityId) {
@@ -683,4 +691,70 @@ public class ModalityController {
         return modalityService.getExaminersForModality(studentModalityId);
     }
 
+    /**
+     * Retorna la lista completa de todos los estudiantes que pertenecen al
+     * programa académico del comité autenticado, con filtro opcional por nombre.
+     *
+     * GET /modalities/committee/program-students?studentName=raul
+     */
+    @GetMapping("/committee/program-students")
+    @PreAuthorize("hasAuthority('PERM_STUDENT_LIST')")
+    public ResponseEntity<?> getProgramStudentsForCommittee(@RequestParam(required = false) String studentName) {
+        return modalityService.getProgramStudentsForCommittee(studentName);
+    }
+
+    // =========================================================================
+    // GESTIÓN DE DISTINCIONES HONORÍFICAS PROPUESTAS POR JURADOS
+    // =========================================================================
+
+    /**
+     * Lista todas las modalidades donde los jurados han propuesto unánimemente
+     * una distinción honorífica (Meritoria o Laureada) pendiente de revisión
+     * por el Comité de Currículo.
+     *
+     * Incluye los argumentos de cada jurado para que el comité pueda evaluarlos.
+     *
+     * GET /modalities/committee/pending-distinction-proposals
+     */
+    @GetMapping("/committee/pending-distinction-proposals")
+    @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
+    public ResponseEntity<?> getPendingDistinctionProposals() {
+        return modalityService.getPendingDistinctionProposals();
+    }
+
+    /**
+     * El Comité de Currículo ACEPTA la distinción honorífica propuesta por los jurados.
+     * La modalidad pasa a estado GRADED_APPROVED con la distinción confirmada.
+     *
+     * Body (opcional): { "notes": "Observaciones del comité al aceptar" }
+     *
+     * POST /modalities/{studentModalityId}/committee/accept-distinction
+     */
+    @PostMapping("/{studentModalityId}/committee/accept-distinction")
+    @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
+    public ResponseEntity<?> acceptDistinctionProposal(
+            @PathVariable Long studentModalityId,
+            @RequestBody(required = false) Map<String, String> body) {
+        String notes = body != null ? body.get("notes") : null;
+        return modalityService.acceptDistinctionProposal(studentModalityId, notes);
+    }
+
+    /**
+     * El Comité de Currículo RECHAZA la distinción honorífica propuesta por los jurados.
+     * La modalidad pasa a estado GRADED_APPROVED sin mención especial.
+     *
+     * Body: { "reason": "Razón del rechazo (obligatorio)" }
+     *
+     * POST /modalities/{studentModalityId}/committee/reject-distinction
+     */
+    @PostMapping("/{studentModalityId}/committee/reject-distinction")
+    @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
+    public ResponseEntity<?> rejectDistinctionProposal(
+            @PathVariable Long studentModalityId,
+            @RequestBody Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        return modalityService.rejectDistinctionProposal(studentModalityId, reason);
+    }
+
 }
+

@@ -33,6 +33,17 @@ public class ProgramDegreeModality {
 
     private boolean active = true;
 
+    /**
+     * Indica si esta modalidad requiere el proceso completo de sustentación:
+     * director de proyecto, asignación de jurados, sustentación y evaluación.
+     * Cuando es false, el comité simplemente aprueba o rechaza la modalidad
+     * directamente una vez subidos todos los documentos.
+     * Por defecto es true para mantener compatibilidad con el flujo existente.
+     */
+    @Column(name = "requires_defense_process", nullable = false)
+    @Builder.Default
+    private boolean requiresDefenseProcess = true;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -42,6 +53,7 @@ public class ProgramDegreeModality {
                 "id=" + id +
                 ", creditsRequired=" + creditsRequired +
                 ", active=" + active +
+                ", requiresDefenseProcess=" + requiresDefenseProcess +
                 '}';
     }
 }

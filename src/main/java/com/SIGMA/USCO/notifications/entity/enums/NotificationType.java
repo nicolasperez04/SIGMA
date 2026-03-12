@@ -66,6 +66,8 @@ public enum NotificationType {
 
     READY_FOR_DEFENSE_REQUESTED, // Notificación cuando el estudiante solicita revisión de defensa
 
+    DIRECTOR_NOTIFIES_PROGRAM_HEAD_FINAL_REVIEW, // Director notifica a jefatura que docs finales están listos
+
     DOCUMENT_EDIT_REQUESTED,    // Estudiante solicita editar propuesta aprobada
     DOCUMENT_EDIT_APPROVED,     // Jurado aprueba la solicitud de edición
     DOCUMENT_EDIT_REJECTED      // Jurado rechaza la solicitud de edición

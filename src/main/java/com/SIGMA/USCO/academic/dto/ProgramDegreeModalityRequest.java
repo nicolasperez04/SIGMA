@@ -15,4 +15,14 @@ public class ProgramDegreeModalityRequest {
 
     private Long creditsRequired;
 
+    /**
+     * Indica si esta modalidad requiere el proceso completo de sustentación
+     * (director de proyecto, jurados, sustentación y evaluación).
+     * Por defecto true. Si es false, el comité decide directamente.
+     */
+    @Builder.Default
+    private boolean requiresDefenseProcess = true;
+
 }
+
+

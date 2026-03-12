@@ -12,6 +12,7 @@ import com.SIGMA.USCO.Users.Entity.Role;
 import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.Entity.enums.Status;
 import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.dto.request.AssignExaminerMultipleProgramsRequest;
 import com.SIGMA.USCO.Users.dto.request.assignAuthorityProgram;
 import com.SIGMA.USCO.Users.dto.request.PermissionDTO;
 import com.SIGMA.USCO.Users.dto.request.RegisterUserByAdminRequest;
@@ -35,7 +36,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -402,9 +405,17 @@ public class AdminService {
         Role examiner = roleRepository.findByName("EXAMINER")
                 .orElseThrow(() -> new RuntimeException("Rol EXAMINER no encontrado"));
 
+        // Asegurar que el usuario tenga el rol EXAMINER
         if (!user.getRoles().contains(examiner)) {
             user.getRoles().add(examiner);
             userRepository.save(user);
+        }
+
+        // Permitir que el usuario sea jurado en múltiples programas
+        boolean alreadyAssigned = programAuthorityRepository
+                .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), program.getId(), ProgramRole.EXAMINER);
+        if (alreadyAssigned) {
+            throw new RuntimeException("El jurado ya está asociado a este programa académico");
         }
 
         ProgramAuthority authority = ProgramAuthority.builder()
@@ -417,7 +428,213 @@ public class AdminService {
         return authority;
     }
 
+    /**
+     * Asocia un jurado (EXAMINER) existente a un programa académico adicional.
+     * Un jurado puede estar vinculado a múltiples programas académicos.
+     */
+    @Transactional
+    public ResponseEntity<?> assignExaminerToAdditionalProgram(assignAuthorityProgram request) {
 
+        User user = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        boolean hasExaminerRole = user.getRoles().stream()
+                .anyMatch(r -> r.getName().equals("EXAMINER"));
+        if (!hasExaminerRole) {
+            return ResponseEntity.badRequest().body(
+                    Map.of("success", false,
+                           "message", "El usuario no tiene el rol EXAMINER")
+            );
+        }
+
+        AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
+                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
+
+        boolean alreadyAssigned = programAuthorityRepository
+                .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), program.getId(), ProgramRole.EXAMINER);
+        if (alreadyAssigned) {
+            return ResponseEntity.badRequest().body(
+                    Map.of("success", false,
+                           "message", "El jurado ya está asociado al programa: " + program.getName())
+            );
+        }
+
+        ProgramAuthority authority = ProgramAuthority.builder()
+                .user(user)
+                .academicProgram(program)
+                .role(ProgramRole.EXAMINER)
+                .build();
+
+        programAuthorityRepository.save(authority);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Jurado vinculado correctamente al programa: " + program.getName(),
+                "examinerName", user.getName() + " " + user.getLastName(),
+                "programName", program.getName()
+        ));
+    }
+
+    /**
+     * Desvincula un jurado (EXAMINER) de un programa académico específico.
+     */
+    @Transactional
+    public ResponseEntity<?> removeExaminerFromProgram(Long userId, Long academicProgramId) {
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        AcademicProgram program = academicProgramRepository.findById(academicProgramId)
+                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
+
+        List<ProgramAuthority> authorities = programAuthorityRepository
+                .findByAcademicProgram_IdAndRole(academicProgramId, ProgramRole.EXAMINER)
+                .stream()
+                .filter(a -> a.getUser().getId().equals(userId))
+                .toList();
+
+        if (authorities.isEmpty()) {
+            return ResponseEntity.badRequest().body(
+                    Map.of("success", false,
+                           "message", "El jurado no está asociado al programa: " + program.getName())
+            );
+        }
+
+        programAuthorityRepository.deleteAll(authorities);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Jurado desvinculado correctamente del programa: " + program.getName(),
+                "examinerName", user.getName() + " " + user.getLastName(),
+                "programName", program.getName()
+        ));
+    }
+
+    /**
+     * Asocia un usuario con el rol EXAMINER a múltiples programas académicos en una sola operación.
+     * Si el usuario aún no tiene el rol EXAMINER, se lo asigna automáticamente.
+     * Los programas donde ya esté asociado se omiten (no generan error).
+     */
+    @Transactional
+    public ResponseEntity<?> assignExaminerToMultiplePrograms(AssignExaminerMultipleProgramsRequest request) {
+
+        if (request.getUserId() == null) {
+            return ResponseEntity.badRequest().body(
+                    Map.of("success", false, "message", "El ID del usuario es obligatorio")
+            );
+        }
+
+        if (request.getAcademicProgramIds() == null || request.getAcademicProgramIds().isEmpty()) {
+            return ResponseEntity.badRequest().body(
+                    Map.of("success", false, "message", "Debe proporcionar al menos un ID de programa académico")
+            );
+        }
+
+        User user = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        Role examinerRole = roleRepository.findByName("EXAMINER")
+                .orElseThrow(() -> new RuntimeException("Rol EXAMINER no encontrado"));
+
+        // Asignar el rol EXAMINER si el usuario aún no lo tiene
+        if (user.getRoles().stream().noneMatch(r -> r.getName().equals("EXAMINER"))) {
+            user.getRoles().add(examinerRole);
+            userRepository.save(user);
+        }
+
+        List<Map<String, Object>> assigned = new ArrayList<>();
+        List<Map<String, Object>> skipped = new ArrayList<>();
+
+        for (Long programId : request.getAcademicProgramIds()) {
+
+            AcademicProgram program = academicProgramRepository.findById(programId)
+                    .orElse(null);
+
+            if (program == null) {
+                skipped.add(Map.of(
+                        "academicProgramId", programId,
+                        "reason", "Programa académico no encontrado"
+                ));
+                continue;
+            }
+
+            boolean alreadyAssigned = programAuthorityRepository
+                    .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), programId, ProgramRole.EXAMINER);
+
+            if (alreadyAssigned) {
+                skipped.add(Map.of(
+                        "academicProgramId", programId,
+                        "academicProgramName", program.getName(),
+                        "reason", "El jurado ya estaba asociado a este programa"
+                ));
+                continue;
+            }
+
+            ProgramAuthority authority = ProgramAuthority.builder()
+                    .user(user)
+                    .academicProgram(program)
+                    .role(ProgramRole.EXAMINER)
+                    .build();
+
+            programAuthorityRepository.save(authority);
+
+            assigned.add(Map.of(
+                    "academicProgramId", program.getId(),
+                    "academicProgramName", program.getName(),
+                    "facultyName", program.getFaculty().getName()
+            ));
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "examinerId", user.getId(),
+                "examinerName", user.getName() + " " + user.getLastName(),
+                "examinerEmail", user.getEmail(),
+                "programsAssigned", assigned,
+                "programsSkipped", skipped,
+                "totalAssigned", assigned.size(),
+                "totalSkipped", skipped.size()
+        ));
+    }
+
+    /**
+     * Retorna todos los programas académicos a los que está asociado un jurado.
+     */
+    public ResponseEntity<?> getExaminerPrograms(Long userId) {
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        boolean hasExaminerRole = user.getRoles().stream()
+                .anyMatch(r -> r.getName().equals("EXAMINER"));
+        if (!hasExaminerRole) {
+            return ResponseEntity.badRequest().body(
+                    Map.of("success", false,
+                           "message", "El usuario no tiene el rol EXAMINER")
+            );
+        }
+
+        List<ProgramAuthority> authorities = programAuthorityRepository
+                .findByUser_IdAndRole(userId, ProgramRole.EXAMINER);
+
+        List<Map<String, Object>> programs = authorities.stream()
+                .map(a -> Map.<String, Object>of(
+                        "programAuthorityId", a.getId(),
+                        "academicProgramId", a.getAcademicProgram().getId(),
+                        "academicProgramName", a.getAcademicProgram().getName(),
+                        "facultyId", a.getAcademicProgram().getFaculty().getId(),
+                        "facultyName", a.getAcademicProgram().getFaculty().getName()
+                ))
+                .toList();
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "examinerId", user.getId(),
+                "examinerName", user.getName() + " " + user.getLastName(),
+                "examinerEmail", user.getEmail(),
+                "programs", programs
+        ));
+    }
 
     public ResponseEntity<List<ModalityDTO>> getModalities(ModalityStatus status) {
 
@@ -468,6 +685,7 @@ public class AdminService {
                                                 .maxFileSizeMB(doc.getMaxFileSizeMB())
                                                 .documentType(doc.getDocumentType())
                                                 .active(doc.isActive())
+                                                .requiresProposalEvaluation(doc.isRequiresProposalEvaluation())
                                                 .build())
                                         .toList()
                         )
@@ -482,7 +700,6 @@ public class AdminService {
     @Transactional
     public ResponseEntity<?> registerUserByAdmin(RegisterUserByAdminRequest request) {
 
-
         if (request.getName() == null || request.getName().isBlank() ||
                 request.getLastName() == null || request.getLastName().isBlank() ||
                 request.getEmail() == null || request.getEmail().isBlank() ||
@@ -495,35 +712,32 @@ public class AdminService {
 
         String email = request.getEmail().trim().toLowerCase();
 
-
         if (!email.endsWith("@usco.edu.co")) {
             return ResponseEntity.badRequest()
                     .body("El correo debe ser institucional con dominio @usco.edu.co");
         }
-
 
         if (userRepository.existsByEmail(email)) {
             return ResponseEntity.badRequest()
                     .body("Este correo ya está registrado en el sistema");
         }
 
-
         String roleName = request.getRoleName().toUpperCase();
         Role role = roleRepository.findByName(roleName)
                 .orElseThrow(() -> new RuntimeException("El rol " + roleName + " no existe en el sistema"));
 
-
         boolean requiresProgram = roleName.equals("PROGRAM_HEAD") ||
                 roleName.equals("PROJECT_DIRECTOR") ||
-                roleName.equals("PROGRAM_CURRICULUM_COMMITTEE") ||
-                roleName.equals("EXAMINER");
+                roleName.equals("PROGRAM_CURRICULUM_COMMITTEE");
+
+        boolean isExaminer = roleName.equals("EXAMINER");
 
         if (requiresProgram && request.getAcademicProgramId() == null) {
             return ResponseEntity.badRequest()
                     .body("El rol " + roleName + " requiere que se especifique un programa académico");
         }
 
-
+        // Crear y guardar el usuario
         User user = User.builder()
                 .name(request.getName())
                 .lastName(request.getLastName())
@@ -537,28 +751,91 @@ public class AdminService {
 
         userRepository.save(user);
 
+        // ── EXAMINER: asociar a múltiples programas ──────────────────────────
+        if (isExaminer) {
+            List<Long> programIds = request.getAcademicProgramIds();
 
+            // Compatibilidad: si no envían la lista pero sí el id singular, usarlo
+            if ((programIds == null || programIds.isEmpty()) && request.getAcademicProgramId() != null) {
+                programIds = List.of(request.getAcademicProgramId());
+            }
+
+            if (programIds == null || programIds.isEmpty()) {
+                // Sin programas: el jurado se registra sin asociación de programa
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "message", "Usuario registrado exitosamente con el rol EXAMINER sin programas asociados. " +
+                                   "Puede asociarlo a programas académicos posteriormente.",
+                        "userId", user.getId(),
+                        "examinerName", user.getName() + " " + user.getLastName()
+                ));
+            }
+
+            List<Map<String, Object>> assigned = new ArrayList<>();
+            List<Map<String, Object>> skipped  = new ArrayList<>();
+
+            for (Long programId : programIds) {
+                AcademicProgram program = academicProgramRepository.findById(programId).orElse(null);
+
+                if (program == null) {
+                    skipped.add(Map.of(
+                            "academicProgramId", programId,
+                            "reason", "Programa académico no encontrado"
+                    ));
+                    continue;
+                }
+
+                boolean alreadyAssigned = programAuthorityRepository
+                        .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), programId, ProgramRole.EXAMINER);
+
+                if (alreadyAssigned) {
+                    skipped.add(Map.of(
+                            "academicProgramId", programId,
+                            "academicProgramName", program.getName(),
+                            "reason", "El jurado ya estaba asociado a este programa"
+                    ));
+                    continue;
+                }
+
+                ProgramAuthority authority = ProgramAuthority.builder()
+                        .user(user)
+                        .academicProgram(program)
+                        .role(ProgramRole.EXAMINER)
+                        .build();
+
+                programAuthorityRepository.save(authority);
+
+                assigned.add(Map.of(
+                        "academicProgramId", program.getId(),
+                        "academicProgramName", program.getName(),
+                        "facultyName", program.getFaculty().getName()
+                ));
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Usuario registrado exitosamente con el rol EXAMINER",
+                    "userId", user.getId(),
+                    "examinerName", user.getName() + " " + user.getLastName(),
+                    "examinerEmail", user.getEmail(),
+                    "programsAssigned", assigned,
+                    "programsSkipped", skipped,
+                    "totalAssigned", assigned.size(),
+                    "totalSkipped", skipped.size()
+            ));
+        }
+
+        // ── Otros roles: un solo programa obligatorio ────────────────────────
         if (requiresProgram) {
             AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
                     .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
 
-            ProgramRole programRole;
-            switch (roleName) {
-                case "PROGRAM_HEAD":
-                    programRole = ProgramRole.PROGRAM_HEAD;
-                    break;
-                case "PROJECT_DIRECTOR":
-                    programRole = ProgramRole.PROJECT_DIRECTOR;
-                    break;
-                case "PROGRAM_CURRICULUM_COMMITTEE":
-                    programRole = ProgramRole.PROGRAM_CURRICULUM_COMMITTEE;
-                    break;
-                case "EXAMINER":
-                    programRole = ProgramRole.EXAMINER;
-                    break;
-                default:
-                    throw new RuntimeException("Rol de programa no válido");
-            }
+            ProgramRole programRole = switch (roleName) {
+                case "PROGRAM_HEAD"                   -> ProgramRole.PROGRAM_HEAD;
+                case "PROJECT_DIRECTOR"               -> ProgramRole.PROJECT_DIRECTOR;
+                case "PROGRAM_CURRICULUM_COMMITTEE"   -> ProgramRole.PROGRAM_CURRICULUM_COMMITTEE;
+                default -> throw new RuntimeException("Rol de programa no válido");
+            };
 
             ProgramAuthority authority = ProgramAuthority.builder()
                     .user(user)
@@ -568,15 +845,19 @@ public class AdminService {
 
             programAuthorityRepository.save(authority);
 
-            return ResponseEntity.ok(
-                    "Usuario registrado exitosamente con el rol " + roleName +
-                            " y asignado al programa académico: " + program.getName()
-            );
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Usuario registrado exitosamente con el rol " + roleName +
+                               " y asignado al programa académico: " + program.getName(),
+                    "userId", user.getId()
+            ));
         }
 
-        return ResponseEntity.ok(
-                "Usuario registrado exitosamente con el rol " + roleName
-        );
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Usuario registrado exitosamente con el rol " + roleName,
+                "userId", user.getId()
+        ));
     }
 
 }

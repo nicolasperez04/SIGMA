@@ -24,4 +24,11 @@ public class RequiredDocumentDTO {
     private String description;
     private boolean active;
 
+        /**
+     * Indica si este documento requiere la evaluación detallada de propuesta por el jurado.
+     * Solo es true para el documento de propuesta de grado; para otros documentos MANDATORY
+     * como contratos, formularios, etc., es false.
+     */
+    private boolean requiresProposalEvaluation;
+
 }

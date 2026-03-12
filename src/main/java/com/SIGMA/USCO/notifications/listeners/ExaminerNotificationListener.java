@@ -464,33 +464,33 @@ public class ExaminerNotificationListener {
             String subject = "Sustentación programada – Modalidad de Grado";
             String message = String.format(
                 """
-                         Estimado/a %s %s,
+                          Estimado/a %s %s,
                         
-                                Reciba un cordial saludo.
+                                             Reciba un cordial saludo.
                         
-                                Le informamos que ha sido programada la sustentación de la siguiente modalidad de grado:
+                                             Le informamos que ha sido programada la sustentación de la siguiente modalidad de grado:
                         
-                                Modalidad:
-                                "%s"
+                                             Modalidad:
+                                             "%s"
                         
-                                Fecha y hora:
-                                %s
+                                             Fecha y hora:
+                                             %s
                         
-                                Lugar:
-                                %s
+                                             Lugar:
+                                             %s
                         
-                                Director/a asignado/a:
-                                %s
+                                             Director/a asignado/a:
+                                             %s
                         
-                                Estudiantes asociados:
-                                %s
+                                             Estudiantes asociados:
+                                             %s
                         
-                                En su calidad de jurado evaluador, le solicitamos ingresar al sistema SIGMA para revisar la documentación final, verificar los lineamientos académicos y prepararse para la jornada de sustentación.
+                                             En su calidad de jurado evaluador, le solicitamos ingresar al sistema SIGMA para revisar la documentación final, verificar los lineamientos académicos y prepararse para la jornada de sustentación.
                         
-                                Agradecemos su compromiso con el proceso evaluativo.
+                                             Agradecemos su compromiso con el proceso evaluativo.
                         
-                                Cordialmente,
-                                Sistema de Gestión Académica
+                                             Cordialmente,
+                                             Sistema de Gestión Académica
                 """,
                 examiner.getName(),
                 examiner.getLastName(),

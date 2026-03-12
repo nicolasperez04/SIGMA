@@ -561,6 +561,30 @@ public class StudentNotificationListener {
     }
 
     private String buildApprovedStudentMessage(User student, StudentModality modality, FinalDefenseResultEvent event) {
+        String observaciones = event.getObservations();
+        // Detecta si la observación contiene la distinción propuesta y confirmada
+        if (observaciones != null && observaciones.contains("Distinción propuesta:") && observaciones.contains("Distinción confirmada:")) {
+            // Extrae los enums de la observación
+            String regex = "Distinción propuesta: ([A-Z_]+) → Distinción confirmada: ([A-Z_]+)";
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(regex).matcher(observaciones);
+            if (matcher.find()) {
+                String propuesta = matcher.group(1);
+                String confirmada = matcher.group(2);
+                AcademicDistinction propuestaEnum = null;
+                AcademicDistinction confirmadaEnum = null;
+                try {
+                    propuestaEnum = AcademicDistinction.valueOf(propuesta);
+                    confirmadaEnum = AcademicDistinction.valueOf(confirmada);
+                } catch (Exception ignored) {}
+                String propuestaLabel = propuestaEnum != null ? translateAcademicDistinction(propuestaEnum) : propuesta;
+                String confirmadaLabel = confirmadaEnum != null ? translateAcademicDistinction(confirmadaEnum) : confirmada;
+                // Reemplaza en la observación
+                observaciones = observaciones.replace(
+                    "Distinción propuesta: " + propuesta + " → Distinción confirmada: " + confirmada,
+                    "Distinción propuesta: " + propuestaLabel + " → Distinción confirmada: " + confirmadaLabel
+                );
+            }
+        }
         return """
             Estimado/a %s,
 
@@ -594,7 +618,7 @@ public class StudentNotificationListener {
 
             Reciba nuestras felicitaciones por este importante logro académico.
 
-            
+
 
             Sistema de Gestión Académica
             Universidad Surcolombiana
@@ -602,9 +626,7 @@ public class StudentNotificationListener {
                 student.getName(),
                 modality.getProgramDegreeModality().getDegreeModality().getName(),
                 translateAcademicDistinction(event.getAcademicDistinction()),
-                event.getObservations() != null && !event.getObservations().isBlank()
-                        ? event.getObservations()
-                        : "Ninguna"
+                observaciones != null && !observaciones.isBlank() ? observaciones : "Ninguna"
         );
     }
 
@@ -634,7 +656,7 @@ public class StudentNotificationListener {
             Jefatura de Programa, con el fin de definir los pasos a seguir
             dentro del proceso académico correspondiente.
 
-          
+
 
             Sistema de Gestión Académica – SIGMA
             Universidad Surcolombiana
@@ -724,7 +746,7 @@ public class StudentNotificationListener {
             modality.getId(),
             MemberStatus.ACTIVE
         );
-        String subject = "Modalidad de grado aprobada – Jefatura de Programa";
+        String subject = "Modalidad de grado aprobada – Jefatura de Programa y/o Coordinación de Modalidades";
         for (var member : members) {
             User student = member.getStudent();
             String message = """
@@ -1478,78 +1500,123 @@ public class StudentNotificationListener {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        User student = userRepository.findById(event.getStudentId())
-                .orElseThrow(() -> new RuntimeException("Estudiante no encontrado"));
-
         User committeeMember = userRepository.findById(event.getCommitteeMemberId())
                 .orElseThrow(() -> new RuntimeException("Miembro del comité no encontrado"));
 
-        String subject = "¡FELICITACIONES! - Modalidad de Grado APROBADA";
+        // Obtener todos los miembros activos de la modalidad
+        List<StudentModalityMember> activeMembers = studentModalityMemberRepository
+                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
 
-        String message = """
-                Estimado/a %s,
-                
-                Recibe un cordial y afectuoso saludo.
-                
-                ¡FELICITACIONES! Es un placer informarte que tu modalidad de grado:
-                
-                📚 "%s"
-                
-                Ha sido APROBADA DEFINITIVAMENTE por el Comité de Currículo del Programa Académico.
-                
-                📋 INFORMACIÓN DEL PROCESO:
-                
-                • Programa académico: %s
-                • Estado final: APROBADO 
-                • Aprobado por: %s %s
-                • Fecha de aprobación: %s
-                
-                %s
-                
-               
-                📌 IMPORTANTE:
-                
-                Este logro representa la culminación exitosa de tu proceso de formación profesional. 
-                Tu dedicación y esfuerzo han sido reconocidos por las instancias académicas competentes.
-                
-                Te recomendamos estar atento a tu correo electrónico institucional para recibir 
-                información adicional sobre los procedimientos administrativos finales.
-                
-                Una vez más, ¡MUCHAS FELICITACIONES por este importante logro académico!
-                
-                Cordialmente,
-                
-                Comité de Currículo del Programa
-                Sistema de Gestión Académica - SIGMA
-                Universidad Surcolombiana
-                """.formatted(
-                student.getName(),
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
-                modality.getAcademicProgram().getName(),
-                committeeMember.getName(),
-                committeeMember.getLastName(),
-                LocalDateTime.now().toString(),
-                event.getObservations() != null && !event.getObservations().isBlank()
-                        ? "📝 OBSERVACIONES DEL COMITÉ:\n" + event.getObservations() + "\n"
-                        : ""
-        );
+        String subject = "¡Felicitaciones! — Modalidad de Grado Aprobada por el Comité de Currículo";
 
-        Notification notification = Notification.builder()
-                .type(NotificationType.MODALITY_FINAL_APPROVED_BY_COMMITTEE)
-                .recipientType(NotificationRecipientType.STUDENT)
-                .recipient(student)
-                .triggeredBy(committeeMember)
-                .studentModality(modality)
-                .subject(subject)
-                .message(message)
-                .createdAt(LocalDateTime.now())
-                .build();
+        // Generar el acta simplificada UNA SOLA VEZ (la misma para todos los miembros)
+        AcademicCertificate certificate = null;
+        Path pdfPath = null;
+        try {
+            log.info("Generando acta simplificada (comité) para la modalidad ID: {}", modality.getId());
+            certificate = certificatePdfService.generateCertificateForCommitteeApproval(modality);
+            pdfPath = certificatePdfService.getCertificatePath(modality.getId());
+            log.info("Acta simplificada generada exitosamente: {}", pdfPath);
+        } catch (IOException e) {
+            log.error("Error generando acta simplificada para modalidad ID {}: {}",
+                    modality.getId(), e.getMessage(), e);
+        }
 
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
+        for (StudentModalityMember memberEntry : activeMembers) {
+            User student = memberEntry.getStudent();
 
-        log.info("Notificación de aprobación final de modalidad enviada al estudiante {} por el comité",
-                student.getId());
+            String message = """
+                    Estimado/a %s %s,
+
+                    Reciba un cordial y afectuoso saludo de la Universidad Surcolombiana.
+
+                    Nos complace informarle que su modalidad de grado:
+
+                        "%s"
+
+                    ha sido APROBADA DEFINITIVAMENTE por el Comité de Currículo del Programa \
+                    Académico de %s, de %s.
+
+                    ─────────────────────────────────────────
+                    INFORMACIÓN DEL PROCESO
+                    ─────────────────────────────────────────
+                    • Programa académico : %s
+                    • Facultad           : %s
+                    • Aprobado por       : %s %s (Comité de Currículo)
+                    • Fecha de aprobación: %s
+                    %s
+                    ─────────────────────────────────────────
+                    PRÓXIMOS PASOS
+                    ─────────────────────────────────────────
+                    Se adjunta a este correo el ACTA DE APROBACIÓN oficial en formato PDF,
+                    documento que certifica la culminación satisfactoria de su proceso académico.
+
+                    Le recomendamos comunicarse con la Jefatura de Programa para adelantar
+                    los trámites administrativos finales necesarios para la culminación de su
+                    proceso de grado.
+
+                    Una vez más, ¡muchas felicitaciones por este importante logro académico!
+
+                    Cordialmente,
+
+                    Comité de Currículo del Programa Académico
+                    Sistema de Gestión Académica
+                    Universidad Surcolombiana
+                    """.formatted(
+                    student.getName(),
+                    student.getLastName(),
+                    modality.getProgramDegreeModality().getDegreeModality().getName(),
+                    modality.getProgramDegreeModality().getAcademicProgram().getName(),
+                    modality.getProgramDegreeModality().getAcademicProgram().getFaculty().getName(),
+                    modality.getProgramDegreeModality().getAcademicProgram().getName(),
+                    modality.getProgramDegreeModality().getAcademicProgram().getFaculty().getName(),
+                    committeeMember.getName(),
+                    committeeMember.getLastName(),
+                    LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern(
+                            "d 'de' MMMM 'de' yyyy", java.util.Locale.forLanguageTag("es-CO"))),
+                    event.getObservations() != null && !event.getObservations().isBlank()
+                            ? "\n• Observaciones del Comité:\n  " + event.getObservations() + "\n"
+                            : ""
+            );
+
+            Notification notification = Notification.builder()
+                    .type(NotificationType.MODALITY_FINAL_APPROVED_BY_COMMITTEE)
+                    .recipientType(NotificationRecipientType.STUDENT)
+                    .recipient(student)
+                    .triggeredBy(committeeMember)
+                    .studentModality(modality)
+                    .subject(subject)
+                    .message(message)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            notificationRepository.save(notification);
+
+            if (pdfPath != null) {
+                try {
+                    dispatcher.dispatchWithAttachment(notification, pdfPath, "ACTA_DE_APROBACION.pdf");
+                    log.info("Acta simplificada enviada al estudiante {} (modalidad ID {})",
+                            student.getId(), modality.getId());
+                } catch (Exception e) {
+                    log.error("Error enviando acta al estudiante {}: {}", student.getId(), e.getMessage());
+                    dispatcher.dispatch(notification);
+                }
+            } else {
+                dispatcher.dispatch(notification);
+            }
+        }
+
+        // Actualizar estado del certificado a SENT si se generó correctamente
+        if (certificate != null) {
+            try {
+                certificatePdfService.updateCertificateStatus(certificate.getId(), CertificateStatus.SENT);
+            } catch (Exception e) {
+                log.warn("No se pudo actualizar el estado del certificado: {}", e.getMessage());
+            }
+        }
+
+        log.info("Notificaciones de aprobación final (comité) enviadas para modalidad ID {}",
+                modality.getId());
     }
 
 
@@ -1578,36 +1645,36 @@ public class StudentNotificationListener {
                 
                 NO ha sido aprobada.
                 
-                📋 INFORMACIÓN DEL PROCESO:
+                 INFORMACIÓN DEL PROCESO:
                 
                 • Programa académico: %s
                 • Estado: NO APROBADO
                 • Fecha: %s
                 
-                📝 MOTIVO DE LA DECISIÓN:
+                 MOTIVO DE LA DECISIÓN:
                 
                 %s
                 
-                🔄 OPCIONES DISPONIBLES:
+                 OPCIONES DISPONIBLES:
                 
                 Aunque esta modalidad no fue aprobada, tienes las siguientes alternativas para continuar 
                 con tu proceso de grado:
                 
-                1. **Iniciar una nueva modalidad de grado:** Puedes seleccionar otra modalidad diferente 
+                1. Iniciar una nueva modalidad de grado: Puedes seleccionar otra modalidad diferente 
                    que se ajuste mejor a tu perfil académico y profesional
                 
-                2. **Recibir asesoría académica:** Solicita una reunión con la jefatura de tu programa 
+                2. Recibir asesoría académica: Solicita una reunión con la jefatura de tu programa 
                    para recibir orientación sobre las mejores opciones para ti
                 
-                3. **Revisar requisitos:** Asegúrate de cumplir con todos los requisitos académicos y 
+                3. Revisar requisitos: Asegúrate de cumplir con todos los requisitos académicos y 
                    administrativos para la nueva modalidad que elijas
                 
-                📞 PRÓXIMOS PASOS:
+                 PRÓXIMOS PASOS:
                 
                 • Comunícate con la Jefatura de Programa para recibir asesoría personalizada
                 • Solicita retroalimentación detallada sobre los aspectos a mejorar
                 • Revisa las diferentes modalidades de grado disponibles en tu programa
-                • Evalúa con tu director académico cuál opción se ajusta mejor a tus capacidades
+                • Evalúa con tu director académico (en caso de tener) cuál opción se ajusta mejor a ti.
                 
                 📌 IMPORTANTE:
                 
@@ -1635,11 +1702,9 @@ public class StudentNotificationListener {
                 student.getName(),
                 modality.getProgramDegreeModality().getDegreeModality().getName(),
                 modality.getAcademicProgram().getName(),
-                committeeMember.getName(),
-                committeeMember.getLastName(),
-                LocalDateTime.now().toString(),
-                event.getReason(),
-                modality.getAcademicProgram().getName()
+                LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")),
+                event.getReason() != null ? event.getReason() : "No se proporcionó motivo específico",
+                committeeMember.getName() + " " + committeeMember.getLastName()
         );
 
         Notification notification = Notification.builder()
@@ -1844,10 +1909,10 @@ public class StudentNotificationListener {
         List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
         List<DefenseExaminer> examiners = modality.getDefenseExaminers();
         String jurados = examiners.stream()
-                .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + e.getExaminerType().name().replace('_', ' ') + ")")
+                .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + translateExaminerType(e.getExaminerType()) + ")")
                 .toList()
                 .isEmpty() ? "-" : String.join(", ", examiners.stream()
-                .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + e.getExaminerType().name().replace('_', ' ') + ")")
+                .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + translateExaminerType(e.getExaminerType()) + ")")
                 .toList());
         String subject = "Asignación de jurados evaluadores a tu modalidad de grado";
         String messageTemplate = """
@@ -1906,7 +1971,10 @@ public class StudentNotificationListener {
             case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones solicitadas por Comité de Currículo";
             case READY_FOR_DIRECTOR_ASSIGNMENT -> "Lista para asignación de Director de Proyecto";
             case READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para aprobación por Comité de Currículo";
+            case APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Aprobada por Comité de Currículo";
             case PROPOSAL_APPROVED -> "Propuesta aprobada";
+            case PENDING_PROGRAM_HEAD_FINAL_REVIEW -> "Pendiente revisión final por Jefatura de Programa";
+            case APPROVED_BY_PROGRAM_HEAD_FINAL_REVIEW -> "Documentos finales aprobados por Jefatura de Programa";
             case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR -> "Sustentación solicitada por Director";
             case DEFENSE_SCHEDULED -> "Sustentación programada";
             case EXAMINERS_ASSIGNED -> "Jurados asignados";
@@ -1923,6 +1991,7 @@ public class StudentNotificationListener {
             case DISAGREEMENT_REQUIRES_TIEBREAKER -> "Desacuerdo, requiere desempate";
             case UNDER_EVALUATION_TIEBREAKER -> "En evaluación por jurado de desempate";
             case EVALUATION_COMPLETED -> "Evaluación completada";
+            case PENDING_DISTINCTION_COMMITTEE_REVIEW -> "Aprobado - Distinción honorífica pendiente de revisión por el Comité";
             case GRADED_APPROVED -> "Aprobado";
             case GRADED_FAILED -> "Reprobado";
             case MODALITY_CLOSED -> "Modalidad cerrada";
@@ -1951,6 +2020,10 @@ public class StudentNotificationListener {
             case TIEBREAKER_LAUREATE -> "Laureado por desempate";
             case TIEBREAKER_REJECTED -> "Reprobado por desempate";
             case REJECTED_BY_COMMITTEE -> "Rechazado por comité";
+            case PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria propuesta (pendiente del comité)";
+            case PENDING_COMMITTEE_LAUREATE -> "Mención Laureada propuesta (pendiente del comité)";
+            case TIEBREAKER_PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria por desempate (pendiente del comité)";
+            case TIEBREAKER_PENDING_COMMITTEE_LAUREATE -> "Mención Laureada por desempate (pendiente del comité)";
         };
     }
 
@@ -1996,7 +2069,7 @@ public class StudentNotificationListener {
                         ───────────────────────────────
                         ACCIÓN REQUERIDA
                         ───────────────────────────────
-                        Puede ingresar al sistema SIGMA y resubir el documento
+                        Puede ingresar al sistema  y resubir el documento
                         con los cambios que consideró necesarios. Una vez resubido,
                         el jurado evaluará la nueva versión.
 
@@ -2062,7 +2135,18 @@ public class StudentNotificationListener {
             dispatcher.dispatch(notification);
         }
     }
+
+    private String translateExaminerType(com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType type) {
+        if (type == null) return "Jurado";
+        return switch (type) {
+            case PRIMARY_EXAMINER_1 -> "Jurado Principal 1";
+            case PRIMARY_EXAMINER_2 -> "Jurado Principal 2";
+            case TIEBREAKER_EXAMINER -> "Jurado de Desempate";
+        };
+    }
 }
+
+
 
 
 

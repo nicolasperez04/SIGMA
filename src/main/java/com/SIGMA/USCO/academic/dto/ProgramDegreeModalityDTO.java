@@ -22,7 +22,14 @@ public class ProgramDegreeModalityDTO {
     private String degreeModalityDescription;
     private Long creditsRequired;
     private boolean active;
+    /**
+     * Indica si esta configuración de modalidad requiere el proceso completo de sustentación.
+     * Si es false, el comité aprueba o rechaza directamente sin director ni jurados.
+     */
+    private boolean requiresDefenseProcess;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
+
+
 

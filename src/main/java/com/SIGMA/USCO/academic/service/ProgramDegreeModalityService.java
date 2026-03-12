@@ -61,6 +61,7 @@ public class ProgramDegreeModalityService {
                         .degreeModality(modality)
                         .creditsRequired(request.getCreditsRequired())
                         .active(true)
+                        .requiresDefenseProcess(request.isRequiresDefenseProcess())
                         .createdAt(LocalDateTime.now())
                         .updatedAt(LocalDateTime.now())
                         .build();
@@ -101,6 +102,9 @@ public class ProgramDegreeModalityService {
             }
             programModality.setCreditsRequired(request.getCreditsRequired());
         }
+
+        // Actualizar requiresDefenseProcess siempre que venga en el request
+        programModality.setRequiresDefenseProcess(request.isRequiresDefenseProcess());
 
 
         if (request.getAcademicProgramId() != null || request.getDegreeModalityId() != null) {
@@ -181,6 +185,7 @@ public class ProgramDegreeModalityService {
                 .degreeModalityDescription(entity.getDegreeModality().getDescription())
                 .creditsRequired(entity.getCreditsRequired())
                 .active(entity.isActive())
+                .requiresDefenseProcess(entity.isRequiresDefenseProcess())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

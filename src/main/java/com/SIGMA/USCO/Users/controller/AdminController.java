@@ -3,6 +3,7 @@ package com.SIGMA.USCO.Users.controller;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityStatus;
 import com.SIGMA.USCO.Modalities.dto.ModalityDTO;
 import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
+import com.SIGMA.USCO.Users.dto.request.AssignExaminerMultipleProgramsRequest;
 import com.SIGMA.USCO.Users.dto.request.assignAuthorityProgram;
 import com.SIGMA.USCO.Users.dto.request.PermissionDTO;
 import com.SIGMA.USCO.Users.dto.request.RegisterUserByAdminRequest;
@@ -167,6 +168,46 @@ public class AdminController {
         return adminService.registerUserByAdmin(request);
     }
 
+    /**
+     * Vincula un jurado a múltiples programas académicos en una sola operación.
+     * Si el usuario no tiene el rol EXAMINER, se lo asigna automáticamente.
+     * Body: { "userId": 1, "academicProgramIds": [1, 2, 3] }
+     */
+    @PostMapping("/examiner/assign-programs")
+    @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
+    public ResponseEntity<?> assignExaminerToMultiplePrograms(
+            @RequestBody AssignExaminerMultipleProgramsRequest request) {
+        return adminService.assignExaminerToMultiplePrograms(request);
+    }
 
+    /**
+     * Vincula un jurado existente a un programa académico adicional.
+     * Un jurado puede estar vinculado a múltiples programas académicos.
+     */
+    @PostMapping("/examiner/assign-program")
+    @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
+    public ResponseEntity<?> assignExaminerToAdditionalProgram(@RequestBody assignAuthorityProgram request) {
+        return adminService.assignExaminerToAdditionalProgram(request);
+    }
+
+    /**
+     * Desvincula un jurado de un programa académico específico.
+     */
+    @DeleteMapping("/examiner/{userId}/program/{academicProgramId}")
+    @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
+    public ResponseEntity<?> removeExaminerFromProgram(
+            @PathVariable Long userId,
+            @PathVariable Long academicProgramId) {
+        return adminService.removeExaminerFromProgram(userId, academicProgramId);
+    }
+
+    /**
+     * Retorna todos los programas académicos a los que está asociado un jurado.
+     */
+    @GetMapping("/examiner/{userId}/programs")
+    @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
+    public ResponseEntity<?> getExaminerPrograms(@PathVariable Long userId) {
+        return adminService.getExaminerPrograms(userId);
+    }
 
 }

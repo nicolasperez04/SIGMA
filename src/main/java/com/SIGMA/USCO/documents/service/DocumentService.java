@@ -66,6 +66,7 @@ public class DocumentService {
                 .documentType(request.getDocumentType())
                 .description(request.getDescription())
                 .active(true)
+                .requiresProposalEvaluation(request.isRequiresProposalEvaluation())
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -89,6 +90,7 @@ public class DocumentService {
         document.setMaxFileSizeMB(request.getMaxFileSizeMB());
         document.setDocumentType(request.getDocumentType());
         document.setActive(request.isActive());
+        document.setRequiresProposalEvaluation(request.isRequiresProposalEvaluation());
         document.setUpdatedAt(LocalDateTime.now());
 
         requiredDocumentRepository.save(document);
@@ -136,6 +138,7 @@ public class DocumentService {
                                 .maxFileSizeMB(doc.getMaxFileSizeMB())
                                 .documentType(doc.getDocumentType())
                                 .active(doc.isActive())
+                                .requiresProposalEvaluation(doc.isRequiresProposalEvaluation())
                                 .build())
                         .toList();
 
@@ -161,6 +164,7 @@ public class DocumentService {
                                 .maxFileSizeMB(doc.getMaxFileSizeMB())
                                 .documentType(doc.getDocumentType())
                                 .active(doc.isActive())
+                                .requiresProposalEvaluation(doc.isRequiresProposalEvaluation())
                                 .build())
                         .toList();
 

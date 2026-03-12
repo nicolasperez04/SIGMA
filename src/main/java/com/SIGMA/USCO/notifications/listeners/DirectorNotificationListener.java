@@ -53,25 +53,38 @@ public class DirectorNotificationListener {
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
 
-        String subject = "Cancelación de modalidad APROBADA";
+        String subject = "Concepto del Director de Proyecto sobre solicitud de cancelación de modalidad";
+
         String message = """
-                Estimado/a %s,
+                 Estimado/a %s,
                 
-                Reciba un cordial saludo.
+                        Reciba un cordial saludo.
                 
-                Le informamos que el Comité de Currículo del programa académico ha aprobado formalmente la solicitud de cancelación de la modalidad de grado:
+                        Le informamos que el/la Director/a del proyecto ha emitido un concepto favorable
+                        respecto a la solicitud de cancelación de la siguiente modalidad de grado:
                 
-                **“%s”**
+                        Modalidad:
+                        "%s"
                 
-                correspondiente a los siguientes estudiantes:
-                %s
+                        Estudiantes vinculados al proceso:
+                        %s
                 
-                En consecuencia, la modalidad queda cancelada conforme a los procedimientos institucionales vigentes. Si requiere información adicional o seguimiento sobre el caso, le recomendamos comunicarse con la jefatura del programa académico.
+                        De acuerdo con el procedimiento académico institucional, la solicitud será ahora
+                        remitida al Comité de Currículo del programa académico, instancia que realizará
+                        la evaluación correspondiente y emitirá la decisión definitiva sobre la cancelación
+                        de la modalidad de grado.
                 
-                Esta notificación se genera como parte del proceso oficial de gestión académica y registro institucional.
+                        El comité podrá determinar la aprobación o el rechazo de la solicitud, decisión
+                        que será notificada oportunamente a través del sistema institucional.
                 
-                Cordialmente,
-                Sistema de Gestión Académica de la universidad Surcolombiana.
+                        Esta comunicación se emite con el fin de mantener la trazabilidad y el registro
+                        formal del proceso académico asociado a las modalidades de grado.
+                
+                        Atentamente,
+                
+                        Sistema de Gestión de Modalidades de Grado
+                        Universidad Surcolombiana
+                
                 
                 """.formatted(
                 sm.getProjectDirector().getName(),
@@ -106,27 +119,40 @@ public class DirectorNotificationListener {
         String miembros = members.stream()
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
-        String subject = "Cancelación de modalidad rechazada";
+        String subject = "Concepto del Director de Proyecto sobre solicitud de cancelación de modalidad";
         String message = """
                 Estimado/a %s,
                 
-                Reciba un cordial saludo.
+                        Reciba un cordial saludo.
                 
-                Le informamos que el Comité de Currículo del programa académico ha emitido decisión respecto a la solicitud de cancelación de la modalidad de grado:
+                        Le informamos que el/la Director/a del proyecto ha evaluado la solicitud de
+                        cancelación correspondiente a la siguiente modalidad de grado:
                 
-                **“%s”**
+                        Modalidad:
+                        "%s"
                 
-                correspondiente a los siguientes estudiantes:
-                %s, la cual ha sido **rechazada**.
+                        Estudiantes vinculados al proceso:
+                        %s
                 
-                En consecuencia, la modalidad continuará su curso conforme al estado académico vigente y a los lineamientos institucionales establecidos.
+                        Después de realizar la revisión correspondiente, el/la Director/a del proyecto
+                        ha emitido un concepto no favorable respecto a la solicitud de cancelación.
                 
-                Para conocer los fundamentos de la decisión o realizar el seguimiento correspondiente al proceso, le recomendamos comunicarse con la jefatura del programa académico.
+                        En consecuencia, la solicitud no será remitida al Comité de Currículo y
+                        la modalidad de grado continuará su desarrollo conforme al estado académico
+                        vigente y a los lineamientos institucionales establecidos para el proceso
+                        de modalidades de grado.
                 
-                Esta notificación se genera como parte del procedimiento oficial de registro y control de decisiones académicas dentro del sistema.
+                        Esta notificación se emite con el fin de mantener la trazabilidad y el
+                        registro formal del proceso académico dentro del sistema institucional.
                 
-                Cordialmente,
-                Sistema de Gestión Académica de la universidad Surcolombiana.
+                        Si requiere información adicional o desea realizar seguimiento al caso,
+                        puede comunicarse con la Jefatura del Programa Académico correspondiente.
+                
+                        Atentamente,
+                
+                        Sistema de Gestión de Modalidades de Grado \s
+                        Universidad Surcolombiana
+                
                 
                 """.formatted(
                 sm.getProjectDirector().getName(),
@@ -164,23 +190,35 @@ public class DirectorNotificationListener {
                 
                 Reciba un cordial saludo.
                 
-                Le informamos que los siguientes estudiantes han presentado formalmente una solicitud de cancelación de la modalidad de grado:
+                Le informamos que se ha registrado una solicitud formal de cancelación
+                correspondiente a la siguiente modalidad de grado:
                 
+                Modalidad:
+                "%s"
+                
+                Estudiantes vinculados al proceso:
                 %s
                 
-                **“%s”**
+                De acuerdo con el procedimiento académico establecido, esta solicitud
+                requiere su revisión y concepto en calidad de Director/a de Proyecto.
+                Una vez emitida su valoración, el caso será remitido al Comité de
+                Currículo del Programa para su análisis y decisión final.
                 
-                De conformidad con el procedimiento académico establecido, esta solicitud requiere su análisis y concepto como Director/a de Proyecto. Una vez emitida su valoración, el caso será remitido al Comité de Currículo del programa académico para la evaluación y decisión definitiva.
+                Le agradecemos realizar la revisión correspondiente dentro de los
+                plazos institucionales establecidos y efectuar el seguimiento del
+                proceso a través del sistema.
                 
-                Agradecemos gestionar la revisión correspondiente dentro de los plazos institucionales y realizar el seguimiento a través de la plataforma académica.
+                Atentamente,
                 
-                Cordialmente,
-                Sistema de Gestión Académica de la universidad Surcolombiana.
+                Sistema SIGMA
+                Sistema de Gestión de Modalidades de Grado
+                Universidad Surcolombiana
                 
                 """.formatted(
                 sm.getProjectDirector().getName(),
-                miembros,
-                sm.getProgramDegreeModality().getDegreeModality().getName()
+                sm.getProgramDegreeModality().getDegreeModality().getName(),
+                miembros
+
         );
         Notification notification = Notification.builder()
                 .type(NotificationType.MODALITY_CANCELLATION_REQUESTED)
@@ -196,85 +234,6 @@ public class DirectorNotificationListener {
         dispatcher.dispatch(notification);
     }
 
-    @EventListener
-    public void handleDefenseScheduled(DefenseScheduledEvent event) {
-
-        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
-
-        User director = modality.getProjectDirector();
-
-        if (director == null) {
-            return;
-        }
-
-        // Obtener todos los miembros ACTIVOS de la modalidad
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-        String miembros = members.stream()
-            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
-            .collect(Collectors.joining(", "));
-
-        List<DefenseExaminer> examiners = modality.getDefenseExaminers();
-        String jurados = examiners.stream()
-                .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + e.getExaminerType().toSpanish() + ")")
-                .toList()
-                .isEmpty() ? "-" : String.join(", ", examiners.stream()
-                .map(e -> e.getExaminer().getName() + " " + e.getExaminerType().toSpanish() + ")")
-                .toList());
-
-        String directorSubject = "Notificación de sustentación programada para estudiantes asignados";
-
-        String directorMessage = """
-                Estimado/a %s,
-                
-                Reciba un cordial saludo.
-                
-                Le informamos que ha sido programada la sustentación de la modalidad de grado correspondiente a los siguientes estudiantes bajo su dirección académica:
-                
-                %s
-                
-                **Modalidad de grado:**
-                “%s”
-                
-                **Fecha y hora de sustentación:**
-                %s
-                
-                **Lugar:**
-                %s
-                
-                **Jurados:**
-                %s
-                
-                En su calidad de Director/a de Proyecto, se solicita su participación y acompañamiento durante la sustentación, garantizando el cumplimiento de los lineamientos académicos y evaluativos establecidos por el programa.
-                
-                Le recomendamos verificar la información en la plataforma institucional y preparar el proceso conforme a la normativa vigente.
-                
-                Cordialmente,
-                Sistema de Gestión Académica
-                
-                """.formatted(
-                director.getName(),
-                miembros,
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
-                event.getDefenseDate(),
-                event.getDefenseLocation(),
-                jurados
-        );
-
-
-
-        Notification notification = Notification.builder()
-                .type(NotificationType.DEFENSE_SCHEDULED)
-                .recipientType(NotificationRecipientType.PROJECT_DIRECTOR)
-                .recipient(director)
-                .triggeredBy(null)
-                .studentModality(modality)
-                .subject(directorSubject)
-                .message(directorMessage)
-                .createdAt(LocalDateTime.now())
-                .build();
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
-    }
 
     @EventListener
     public void DirectorAssigned(DirectorAssignedEvent event){
@@ -300,30 +259,39 @@ public class DirectorNotificationListener {
                 
                 Reciba un cordial saludo.
                 
-                Le informamos que ha sido designado/a oficialmente como **Director/a de Proyecto** para la siguiente modalidad de grado, conforme a la asignación registrada en el sistema institucional.
+                Le informamos que ha sido designado/a oficialmente como Director/a de Proyecto
+                para la siguiente modalidad de grado, conforme al registro realizado en el
+                sistema institucional.
                 
-                A continuación, se detallan los datos correspondientes:
+                A continuación, se presentan los datos asociados al proceso:
                 
-                **Estudiantes:**
+                Programa académico:
+                "%s"
+                
+                Estudiantes vinculados al proyecto:
                 %s
                 
-                **Programa académico:**
-                “%s”
-                
-                **Fecha de asignación:**
+                Fecha de asignación:
                 %s
                 
-                A partir de esta designación, usted asume la responsabilidad de orientar, supervisar y acompañar el desarrollo académico del proyecto de grado, garantizando el cumplimiento de los lineamientos, cronogramas y criterios de evaluación establecidos por el programa.
+                A partir de esta designación, usted asume la responsabilidad de orientar,
+                supervisar y acompañar el desarrollo académico del proyecto de grado,
+                garantizando el cumplimiento de los lineamientos, cronogramas y criterios
+                de evaluación establecidos por el programa académico.
                 
-                Le recomendamos ingresar a la plataforma institucional para revisar la información completa del caso y dar inicio formal al proceso de seguimiento.
+                Le recomendamos ingresar al sistema para consultar la información completa
+                de la modalidad y realizar el seguimiento correspondiente al proceso.
                 
-                Cordialmente,
-                Sistema de Gestión Académica
+                Atentamente,
+                
+                
+                Sistema de Gestión de Modalidades de Grado
+                Universidad Surcolombiana
                 
                 """.formatted(
                 director.getName(),
-                miembros,
                 modality.getProgramDegreeModality().getAcademicProgram().getName(),
+                miembros,
                 modality.getUpdatedAt()
         );
 
@@ -361,13 +329,17 @@ public class DirectorNotificationListener {
                 
                 Reciba un cordial saludo.
                 
-                Le informamos que la sustentación final de la modalidad de grado bajo su dirección académica ha sido realizada y registrada oficialmente en el sistema, con el siguiente resultado:
+                Le informamos que la sustentación final correspondiente a la modalidad
+                de grado bajo su dirección académica ha sido realizada y registrada
+                oficialmente en el sistema.
+                
+                A continuación, se presentan los detalles del proceso:
+                
+                Modalidad de grado:
+                "%s"
                 
                 Estudiantes:
                 %s
-                
-                Modalidad de grado:
-                “%s”
                 
                 Resultado final:
                 %s
@@ -375,15 +347,23 @@ public class DirectorNotificationListener {
                 Distinción académica:
                 %s
                 
-                Observaciones del jurado/comité evaluador:
+                Observaciones del jurado o comité evaluador:
                 %s
                 
-                Este resultado marca el cierre académico del proceso de sustentación. En su calidad de Director/a, le sugerimos verificar el estado actualizado en la plataforma institucional y coordinar, si corresponde, los trámites administrativos y académicos posteriores con la jefatura del programa.
+                Este resultado marca la finalización del proceso académico de
+                sustentación. En su calidad de Director/a de Proyecto, le recomendamos
+                verificar el estado actualizado de la modalidad en el sistema y, si
+                corresponde, coordinar los trámites académicos y administrativos
+                posteriores con la jefatura del programa.
                 
-                Agradecemos el acompañamiento y orientación brindados durante el desarrollo del proyecto.
+                Agradecemos el acompañamiento y la orientación brindados durante el
+                desarrollo del proyecto de grado.
                 
-                Cordialmente,
-                Sistema de Gestión Académica
+                Atentamente,
+                
+                Sistema SIGMA
+                Sistema de Gestión de Modalidades de Grado
+                Universidad Surcolombiana
                 """.formatted(
                 director.getName(),
                 miembros,
@@ -510,7 +490,10 @@ public class DirectorNotificationListener {
             case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones solicitadas por Comité de Currículo";
             case READY_FOR_DIRECTOR_ASSIGNMENT -> "Lista para asignación de Director de Proyecto";
             case READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para aprobación por Comité de Currículo";
+            case APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Aprobado por Comité de Currículo";
             case PROPOSAL_APPROVED -> "Propuesta aprobada";
+            case PENDING_PROGRAM_HEAD_FINAL_REVIEW -> "Pendiente revisión final por Jefatura de Programa";
+            case APPROVED_BY_PROGRAM_HEAD_FINAL_REVIEW -> "Documentos finales aprobados por Jefatura de Programa";
             case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR -> "Sustentación solicitada por Director";
             case DEFENSE_SCHEDULED -> "Sustentación programada";
             case EXAMINERS_ASSIGNED -> "Jurados asignados";
@@ -527,6 +510,7 @@ public class DirectorNotificationListener {
             case DISAGREEMENT_REQUIRES_TIEBREAKER -> "Desacuerdo, requiere desempate";
             case UNDER_EVALUATION_TIEBREAKER -> "En evaluación por jurado de desempate";
             case EVALUATION_COMPLETED -> "Evaluación completada";
+            case PENDING_DISTINCTION_COMMITTEE_REVIEW -> "Aprobado - Distinción honorífica pendiente de revisión por el Comité";
             case GRADED_APPROVED -> "Aprobado";
             case GRADED_FAILED -> "Reprobado";
             case MODALITY_CLOSED -> "Modalidad cerrada";
@@ -555,11 +539,12 @@ public class DirectorNotificationListener {
             case TIEBREAKER_LAUREATE -> "Laureado por desempate";
             case TIEBREAKER_REJECTED -> "Rechazado por desempate";
             case REJECTED_BY_COMMITTEE -> "Rechazado por comité";
+            case PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria propuesta (pendiente de aprobación del comité)";
+            case PENDING_COMMITTEE_LAUREATE -> "Mención Laureada propuesta (pendiente de aprobación del comité)";
+            case TIEBREAKER_PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria propuesta por desempate (pendiente del comité)";
+            case TIEBREAKER_PENDING_COMMITTEE_LAUREATE -> "Mención Laureada propuesta por desempate (pendiente del comité)";
         };
     }
 
-    // Usar estos métodos en todos los emails
-    // Ejemplo: translateDocumentStatus(document.getStatus())
-    // Ejemplo: translateModalityProcessStatus(modality.getStatus())
-    // Ejemplo: translateAcademicDistinction(event.getAcademicDistinction())
+
 }

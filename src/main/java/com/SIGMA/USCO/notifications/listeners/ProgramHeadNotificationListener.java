@@ -117,7 +117,7 @@ public class ProgramHeadNotificationListener {
         ───────────────────────────────
         ACCIÓN REQUERIDA
         ───────────────────────────────
-        Se solicita ingresar al sistema SIGMA para revisar el
+        Se solicita ingresar al sistema para revisar el
         documento actualizado y continuar con el proceso
         correspondiente según la normativa institucional.
         
@@ -442,6 +442,76 @@ public class ProgramHeadNotificationListener {
         }
     }
 
+    @EventListener
+    public void handleDirectorNotifiesProgramHeadForFinalReview(DirectorNotifiesProgramHeadForFinalReviewEvent event) {
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+
+        User director = modality.getProjectDirector();
+        String directorNombre = director != null
+                ? director.getName() + " " + director.getLastName()
+                : "El director de proyecto";
+
+        List<User> programHeads = userRepository.findAllByRoles_Name("PROGRAM_HEAD");
+
+        String subject = "Documentos finales listos para revisión - " +
+                modality.getProgramDegreeModality().getDegreeModality().getName();
+
+        String message = """
+                Estimada Jefatura de Programa,
+
+                Reciba un cordial saludo.
+
+                Le informamos que el Director de Proyecto %s ha indicado que
+                los documentos finales de la siguiente modalidad de grado están
+                listos para su revisión institucional previa a la sustentación:
+
+                ───────────────────────────────
+                INFORMACIÓN DE LA MODALIDAD
+                ───────────────────────────────
+                Modalidad:
+                "%s"
+
+                Estudiantes asociados:
+                %s
+
+                ───────────────────────────────
+                ACCIÓN REQUERIDA
+                ───────────────────────────────
+                Se solicita ingresar a la plataforma para revisar la
+                documentación final y, una vez verificada, proceder a
+                notificar a los jurados evaluadores para que continúen
+                con el proceso de sustentación.
+
+                Este mensaje constituye una notificación automática
+                generada para efectos de control y trazabilidad
+                del proceso académico.
+
+                Cordialmente,
+                Sistema de Gestión Académica
+                """.formatted(
+                directorNombre,
+                modality.getProgramDegreeModality().getDegreeModality().getName(),
+                getStudentList(modality)
+        );
+
+        for (User programHead : programHeads) {
+            Notification notification = Notification.builder()
+                    .type(NotificationType.DIRECTOR_NOTIFIES_PROGRAM_HEAD_FINAL_REVIEW)
+                    .recipientType(NotificationRecipientType.PROGRAM_HEAD)
+                    .recipient(programHead)
+                    .triggeredBy(director)
+                    .studentModality(modality)
+                    .subject(subject)
+                    .message(message)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            notificationRepository.save(notification);
+            dispatcher.dispatch(notification);
+        }
+    }
+
     private String getStudentList(StudentModality modality) {
         // Obtiene la lista de estudiantes asociados a la modalidad
         if (modality.getMembers() == null || modality.getMembers().isEmpty()) {
@@ -488,7 +558,10 @@ public class ProgramHeadNotificationListener {
             case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones solicitadas por Comité de Currículo";
             case READY_FOR_DIRECTOR_ASSIGNMENT -> "Lista para asignación de Director de Proyecto";
             case READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para aprobación por Comité de Currículo";
+            case APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Aprobado por Comité de Currículo";
             case PROPOSAL_APPROVED -> "Propuesta aprobada";
+            case PENDING_PROGRAM_HEAD_FINAL_REVIEW -> "Pendiente de revisión final por Jefatura de Programa";
+            case APPROVED_BY_PROGRAM_HEAD_FINAL_REVIEW -> "Documentos finales aprobados por Jefatura de Programa";
             case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR -> "Sustentación solicitada por Director";
             case DEFENSE_SCHEDULED -> "Sustentación programada";
             case EXAMINERS_ASSIGNED -> "Jurados asignados";
@@ -505,6 +578,7 @@ public class ProgramHeadNotificationListener {
             case DISAGREEMENT_REQUIRES_TIEBREAKER -> "Desacuerdo, requiere desempate";
             case UNDER_EVALUATION_TIEBREAKER -> "En evaluación por jurado de desempate";
             case EVALUATION_COMPLETED -> "Evaluación completada";
+            case PENDING_DISTINCTION_COMMITTEE_REVIEW -> "Aprobado - Distinción honorífica pendiente de revisión por el Comité";
             case GRADED_APPROVED -> "Aprobado";
             case GRADED_FAILED -> "Reprobado";
             case MODALITY_CLOSED -> "Modalidad cerrada";
@@ -532,6 +606,10 @@ public class ProgramHeadNotificationListener {
             case TIEBREAKER_LAUREATE -> "Laureado por desempate";
             case TIEBREAKER_REJECTED -> "Rechazado por desempate";
             case REJECTED_BY_COMMITTEE -> "Rechazado por comité";
+            case PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria propuesta (pendiente del comité)";
+            case PENDING_COMMITTEE_LAUREATE -> "Mención Laureada propuesta (pendiente del comité)";
+            case TIEBREAKER_PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria por desempate (pendiente del comité)";
+            case TIEBREAKER_PENDING_COMMITTEE_LAUREATE -> "Mención Laureada por desempate (pendiente del comité)";
         };
     }
 
