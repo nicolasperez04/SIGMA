@@ -14,6 +14,7 @@ import com.SIGMA.USCO.academic.repository.*;
 import com.SIGMA.USCO.documents.dto.*;
 import com.SIGMA.USCO.documents.entity.*;
 import com.SIGMA.USCO.documents.entity.enums.DocumentEditRequestStatus;
+import com.SIGMA.USCO.documents.entity.enums.FinalDocumentRubricType;
 import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
 import com.SIGMA.USCO.documents.entity.enums.DocumentType;
 import com.SIGMA.USCO.documents.entity.enums.EditRequestVoteDecision;
@@ -41,6 +42,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.text.Normalizer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -75,6 +77,7 @@ public class ModalityService {
     private final ExaminerNotificationListener examinerNotificationListener;
     private final NotificationRepository notificationRepository;
     private final ProposalEvaluationRepository proposalEvaluationRepository;
+    private final FinalDocumentEvaluationRepository secondaryDocumentEvaluationRepository;
     private final ExaminerDocumentReviewRepository examinerDocumentReviewRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final DocumentEditRequestRepository documentEditRequestRepository;
@@ -615,6 +618,19 @@ public class ModalityService {
         if (!requiredDocument.getModality().getId().equals(modality.getId())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body("El documento no pertenece a la modalidad seleccionada");
+        }
+
+        // Validación: Los documentos de tipo SECONDARY solo pueden ser subidos por el director del proyecto
+        if (requiredDocument.getDocumentType() == DocumentType.SECONDARY && !isAssignedDirector) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of(
+                            "success", false,
+                            "error", "Acceso denegado",
+                            "message", "Este documento solo puede ser subido por el director del proyecto. Por favor, póngase en contacto con el director " +
+                                    (studentModality.getProjectDirector() != null
+                                            ? studentModality.getProjectDirector().getName() + " " + studentModality.getProjectDirector().getLastName()
+                                            : "asignado")
+                    ));
         }
 
         String originalFilename = file.getOriginalFilename();
@@ -1745,6 +1761,328 @@ public class ModalityService {
         return ResponseEntity.ok(responseBody);
     }
 
+    @Transactional
+    public ResponseEntity<?> reviewFinalDocumentByExaminer(Long studentDocumentId, DocumentReviewDTO request) {
+
+        if (request == null || request.getFinalEvaluation() == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Debe enviar la evaluación detallada del documento final en el campo finalEvaluation"
+            ));
+        }
+
+        if (request.getStatus() != DocumentStatus.ACCEPTED_FOR_EXAMINER_REVIEW &&
+                request.getStatus() != DocumentStatus.REJECTED_FOR_EXAMINER_REVIEW &&
+                request.getStatus() != DocumentStatus.CORRECTIONS_REQUESTED_BY_EXAMINER) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Estado de documento inválido para revisión por jurado"
+            ));
+        }
+
+        if ((request.getStatus() == DocumentStatus.REJECTED_FOR_EXAMINER_REVIEW ||
+                request.getStatus() == DocumentStatus.CORRECTIONS_REQUESTED_BY_EXAMINER)
+                && (request.getNotes() == null || request.getNotes().isBlank())) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Debe proporcionar notas al rechazar o solicitar correcciones"
+            ));
+        }
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String email = auth.getName();
+
+        User examiner = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
+                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+
+        StudentModality studentModality = document.getStudentModality();
+
+        if (studentModality.getStatus() != ModalityProcessStatus.READY_FOR_DEFENSE &&
+              studentModality.getStatus() != ModalityProcessStatus.CORRECTIONS_SUBMITTED_TO_EXAMINERS) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "currentStatus", studentModality.getStatus().name(),
+                    "message", "La modalidad no está en un estado válido para revisión de documentos finales por parte del jurado"
+            ));
+        }
+
+
+
+        if (document.getDocumentConfig().getDocumentType() != DocumentType.SECONDARY ||
+                !document.getDocumentConfig().isRequiresProposalEvaluation()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "success", false,
+                    "message", "Solo se permite evaluar documentos finales que requieran evaluación por parte del jurado"
+            ));
+        }
+
+        FinalEvaluationRequest evalReq = request.getFinalEvaluation();
+        FinalDocumentRubricType rubricType = resolveFinalDocumentRubricType(studentModality);
+        String validationError = validateFinalEvaluationByRubric(evalReq, rubricType);
+        if (validationError != null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "rubricType", rubricType.name(),
+                    "message", validationError
+            ));
+        }
+
+        DocumentStatus previousDocumentStatus = document.getStatus();
+        String previousDocumentNotes = document.getNotes();
+        ModalityProcessStatus previousModalityStatus = studentModality.getStatus();
+
+        ResponseEntity<?> reviewResult = reviewStudentDocumentByExaminer(studentDocumentId, request);
+        if (!reviewResult.getStatusCode().is2xxSuccessful()) {
+            return reviewResult;
+        }
+
+        // Releer para reflejar estados resultantes del consenso entre jurados.
+        StudentDocument updatedDocument = studentDocumentRepository.findById(studentDocumentId)
+                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+        StudentModality updatedModality = studentModalityRepository.findById(studentModality.getId())
+                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+
+        // Consenso positivo en documento final: asegurar transición de cierre de revisión final.
+        // Se invoca cuando el documento fue aprobado Y la modalidad está en fase de revisión final
+        // (READY_FOR_DEFENSE o CORRECTIONS_SUBMITTED_TO_EXAMINERS)
+        if (updatedDocument.getStatus() == DocumentStatus.ACCEPTED_FOR_EXAMINER_REVIEW) {
+            boolean isInFinalReviewPhase = updatedModality.getStatus() == ModalityProcessStatus.READY_FOR_DEFENSE ||
+                    updatedModality.getStatus() == ModalityProcessStatus.CORRECTIONS_SUBMITTED_TO_EXAMINERS;
+            if (isInFinalReviewPhase) {
+                checkAndTransitionIfAllSecondaryApprovedByExaminers(updatedModality, examiner);
+                updatedModality = studentModalityRepository.findById(updatedModality.getId())
+                        .orElse(updatedModality);
+            }
+        }
+
+        FinalDocumentEvaluation secondaryEvaluation = secondaryDocumentEvaluationRepository
+                .findByStudentDocumentIdAndExaminerId(document.getId(), examiner.getId())
+                .orElse(FinalDocumentEvaluation.builder()
+                        .studentDocument(document)
+                        .examiner(examiner)
+                        .build());
+
+        applyFinalEvaluationByRubric(secondaryEvaluation, evalReq, rubricType);
+        secondaryEvaluation.setEvaluatedAt(LocalDateTime.now());
+        secondaryDocumentEvaluationRepository.save(secondaryEvaluation);
+
+        // Trazabilidad específica de la rúbrica del documento final (independiente del consenso).
+        saveFinalEvaluationTraceability(updatedDocument, examiner, request.getStatus(), request.getNotes(), secondaryEvaluation);
+
+        // Trazabilidad explícita de cambios finales por consenso.
+        if (previousDocumentStatus != updatedDocument.getStatus() || !Objects.equals(previousDocumentNotes, updatedDocument.getNotes())) {
+            documentHistoryRepository.save(
+                    StudentDocumentStatusHistory.builder()
+                            .studentDocument(updatedDocument)
+                            .status(updatedDocument.getStatus())
+                            .changeDate(LocalDateTime.now())
+                            .responsible(examiner)
+                            .observations("Estado final del documento tras consenso de jurados: " +
+                                    previousDocumentStatus + " -> " + updatedDocument.getStatus() +
+                                    (updatedDocument.getNotes() != null && !updatedDocument.getNotes().isBlank()
+                                            ? ". Notas finales: " + updatedDocument.getNotes()
+                                            : ""))
+                            .build()
+            );
+        }
+
+
+
+        Map<String, Object> secondaryEvaluationInfo = buildFinalEvaluationInfoMap(secondaryEvaluation);
+
+        Map<String, Object> traceability = new LinkedHashMap<>();
+        traceability.put("previousDocumentStatus", previousDocumentStatus != null ? previousDocumentStatus.name() : null);
+        traceability.put("currentDocumentStatus", updatedDocument.getStatus() != null ? updatedDocument.getStatus().name() : null);
+        traceability.put("previousModalityStatus", previousModalityStatus != null ? previousModalityStatus.name() : null);
+        traceability.put("currentModalityStatus", updatedModality.getStatus() != null ? updatedModality.getStatus().name() : null);
+        traceability.put("examinerNotes", request.getNotes());
+
+        Object responseBody = reviewResult.getBody();
+        if (responseBody instanceof Map<?, ?> mapBody) {
+            Map<String, Object> mergedBody = new LinkedHashMap<>();
+            mapBody.forEach((key, value) -> mergedBody.put(String.valueOf(key), value));
+            mergedBody.put("secondaryEvaluation", secondaryEvaluationInfo);
+            mergedBody.put("finalEvaluation", secondaryEvaluationInfo);
+            mergedBody.put("currentModalityStatus", updatedModality.getStatus().name());
+            mergedBody.put("traceability", traceability);
+            return ResponseEntity.status(reviewResult.getStatusCode()).body(mergedBody);
+        }
+
+        Map<String, Object> fallbackBody = new LinkedHashMap<>();
+        fallbackBody.put("success", true);
+        fallbackBody.put("message", "Documento SECONDARY evaluado correctamente");
+        fallbackBody.put("reviewResult", responseBody);
+        fallbackBody.put("secondaryEvaluation", secondaryEvaluationInfo);
+        fallbackBody.put("finalEvaluation", secondaryEvaluationInfo);
+        fallbackBody.put("currentModalityStatus", updatedModality.getStatus().name());
+        fallbackBody.put("traceability", traceability);
+
+        return ResponseEntity.status(reviewResult.getStatusCode()).body(fallbackBody);
+    }
+
+    private void saveFinalEvaluationTraceability(StudentDocument document,
+                                                 User examiner,
+                                                 DocumentStatus requestedStatus,
+                                                 String notes,
+                                                 FinalDocumentEvaluation evaluation) {
+        String observations = "Rúbrica de documento final registrada por jurado " +
+                examiner.getName() + " " + examiner.getLastName() +
+                ". Decisión: " + (requestedStatus != null ? requestedStatus.name() : "SIN_ESTADO") +
+                ". " + buildFinalEvaluationObservations(evaluation) +
+                (notes != null && !notes.isBlank() ? ". Notas del jurado: " + notes : "");
+
+        documentHistoryRepository.save(
+                StudentDocumentStatusHistory.builder()
+                        .studentDocument(document)
+                        .status(document.getStatus())
+                        .changeDate(LocalDateTime.now())
+                        .responsible(examiner)
+                        .observations(observations)
+                        .build()
+        );
+    }
+
+    private String buildFinalEvaluationObservations(FinalDocumentEvaluation evaluation) {
+        FinalDocumentRubricType rubricType = evaluation.getRubricType() != null
+                ? evaluation.getRubricType()
+                : FinalDocumentRubricType.STANDARD;
+
+        if (rubricType == FinalDocumentRubricType.PROFESSIONAL_PRACTICE) {
+            return "Rúbrica=PROFESSIONAL_PRACTICE => generalObjective=" + evaluation.getGeneralObjective() +
+                    ", activitiesObjectiveCoherence=" + evaluation.getActivitiesObjectiveCoherence() +
+                    ", criticalActivitiesDescription=" + evaluation.getCriticalActivitiesDescription() +
+                    ", practiceComplianceEvidence=" + evaluation.getPracticeComplianceEvidence() +
+                    ", organizationAndWriting=" + evaluation.getOrganizationAndWriting();
+        }
+
+        return "Rúbrica=STANDARD => summary=" + evaluation.getSummary() +
+                ", introduction=" + evaluation.getIntroduction() +
+                ", materialsAndMethods=" + evaluation.getMaterialsAndMethods() +
+                ", resultsAndDiscussion=" + evaluation.getResultsAndDiscussion() +
+                ", conclusions=" + evaluation.getConclusions() +
+                ", bibliographyReferences=" + evaluation.getBibliographyReferences() +
+                ", documentOrganization=" + evaluation.getDocumentOrganization() +
+                ", prototypeOrSoftware=" + evaluation.getPrototypeOrSoftware();
+    }
+
+    private FinalDocumentRubricType resolveFinalDocumentRubricType(StudentModality studentModality) {
+        String modalityName = studentModality.getProgramDegreeModality().getDegreeModality().getName();
+        String normalizedName = normalizeText(modalityName);
+        if ("practica profesional".equals(normalizedName)) {
+            return FinalDocumentRubricType.PROFESSIONAL_PRACTICE;
+        }
+        return FinalDocumentRubricType.STANDARD;
+    }
+
+    private String validateFinalEvaluationByRubric(FinalEvaluationRequest evalReq, FinalDocumentRubricType rubricType) {
+        if (rubricType == FinalDocumentRubricType.PROFESSIONAL_PRACTICE) {
+            if (evalReq.getGeneralObjective() == null ||
+                    evalReq.getActivitiesObjectiveCoherence() == null ||
+                    evalReq.getCriticalActivitiesDescription() == null ||
+                    evalReq.getPracticeComplianceEvidence() == null ||
+                    evalReq.getOrganizationAndWriting() == null) {
+                return "Para la modalidad Práctica Profesional debe proporcionar calificaciones para todos los criterios: " +
+                        "objetivo general, coherencia actividades-objetivo, descripción crítica de actividades, " +
+                        "evidencia de cumplimiento de la práctica y organización/redacción del documento.";
+            }
+            return null;
+        }
+
+        if (evalReq.getSummary() == null ||
+                evalReq.getIntroduction() == null ||
+                evalReq.getMaterialsAndMethods() == null ||
+                evalReq.getResultsAndDiscussion() == null ||
+                evalReq.getConclusions() == null ||
+                evalReq.getBibliographyReferences() == null ||
+                evalReq.getDocumentOrganization() == null) {
+            return "Debe proporcionar calificaciones para todos los aspectos obligatorios del documento final";
+        }
+        return null;
+    }
+
+    private void applyFinalEvaluationByRubric(FinalDocumentEvaluation evaluation,
+                                              FinalEvaluationRequest evalReq,
+                                              FinalDocumentRubricType rubricType) {
+        evaluation.setRubricType(rubricType);
+
+        if (rubricType == FinalDocumentRubricType.PROFESSIONAL_PRACTICE) {
+            evaluation.setGeneralObjective(evalReq.getGeneralObjective());
+            evaluation.setActivitiesObjectiveCoherence(evalReq.getActivitiesObjectiveCoherence());
+            evaluation.setCriticalActivitiesDescription(evalReq.getCriticalActivitiesDescription());
+            evaluation.setPracticeComplianceEvidence(evalReq.getPracticeComplianceEvidence());
+            evaluation.setOrganizationAndWriting(evalReq.getOrganizationAndWriting());
+
+            // Mapeo legacy para mantener compatibilidad con columnas históricas NOT NULL.
+            evaluation.setSummary(evalReq.getGeneralObjective());
+            evaluation.setIntroduction(evalReq.getActivitiesObjectiveCoherence());
+            evaluation.setMaterialsAndMethods(evalReq.getCriticalActivitiesDescription());
+            evaluation.setResultsAndDiscussion(evalReq.getPracticeComplianceEvidence());
+            evaluation.setConclusions(evalReq.getOrganizationAndWriting());
+            evaluation.setBibliographyReferences(evalReq.getOrganizationAndWriting());
+            evaluation.setDocumentOrganization(evalReq.getOrganizationAndWriting());
+            evaluation.setPrototypeOrSoftware(null);
+            return;
+        }
+
+        evaluation.setSummary(evalReq.getSummary());
+        evaluation.setIntroduction(evalReq.getIntroduction());
+        evaluation.setMaterialsAndMethods(evalReq.getMaterialsAndMethods());
+        evaluation.setResultsAndDiscussion(evalReq.getResultsAndDiscussion());
+        evaluation.setConclusions(evalReq.getConclusions());
+        evaluation.setBibliographyReferences(evalReq.getBibliographyReferences());
+        evaluation.setDocumentOrganization(evalReq.getDocumentOrganization());
+        evaluation.setPrototypeOrSoftware(evalReq.getPrototypeOrSoftware());
+
+        // Limpiar campos de práctica si se reutiliza la misma fila de evaluación.
+        evaluation.setGeneralObjective(null);
+        evaluation.setActivitiesObjectiveCoherence(null);
+        evaluation.setCriticalActivitiesDescription(null);
+        evaluation.setPracticeComplianceEvidence(null);
+        evaluation.setOrganizationAndWriting(null);
+    }
+
+    private Map<String, Object> buildFinalEvaluationInfoMap(FinalDocumentEvaluation evaluation) {
+        Map<String, Object> info = new LinkedHashMap<>();
+        FinalDocumentRubricType rubricType = evaluation.getRubricType() != null
+                ? evaluation.getRubricType()
+                : FinalDocumentRubricType.STANDARD;
+
+        info.put("id", evaluation.getId());
+        info.put("rubricType", rubricType.name());
+
+        if (rubricType == FinalDocumentRubricType.PROFESSIONAL_PRACTICE) {
+            info.put("generalObjective", evaluation.getGeneralObjective());
+            info.put("activitiesObjectiveCoherence", evaluation.getActivitiesObjectiveCoherence());
+            info.put("criticalActivitiesDescription", evaluation.getCriticalActivitiesDescription());
+            info.put("practiceComplianceEvidence", evaluation.getPracticeComplianceEvidence());
+            info.put("organizationAndWriting", evaluation.getOrganizationAndWriting());
+            // Campos legacy para no romper consumidores existentes.
+            info.put("summary", evaluation.getSummary());
+            info.put("introduction", evaluation.getIntroduction());
+            info.put("materialsAndMethods", evaluation.getMaterialsAndMethods());
+            info.put("resultsAndDiscussion", evaluation.getResultsAndDiscussion());
+            info.put("conclusions", evaluation.getConclusions());
+            info.put("bibliographyReferences", evaluation.getBibliographyReferences());
+            info.put("documentOrganization", evaluation.getDocumentOrganization());
+            info.put("prototypeOrSoftware", evaluation.getPrototypeOrSoftware());
+        } else {
+            info.put("summary", evaluation.getSummary());
+            info.put("introduction", evaluation.getIntroduction());
+            info.put("materialsAndMethods", evaluation.getMaterialsAndMethods());
+            info.put("resultsAndDiscussion", evaluation.getResultsAndDiscussion());
+            info.put("conclusions", evaluation.getConclusions());
+            info.put("bibliographyReferences", evaluation.getBibliographyReferences());
+            info.put("documentOrganization", evaluation.getDocumentOrganization());
+            info.put("prototypeOrSoftware", evaluation.getPrototypeOrSoftware());
+        }
+
+        info.put("evaluatedAt", evaluation.getEvaluatedAt());
+        return info;
+    }
+
     /**
      * Procesa el consenso entre jurados sobre un documento.
      * Implementa la lógica:
@@ -2083,6 +2421,83 @@ public class ModalityService {
     }
 
     /**
+     * Verifica si el documento es de tipo SECONDARY (documento final) para aplicar lógica de cancelación.
+     * Si es documento SECONDARY y hay rechazo, cancela la modalidad completamente.
+     * Si es documento MANDATORY, mantiene la lógica actual.
+     *
+     * @param document el documento siendo evaluado
+     * @return true si es documento final (SECONDARY)
+     */
+    private boolean isFinalDocument(StudentDocument document) {
+        return document.getDocumentConfig().getDocumentType() == DocumentType.SECONDARY;
+    }
+
+    /**
+     * Cancela la modalidad por consenso de rechazo en documento final.
+     * - Cambia estado de modalidad a MODALITY_CANCELLED
+     * - Elimina la relación estudiante-modalidad (StudentModalityMember)
+     * - Registra el cambio en historial
+     * - Notifica al estudiante
+     */
+    private ResponseEntity<?> cancelModalityByFinalDocumentRejection(StudentDocument document, StudentModality studentModality, User examiner, String reason) {
+
+        // Cambiar estado de modalidad a MODALITY_CANCELLED
+        studentModality.setStatus(ModalityProcessStatus.MODALITY_CANCELLED);
+        studentModality.setUpdatedAt(LocalDateTime.now());
+        studentModalityRepository.save(studentModality);
+
+        // Obtener y eliminar miembros activos (relación estudiante-modalidad)
+        List<StudentModalityMember> members = studentModalityMemberRepository
+                .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
+        
+        for (StudentModalityMember member : members) {
+            studentModalityMemberRepository.delete(member);
+        }
+
+        // Registrar en historial
+        String observations = "Modalidad cancelada por rechazo de documento final. " +
+                "Documento: " + document.getDocumentConfig().getDocumentName() + ". " +
+                (reason != null && !reason.isBlank() ? "Motivo: " + reason : "Documento rechazado por los jurados.");
+
+        historyRepository.save(
+                ModalityProcessStatusHistory.builder()
+                        .studentModality(studentModality)
+                        .status(ModalityProcessStatus.MODALITY_CANCELLED)
+                        .changeDate(LocalDateTime.now())
+                        .responsible(examiner)
+                        .observations(observations)
+                        .build()
+        );
+
+        // Actualizar estado del documento
+        document.setStatus(DocumentStatus.REJECTED_FOR_EXAMINER_REVIEW);
+        document.setNotes("Documento final rechazado - Modalidad cancelada");
+        studentDocumentRepository.save(document);
+
+        // Notificar a los estudiantes
+        for (StudentModalityMember member : members) {
+            notificationEventPublisher.publish(
+                    new CorrectionRejectedFinalEvent(
+                            studentModality.getId(), document.getId(),
+                            member.getStudent().getId(),
+                            document.getDocumentConfig().getDocumentName(),
+                            "Modalidad cancelada por rechazo de documento final. " +
+                            (reason != null && !reason.isBlank() ? reason : "Documento rechazado por los jurados. Puedes iniciar una nueva modalidad."),
+                            examiner.getId())
+            );
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "La modalidad ha sido cancelada por rechazo de documento final. Puedes iniciar una nueva modalidad.",
+                "documentId", document.getId(),
+                "documentName", document.getDocumentConfig().getDocumentName(),
+                "newModalityStatus", ModalityProcessStatus.MODALITY_CANCELLED.name(),
+                "deletedMembers", members.size()
+        ));
+    }
+
+    /**
      * Aplica correcciones solicitadas por el jurado de desempate.
      */
     private void applyCorrectionsRequestedFromTiebreaker(StudentDocument document, StudentModality studentModality, User tiebreaker, String notes) {
@@ -2123,9 +2538,17 @@ public class ModalityService {
 
     /**
      * Aplica rechazo definitivo por ambos jurados primarios.
+     * Si es un documento final (SECONDARY), cancela la modalidad completamente.
+     * Si es documento MANDATORY, marca como rechazado para correcciones.
      */
     private ResponseEntity<?> applyRejectionByBothPrimaryExaminers(StudentDocument document, StudentModality studentModality, User examiner, String notes) {
 
+        // Verificar si es un documento final (SECONDARY)
+        if (isFinalDocument(document)) {
+            return cancelModalityByFinalDocumentRejection(document, studentModality, examiner, notes);
+        }
+
+        // Lógica existente para documentos MANDATORY
         studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL);
         studentModality.setUpdatedAt(LocalDateTime.now());
         studentModalityRepository.save(studentModality);
@@ -2164,9 +2587,18 @@ public class ModalityService {
 
     /**
      * Aplica rechazo definitivo por el jurado de desempate.
+     * Si es un documento final (SECONDARY), cancela la modalidad completamente.
+     * Si es documento MANDATORY, marca como rechazado para correcciones.
      */
     private void applyRejectionByTiebreaker(StudentDocument document, StudentModality studentModality, User tiebreaker, String notes) {
 
+        // Verificar si es un documento final (SECONDARY)
+        if (isFinalDocument(document)) {
+            cancelModalityByFinalDocumentRejection(document, studentModality, tiebreaker, notes);
+            return;
+        }
+
+        // Lógica existente para documentos MANDATORY
         studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL);
         studentModality.setUpdatedAt(LocalDateTime.now());
         studentModalityRepository.save(studentModality);
@@ -2319,6 +2751,13 @@ public class ModalityService {
      * + ExaminerFinalReviewCompletedEvent (notifica al director para programar sustentación).
      */
     private void checkAndTransitionIfAllSecondaryApprovedByExaminers(StudentModality studentModality, User responsible) {
+        // Válido en fases de revisión final (READY_FOR_DEFENSE o CORRECTIONS_SUBMITTED_TO_EXAMINERS)
+        boolean isInFinalReviewPhase = studentModality.getStatus() == ModalityProcessStatus.READY_FOR_DEFENSE ||
+                studentModality.getStatus() == ModalityProcessStatus.CORRECTIONS_SUBMITTED_TO_EXAMINERS;
+        if (!isInFinalReviewPhase) {
+            return;
+        }
+
         Long modalityId = studentModality.getProgramDegreeModality().getDegreeModality().getId();
 
         // Solo documentos SECONDARY que requieren evaluación por jurado
@@ -6217,11 +6656,57 @@ public class ModalityService {
                         .isFinalDecision(false)
                         .evaluatedAt(LocalDateTime.now());
 
-        // ── Criterios de rúbrica (opcional) ──────────────────────────────────
-        if (evaluationDTO.getEvaluationCriteria() != null) {
-            DefenseEvaluationCriteriaDTO criteriaDTO = evaluationDTO.getEvaluationCriteria();
+        DefenseRubricType expectedRubricType = resolveDefenseRubricType(studentModality);
+        DefenseEvaluationCriteriaDTO criteriaDTO = evaluationDTO.getEvaluationCriteria();
 
-            // Todos los 5 criterios son obligatorios cuando se envía el bloque
+        if (criteriaDTO == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Debe enviar la rúbrica de evaluación en el campo evaluationCriteria.",
+                    "expectedRubricType", expectedRubricType.name()
+            ));
+        }
+
+        if (criteriaDTO.getRubricType() != null && criteriaDTO.getRubricType() != expectedRubricType) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "El tipo de rúbrica enviado no coincide con la modalidad evaluada.",
+                    "expectedRubricType", expectedRubricType.name(),
+                    "receivedRubricType", criteriaDTO.getRubricType().name()
+            ));
+        }
+
+        if (expectedRubricType == DefenseRubricType.ENTREPRENEURSHIP) {
+            if (criteriaDTO.getEntrepreneurshipPresentationSupportMaterial() == null
+                    || criteriaDTO.getEntrepreneurshipCoherentBusinessObjectives() == null
+                    || criteriaDTO.getEntrepreneurshipMethodologyTechnicalApproach() == null
+                    || criteriaDTO.getEntrepreneurshipAnalyticalCreativeCapacity() == null
+                    || criteriaDTO.getEntrepreneurshipDefenseSustentation() == null) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "success", false,
+                        "message", "Para la modalidad de Emprendimiento y fortalecimiento de empresa debe enviar los 5 criterios específicos de la rúbrica empresarial.",
+                        "expectedRubricType", expectedRubricType.name()
+                ));
+            }
+
+            criteriaBuilder
+                    .rubricType(DefenseRubricType.ENTREPRENEURSHIP)
+                    .entrepreneurshipPresentationSupportMaterial(criteriaDTO.getEntrepreneurshipPresentationSupportMaterial())
+                    .entrepreneurshipCoherentBusinessObjectives(criteriaDTO.getEntrepreneurshipCoherentBusinessObjectives())
+                    .entrepreneurshipMethodologyTechnicalApproach(criteriaDTO.getEntrepreneurshipMethodologyTechnicalApproach())
+                    .entrepreneurshipAnalyticalCreativeCapacity(criteriaDTO.getEntrepreneurshipAnalyticalCreativeCapacity())
+                    .entrepreneurshipDefenseSustentation(criteriaDTO.getEntrepreneurshipDefenseSustentation())
+                    .proposedMention(criteriaDTO.getProposedMention() != null
+                            ? criteriaDTO.getProposedMention()
+                            : ProposedMention.NONE)
+                    // Se mapean también a la rúbrica estándar para mantener compatibilidad histórica
+                    // con reportes/queries existentes que leen los 5 campos legacy.
+                    .domainAndClarity(criteriaDTO.getEntrepreneurshipCoherentBusinessObjectives())
+                    .synthesisAndCommunication(criteriaDTO.getEntrepreneurshipPresentationSupportMaterial())
+                    .argumentationAndResponse(criteriaDTO.getEntrepreneurshipDefenseSustentation())
+                    .innovationAndImpact(criteriaDTO.getEntrepreneurshipAnalyticalCreativeCapacity())
+                    .professionalPresentation(criteriaDTO.getEntrepreneurshipMethodologyTechnicalApproach());
+        } else {
             if (criteriaDTO.getDomainAndClarity() == null
                     || criteriaDTO.getSynthesisAndCommunication() == null
                     || criteriaDTO.getArgumentationAndResponse() == null
@@ -6229,11 +6714,13 @@ public class ModalityService {
                     || criteriaDTO.getProfessionalPresentation() == null) {
                 return ResponseEntity.badRequest().body(Map.of(
                         "success", false,
-                        "message", "Si se envía el formulario de rúbrica, todos los criterios son obligatorios."
+                        "message", "Para esta modalidad debe enviar los 5 criterios estándar de la rúbrica.",
+                        "expectedRubricType", expectedRubricType.name()
                 ));
             }
 
             criteriaBuilder
+                    .rubricType(DefenseRubricType.STANDARD)
                     .domainAndClarity(criteriaDTO.getDomainAndClarity())
                     .synthesisAndCommunication(criteriaDTO.getSynthesisAndCommunication())
                     .argumentationAndResponse(criteriaDTO.getArgumentationAndResponse())
@@ -6243,7 +6730,6 @@ public class ModalityService {
                             ? criteriaDTO.getProposedMention()
                             : ProposedMention.NONE);
         }
-        // ─────────────────────────────────────────────────────────────────────
 
         DefenseEvaluationCriteria evaluation = criteriaBuilder.build();
         defenseEvaluationCriteriaRepository.save(evaluation);
@@ -6295,21 +6781,7 @@ public class ModalityService {
         response.put("isFinalDecision", evaluation.getIsFinalDecision());
         response.put("examinerType", defenseExaminer.getExaminerType());
 
-        // Incluir criterios de rúbrica si existen
-        if (evaluation.getDomainAndClarity() != null) {
-            Map<String, Object> criteriaMap = new LinkedHashMap<>();
-            criteriaMap.put("id", evaluation.getId());
-            criteriaMap.put("domainAndClarity", evaluation.getDomainAndClarity());
-            criteriaMap.put("synthesisAndCommunication", evaluation.getSynthesisAndCommunication());
-            criteriaMap.put("argumentationAndResponse", evaluation.getArgumentationAndResponse());
-            criteriaMap.put("innovationAndImpact", evaluation.getInnovationAndImpact());
-            criteriaMap.put("professionalPresentation", evaluation.getProfessionalPresentation());
-            criteriaMap.put("proposedMention", evaluation.getProposedMention());
-            criteriaMap.put("evaluatedAt", evaluation.getEvaluatedAt());
-            response.put("evaluationCriteria", criteriaMap);
-        } else {
-            response.put("evaluationCriteria", null);
-        }
+        response.put("evaluationCriteria", buildDefenseCriteriaResponse(evaluation));
 
         return ResponseEntity.ok(response);
     }
@@ -6710,18 +7182,7 @@ public class ModalityService {
                         return null;
                     }
 
-                    FinalDefenseResponse.CriteriaDetail criteriaDetail = null;
-                    if (evaluation.getDomainAndClarity() != null) {
-                        criteriaDetail = FinalDefenseResponse.CriteriaDetail.builder()
-                                .domainAndClarity(evaluation.getDomainAndClarity())
-                                .synthesisAndCommunication(evaluation.getSynthesisAndCommunication())
-                                .argumentationAndResponse(evaluation.getArgumentationAndResponse())
-                                .innovationAndImpact(evaluation.getInnovationAndImpact())
-                                .professionalPresentation(evaluation.getProfessionalPresentation())
-                                .proposedMention(evaluation.getProposedMention())
-                                .evaluatedAt(evaluation.getEvaluatedAt())
-                                .build();
-                    }
+                    FinalDefenseResponse.CriteriaDetail criteriaDetail = buildFinalDefenseCriteriaDetail(evaluation);
 
                     return FinalDefenseResponse.ExaminerEvaluationDetail.builder()
                             .examinerName(defenseExaminer.getExaminer().getName() + " " +
@@ -6769,6 +7230,78 @@ public class ModalityService {
                         .examinerEvaluations(examinerEvaluations)
                         .build()
         );
+    }
+
+    private DefenseRubricType resolveDefenseRubricType(StudentModality studentModality) {
+        String modalityName = studentModality.getProgramDegreeModality().getDegreeModality().getName();
+        String normalizedName = normalizeText(modalityName);
+        if ("emprendimiento y fortalecimiento de empresa".equals(normalizedName)) {
+            return DefenseRubricType.ENTREPRENEURSHIP;
+        }
+        return DefenseRubricType.STANDARD;
+    }
+
+    private String normalizeText(String text) {
+        if (text == null) {
+            return "";
+        }
+        String normalized = Normalizer.normalize(text, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "");
+        return normalized.toLowerCase(Locale.ROOT).trim().replaceAll("\\s+", " ");
+    }
+
+    private Map<String, Object> buildDefenseCriteriaResponse(DefenseEvaluationCriteria evaluation) {
+        if (evaluation == null) {
+            return null;
+        }
+
+        Map<String, Object> criteriaMap = new LinkedHashMap<>();
+        DefenseRubricType rubricType = evaluation.getRubricType() != null
+                ? evaluation.getRubricType()
+                : DefenseRubricType.STANDARD;
+
+        criteriaMap.put("id", evaluation.getId());
+        criteriaMap.put("rubricType", rubricType.name());
+        criteriaMap.put("proposedMention", evaluation.getProposedMention());
+        criteriaMap.put("evaluatedAt", evaluation.getEvaluatedAt());
+
+        if (rubricType == DefenseRubricType.ENTREPRENEURSHIP) {
+            criteriaMap.put("entrepreneurshipPresentationSupportMaterial", evaluation.getEntrepreneurshipPresentationSupportMaterial());
+            criteriaMap.put("entrepreneurshipCoherentBusinessObjectives", evaluation.getEntrepreneurshipCoherentBusinessObjectives());
+            criteriaMap.put("entrepreneurshipMethodologyTechnicalApproach", evaluation.getEntrepreneurshipMethodologyTechnicalApproach());
+            criteriaMap.put("entrepreneurshipAnalyticalCreativeCapacity", evaluation.getEntrepreneurshipAnalyticalCreativeCapacity());
+            criteriaMap.put("entrepreneurshipDefenseSustentation", evaluation.getEntrepreneurshipDefenseSustentation());
+        } else {
+            criteriaMap.put("domainAndClarity", evaluation.getDomainAndClarity());
+            criteriaMap.put("synthesisAndCommunication", evaluation.getSynthesisAndCommunication());
+            criteriaMap.put("argumentationAndResponse", evaluation.getArgumentationAndResponse());
+            criteriaMap.put("innovationAndImpact", evaluation.getInnovationAndImpact());
+            criteriaMap.put("professionalPresentation", evaluation.getProfessionalPresentation());
+        }
+
+        return criteriaMap;
+    }
+
+    private FinalDefenseResponse.CriteriaDetail buildFinalDefenseCriteriaDetail(DefenseEvaluationCriteria evaluation) {
+        if (evaluation == null) {
+            return null;
+        }
+
+        return FinalDefenseResponse.CriteriaDetail.builder()
+                .rubricType(evaluation.getRubricType() != null ? evaluation.getRubricType() : DefenseRubricType.STANDARD)
+                .domainAndClarity(evaluation.getDomainAndClarity())
+                .synthesisAndCommunication(evaluation.getSynthesisAndCommunication())
+                .argumentationAndResponse(evaluation.getArgumentationAndResponse())
+                .innovationAndImpact(evaluation.getInnovationAndImpact())
+                .professionalPresentation(evaluation.getProfessionalPresentation())
+                .entrepreneurshipPresentationSupportMaterial(evaluation.getEntrepreneurshipPresentationSupportMaterial())
+                .entrepreneurshipCoherentBusinessObjectives(evaluation.getEntrepreneurshipCoherentBusinessObjectives())
+                .entrepreneurshipMethodologyTechnicalApproach(evaluation.getEntrepreneurshipMethodologyTechnicalApproach())
+                .entrepreneurshipAnalyticalCreativeCapacity(evaluation.getEntrepreneurshipAnalyticalCreativeCapacity())
+                .entrepreneurshipDefenseSustentation(evaluation.getEntrepreneurshipDefenseSustentation())
+                .proposedMention(evaluation.getProposedMention())
+                .evaluatedAt(evaluation.getEvaluatedAt())
+                .build();
     }
 
     public ResponseEntity<?> getMyFinalDefenseResult() {
@@ -6830,6 +7363,7 @@ public class ModalityService {
                             .observations(evaluation.getObservations())
                             .evaluationDate(evaluation.getEvaluatedAt())
                             .isFinalDecision(evaluation.getIsFinalDecision())
+                            .evaluationCriteria(buildFinalDefenseCriteriaDetail(evaluation))
                             .build();
                 })
                 .filter(detail -> detail != null)
@@ -9394,52 +9928,61 @@ public class ModalityService {
         }
 
         // Validar que TODOS los documentos SECONDARY estén aprobados por jefatura o en estado superior
-        Long degreeModalityId = studentModality.getProgramDegreeModality().getDegreeModality().getId();
-        List<RequiredDocument> secondaryDocs = requiredDocumentRepository
-                .findByModalityIdAndActiveTrueAndDocumentType(degreeModalityId, DocumentType.SECONDARY);
-        List<StudentDocument> uploadedDocs = studentDocumentRepository.findByStudentModalityId(studentModalityId);
+        // EXCEPCIÓN: Para la modalidad "Emprendimiento y fortalecimiento de empresa", 
+        // se permite avanzar sin validar que los documentos SECONDARY estén subidos
+        String modalityName = studentModality.getProgramDegreeModality().getDegreeModality().getName();
+        boolean isEmprendimientoModality = modalityName != null && 
+                modalityName.equalsIgnoreCase("Emprendimiento y fortalecimiento de empresa");
 
         List<Map<String, Object>> invalidDocuments = new ArrayList<>();
 
-        for (RequiredDocument reqDoc : secondaryDocs) {
-            StudentDocument doc = uploadedDocs.stream()
-                    .filter(d -> d.getDocumentConfig().getId().equals(reqDoc.getId()))
-                    .findFirst()
-                    .orElse(null);
+        // Solo validar documentos SECONDARY si NO es la modalidad especial
+        if (!isEmprendimientoModality) {
+            Long degreeModalityId = studentModality.getProgramDegreeModality().getDegreeModality().getId();
+            List<RequiredDocument> secondaryDocs = requiredDocumentRepository
+                    .findByModalityIdAndActiveTrueAndDocumentType(degreeModalityId, DocumentType.SECONDARY);
+            List<StudentDocument> uploadedDocs = studentDocumentRepository.findByStudentModalityId(studentModalityId);
 
-            // Validar que el documento exista
-            if (doc == null) {
-                invalidDocuments.add(Map.of(
-                        "documentName", reqDoc.getDocumentName(),
-                        "status", "NOT_UPLOADED"
-                ));
-                continue;
+            for (RequiredDocument reqDoc : secondaryDocs) {
+                StudentDocument doc = uploadedDocs.stream()
+                        .filter(d -> d.getDocumentConfig().getId().equals(reqDoc.getId()))
+                        .findFirst()
+                        .orElse(null);
+
+                // Validar que el documento exista
+                if (doc == null) {
+                    invalidDocuments.add(Map.of(
+                            "documentName", reqDoc.getDocumentName(),
+                            "status", "NOT_UPLOADED"
+                    ));
+                    continue;
+                }
+
+                DocumentStatus status = doc.getStatus();
+
+                // Estados inválidos: PENDING, REJECTED_FOR_PROGRAM_HEAD_REVIEW, CORRECTIONS_REQUESTED_BY_PROGRAM_HEAD
+                if (status == DocumentStatus.PENDING ||
+                    status == DocumentStatus.REJECTED_FOR_PROGRAM_HEAD_REVIEW ||
+                    status == DocumentStatus.CORRECTIONS_REQUESTED_BY_PROGRAM_HEAD) {
+                    invalidDocuments.add(Map.of(
+                            "documentName", reqDoc.getDocumentName(),
+                            "currentStatus", status.name(),
+                            "reason", "Documento no aprobado por jefatura o requiere correcciones"
+                    ));
+                }
             }
 
-            DocumentStatus status = doc.getStatus();
-
-            // Estados inválidos: PENDING, REJECTED_FOR_PROGRAM_HEAD_REVIEW, CORRECTIONS_REQUESTED_BY_PROGRAM_HEAD
-            if (status == DocumentStatus.PENDING ||
-                status == DocumentStatus.REJECTED_FOR_PROGRAM_HEAD_REVIEW ||
-                status == DocumentStatus.CORRECTIONS_REQUESTED_BY_PROGRAM_HEAD) {
-                invalidDocuments.add(Map.of(
-                        "documentName", reqDoc.getDocumentName(),
-                        "currentStatus", status.name(),
-                        "reason", "Documento no aprobado por jefatura o requiere correcciones"
-                ));
+            // Si hay documentos inválidos, retornar error sin permitir avanzar
+            if (!invalidDocuments.isEmpty()) {
+                return ResponseEntity.badRequest().body(
+                        Map.of(
+                                "success", false,
+                                "message", "No se puede notificar a los jurados. Existen documentos que no están aprobados por jefatura o requieren correcciones:",
+                                "invalidDocuments", invalidDocuments,
+                                "totalInvalid", invalidDocuments.size()
+                        )
+                );
             }
-        }
-
-        // Si hay documentos inválidos, retornar error sin permitir avanzar
-        if (!invalidDocuments.isEmpty()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "No se puede notificar a los jurados. Existen documentos que no están aprobados por jefatura o requieren correcciones:",
-                            "invalidDocuments", invalidDocuments,
-                            "totalInvalid", invalidDocuments.size()
-                    )
-            );
         }
 
         // Cambiar estado a READY_FOR_DEFENSE (jurados pueden revisar)
@@ -9453,7 +9996,7 @@ public class ModalityService {
                         .status(ModalityProcessStatus.READY_FOR_DEFENSE)
                         .changeDate(LocalDateTime.now())
                         .responsible(programHead)
-                        .observations("Jefatura de programa aprobó todos los documentos SECONDARY y notificó a los jurados para revisión de la sustentación")
+                        .observations("Jefatura de programa aprobó todos los documentos y notificó a los jurados para revisión de la sustentación")
                         .build()
         );
 
@@ -9731,6 +10274,182 @@ public class ModalityService {
         ));
     }
 
+    /**
+     * El jurado autenticado obtiene su veredicto sobre documentos MANDATORY (propuesta de grado).
+     * Devuelve la decisión individual del jurado, notas y evaluación de propuesta (si aplica).
+     * Ruta: GET /modalities/documents/{studentDocumentId}/examiner-proposal-evaluation
+     */
+    public ResponseEntity<?> getMyProposalEvaluation(Long studentDocumentId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String email = auth.getName();
+
+        User examiner = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
+                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+
+        StudentModality studentModality = document.getStudentModality();
+
+        // Validar que sea un documento MANDATORY
+        if (document.getDocumentConfig().getDocumentType() != DocumentType.MANDATORY) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Este documento no es de tipo inicial."
+            ));
+        }
+
+        // Validar que el examiner esté asignado a la modalidad
+        DefenseExaminer defenseExaminer = defenseExaminerRepository
+                .findByStudentModalityIdAndExaminerId(studentModality.getId(), examiner.getId())
+                .orElse(null);
+
+        if (defenseExaminer == null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "success", false,
+                    "message", "No estás asignado como jurado a esta modalidad"
+            ));
+        }
+
+        // Obtener la review del jurado para este documento
+        ExaminerDocumentReview review = examinerDocumentReviewRepository
+                .findByStudentDocumentIdAndExaminerId(studentDocumentId, examiner.getId())
+                .orElse(null);
+
+        if (review == null) {
+            return ResponseEntity.ok(Map.of(
+                    "success", false,
+                    "message", "No has emitido veredicto para este documento aún"
+            ));
+        }
+
+        // Obtener la evaluación de propuesta si existe
+        ProposalEvaluation proposalEvaluation = proposalEvaluationRepository
+                .findByStudentDocumentIdAndExaminerId(studentDocumentId, examiner.getId())
+                .orElse(null);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("documentId", document.getId());
+        response.put("documentName", document.getDocumentConfig().getDocumentName());
+        response.put("documentType", DocumentType.MANDATORY.name());
+        response.put("examinerName", examiner.getName() + " " + examiner.getLastName());
+        response.put("examinerEmail", examiner.getEmail());
+        response.put("examinerType", defenseExaminer.getExaminerType().name());
+        response.put("isTiebreaker", defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER);
+
+        // Veredicto individual
+        response.put("decision", review.getDecision().name());
+        response.put("decisionDescription", translateExaminerDocumentDecision(review.getDecision()));
+        response.put("notes", review.getNotes());
+        response.put("reviewedAt", review.getReviewedAt());
+
+        // Evaluación de propuesta si existe
+        if (proposalEvaluation != null) {
+            Map<String, Object> evaluationData = new LinkedHashMap<>();
+            evaluationData.put("summary", proposalEvaluation.getSummary());
+            evaluationData.put("backgroundJustification", proposalEvaluation.getBackgroundJustification());
+            evaluationData.put("problemStatement", proposalEvaluation.getProblemStatement());
+            evaluationData.put("objectives", proposalEvaluation.getObjectives());
+            evaluationData.put("methodology", proposalEvaluation.getMethodology());
+            evaluationData.put("bibliographyReferences", proposalEvaluation.getBibliographyReferences());
+            evaluationData.put("documentOrganization", proposalEvaluation.getDocumentOrganization());
+            evaluationData.put("evaluatedAt", proposalEvaluation.getEvaluatedAt());
+            response.put("proposalEvaluation", evaluationData);
+        } else {
+            response.put("proposalEvaluation", null);
+        }
+
+        // Estado actual del documento
+        response.put("documentStatus", document.getStatus().name());
+        response.put("documentNotes", document.getNotes());
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * El jurado autenticado obtiene su veredicto sobre documentos SECONDARY (documento final).
+     * Devuelve la decisión individual del jurado, notas y evaluación final (si aplica).
+     * Ruta: GET /modalities/documents/{studentDocumentId}/examiner-final-evaluation
+     */
+    public ResponseEntity<?> getMyFinalDocumentEvaluation(Long studentDocumentId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String email = auth.getName();
+
+        User examiner = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
+                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+
+        StudentModality studentModality = document.getStudentModality();
+
+        // Validar que sea un documento SECONDARY
+        if (document.getDocumentConfig().getDocumentType() != DocumentType.SECONDARY) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Este documento no es de tipo final."
+            ));
+        }
+
+        // Validar que el examiner esté asignado a la modalidad
+        DefenseExaminer defenseExaminer = defenseExaminerRepository
+                .findByStudentModalityIdAndExaminerId(studentModality.getId(), examiner.getId())
+                .orElse(null);
+
+        if (defenseExaminer == null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "success", false,
+                    "message", "No estás asignado como jurado a esta modalidad"
+            ));
+        }
+
+        // Obtener la review del jurado para este documento
+        ExaminerDocumentReview review = examinerDocumentReviewRepository
+                .findByStudentDocumentIdAndExaminerId(studentDocumentId, examiner.getId())
+                .orElse(null);
+
+        if (review == null) {
+            return ResponseEntity.ok(Map.of(
+                    "success", false,
+                    "message", "No has emitido veredicto para este documento aún"
+            ));
+        }
+
+        // Obtener la evaluación final (FinalDocumentEvaluation) si existe
+        FinalDocumentEvaluation finalEvaluation = secondaryDocumentEvaluationRepository
+                .findByStudentDocumentIdAndExaminerId(studentDocumentId, examiner.getId())
+                .orElse(null);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("documentId", document.getId());
+        response.put("documentName", document.getDocumentConfig().getDocumentName());
+        response.put("documentType", DocumentType.SECONDARY.name());
+        response.put("examinerName", examiner.getName() + " " + examiner.getLastName());
+        response.put("examinerEmail", examiner.getEmail());
+        response.put("examinerType", defenseExaminer.getExaminerType().name());
+        response.put("isTiebreaker", defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER);
+
+        // Veredicto individual
+        response.put("decision", review.getDecision().name());
+        response.put("decisionDescription", translateExaminerDocumentDecision(review.getDecision()));
+        response.put("notes", review.getNotes());
+        response.put("reviewedAt", review.getReviewedAt());
+
+        // Evaluación final si existe
+        if (finalEvaluation != null) {
+            response.put("finalEvaluation", buildFinalEvaluationInfoMap(finalEvaluation));
+        } else {
+            response.put("finalEvaluation", null);
+        }
+
+        // Estado actual del documento
+        response.put("documentStatus", document.getStatus().name());
+        response.put("documentNotes", document.getNotes());
+
+        return ResponseEntity.ok(response);
+    }
     // =========================================================================
     // SOLICITUD DE EDICIÓN DE PROPUESTA APROBADA (STUDENT → EXAMINER)
     // =========================================================================
@@ -10717,6 +11436,18 @@ public class ModalityService {
                     "message", "Error al obtener los jurados: " + e.getMessage()
             ));
         }
+    }
+
+    /**
+     * Traduce el enum ExaminerDocumentDecision al español para mejor legibilidad.
+     */
+    private String translateExaminerDocumentDecision(ExaminerDocumentDecision decision) {
+        if (decision == null) return "Sin decisión";
+        return switch (decision) {
+            case ACCEPTED -> "Aprobado";
+            case REJECTED -> "Rechazado";
+            case CORRECTIONS_REQUESTED -> "Correcciones Solicitadas";
+        };
     }
 
     /**

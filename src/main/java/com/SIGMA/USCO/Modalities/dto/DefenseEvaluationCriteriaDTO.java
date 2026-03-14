@@ -1,6 +1,7 @@
 package com.SIGMA.USCO.Modalities.dto;
 
 import com.SIGMA.USCO.Modalities.Entity.enums.CriteriaRating;
+import com.SIGMA.USCO.Modalities.Entity.enums.DefenseRubricType;
 import com.SIGMA.USCO.Modalities.Entity.enums.ProposedMention;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -26,6 +27,12 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class DefenseEvaluationCriteriaDTO {
+
+    /**
+     * Tipo de rúbrica enviada por el cliente.
+     * Si no se envía, el backend la determina según la modalidad.
+     */
+    private DefenseRubricType rubricType;
 
     /**
      * Criterio 1 — Dominio del tema y claridad conceptual (30 %).
@@ -65,5 +72,22 @@ public class DefenseEvaluationCriteriaDTO {
      */
     @Builder.Default
     private ProposedMention proposedMention = ProposedMention.NONE;
+
+    // --- Criterios para modalidad: Emprendimiento y fortalecimiento de empresa ---
+
+    /** Presentación y manejo del material de apoyo. */
+    private CriteriaRating entrepreneurshipPresentationSupportMaterial;
+
+    /** Formulación coherente de objetivos empresariales. */
+    private CriteriaRating entrepreneurshipCoherentBusinessObjectives;
+
+    /** Metodología y enfoque técnico. */
+    private CriteriaRating entrepreneurshipMethodologyTechnicalApproach;
+
+    /** Capacidad analítica con enfoque creativo. */
+    private CriteriaRating entrepreneurshipAnalyticalCreativeCapacity;
+
+    /** Defensa y sustentación de la propuesta empresarial. */
+    private CriteriaRating entrepreneurshipDefenseSustentation;
 }
 

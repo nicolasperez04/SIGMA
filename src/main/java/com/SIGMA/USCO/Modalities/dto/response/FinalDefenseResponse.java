@@ -61,11 +61,17 @@ public class FinalDefenseResponse {
     @AllArgsConstructor
     @NoArgsConstructor
     public static class CriteriaDetail {
+        private DefenseRubricType rubricType;
         private CriteriaRating domainAndClarity;
         private CriteriaRating synthesisAndCommunication;
         private CriteriaRating argumentationAndResponse;
         private CriteriaRating innovationAndImpact;
         private CriteriaRating professionalPresentation;
+        private CriteriaRating entrepreneurshipPresentationSupportMaterial;
+        private CriteriaRating entrepreneurshipCoherentBusinessObjectives;
+        private CriteriaRating entrepreneurshipMethodologyTechnicalApproach;
+        private CriteriaRating entrepreneurshipAnalyticalCreativeCapacity;
+        private CriteriaRating entrepreneurshipDefenseSustentation;
         private ProposedMention proposedMention;
         private LocalDateTime evaluatedAt;
     }

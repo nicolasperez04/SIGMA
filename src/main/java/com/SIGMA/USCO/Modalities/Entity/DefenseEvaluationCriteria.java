@@ -1,6 +1,7 @@
 package com.SIGMA.USCO.Modalities.Entity;
 
 import com.SIGMA.USCO.Modalities.Entity.enums.CriteriaRating;
+import com.SIGMA.USCO.Modalities.Entity.enums.DefenseRubricType;
 import com.SIGMA.USCO.Modalities.Entity.enums.ProposedMention;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -45,6 +46,11 @@ public class DefenseEvaluationCriteria {
     @JoinColumn(name = "defense_examiner_id", nullable = false)
     private DefenseExaminer defenseExaminer;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "rubric_type", nullable = false, length = 100)
+    @Builder.Default
+    private DefenseRubricType rubricType = DefenseRubricType.STANDARD;
+
     // ── Criterios de rúbrica ──────────────────────────────────────────────────
 
     @Enumerated(EnumType.STRING)
@@ -66,6 +72,28 @@ public class DefenseEvaluationCriteria {
     @Enumerated(EnumType.STRING)
     @Column(name = "professional_presentation", nullable = false, length = 100)
     private CriteriaRating professionalPresentation;
+
+    // ── Criterios de rúbrica: Emprendimiento y fortalecimiento de empresa ──
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ent_presentation_support_material", length = 100)
+    private CriteriaRating entrepreneurshipPresentationSupportMaterial;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ent_coherent_business_objectives", length = 100)
+    private CriteriaRating entrepreneurshipCoherentBusinessObjectives;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ent_methodology_technical_approach", length = 100)
+    private CriteriaRating entrepreneurshipMethodologyTechnicalApproach;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ent_analytical_creative_capacity", length = 100)
+    private CriteriaRating entrepreneurshipAnalyticalCreativeCapacity;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ent_defense_sustentation", length = 100)
+    private CriteriaRating entrepreneurshipDefenseSustentation;
 
     // ── Mención propuesta ─────────────────────────────────────────────────────
 

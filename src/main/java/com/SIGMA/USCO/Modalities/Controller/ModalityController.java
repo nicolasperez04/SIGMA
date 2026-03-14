@@ -206,6 +206,12 @@ public class ModalityController {
         return modalityService.reviewStudentDocumentByExaminer(studentDocumentId, request);
     }
 
+    @PutMapping("/documents/{studentDocumentId}/review-examiner-final-document")
+    @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
+    public ResponseEntity<?> reviewSecondaryDocumentExaminer(@PathVariable Long studentDocumentId, @RequestBody DocumentReviewDTO request) {
+        return modalityService.reviewFinalDocumentByExaminer(studentDocumentId, request);
+    }
+
     @GetMapping("/students")
     @PreAuthorize("hasAuthority('PERM_VIEW_ALL_MODALITIES')")
     public ResponseEntity<?> listAllModalitiesForProgramHead(@RequestParam(required = false)
@@ -596,6 +602,23 @@ public class ModalityController {
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
     public ResponseEntity<?> getExaminerEvaluationForModality(@PathVariable Long studentModalityId) {
         return modalityService.getExaminerEvaluationForModality(studentModalityId);
+    }
+
+    /**
+     * El jurado autenticado obtiene su veredicto sobre documentos MANDATORY de propuesta.
+     * Devuelve la decisión individual del jurado, notas y evaluación de propuesta (si aplica).
+     * Ruta: GET /modalities/documents/{studentDocumentId}/examiner-proposal-evaluation
+     */
+    @GetMapping("/documents/{studentDocumentId}/examiner-proposal-evaluation")
+
+    public ResponseEntity<?> getMyProposalEvaluation(@PathVariable Long studentDocumentId) {
+        return modalityService.getMyProposalEvaluation(studentDocumentId);
+    }
+
+    @GetMapping("/documents/{studentDocumentId}/examiner-final-evaluation")
+
+    public ResponseEntity<?> getMyFinalDocumentEvaluation(@PathVariable Long studentDocumentId) {
+        return modalityService.getMyFinalDocumentEvaluation(studentDocumentId);
     }
 
     // =========================================================================

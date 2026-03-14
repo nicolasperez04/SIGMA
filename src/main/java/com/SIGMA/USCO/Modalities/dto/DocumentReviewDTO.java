@@ -1,5 +1,6 @@
 package com.SIGMA.USCO.Modalities.dto;
 
+import com.SIGMA.USCO.documents.dto.FinalEvaluationRequest;
 import com.SIGMA.USCO.documents.dto.ProposalEvaluationRequest;
 import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
 import lombok.AllArgsConstructor;
@@ -22,5 +23,11 @@ public class DocumentReviewDTO {
      * Si se envía, se almacenará como ProposalEvaluation asociada al documento.
      */
     private ProposalEvaluationRequest proposalEvaluation;
+
+    /**
+     * Opcional: calificación por aspectos del documento final (SECONDARY).
+     * Solo aplica cuando el documento es de tipo SECONDARY y requiresProposalEvaluation=true.
+     */
+    private FinalEvaluationRequest finalEvaluation;
 
 }
