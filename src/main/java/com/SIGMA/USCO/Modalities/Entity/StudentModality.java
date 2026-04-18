@@ -96,4 +96,12 @@ public class StudentModality {
     @Builder.Default
     private Integer correctionAttempts = 0;
 
+    /**
+     * Título del proyecto de grado.
+     * Se extrae automáticamente de los PDFs/plantillas que sube el estudiante.
+     * Ej: "SIGMA (sistema interno de gestión de modalidades académicas)"
+     */
+    @Column(length = 500)
+    private String modalityTitle;
+
 }

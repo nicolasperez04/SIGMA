@@ -53,43 +53,50 @@ public class DirectorNotificationListener {
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
 
+        String degreeModalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = sm.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Concepto del Director de Proyecto sobre solicitud de cancelación de modalidad";
 
         String message = """
                  Estimado/a %s,
                 
-                        Reciba un cordial saludo.
+                         Reciba un cordial saludo.
                 
-                        Le informamos que el/la Director/a del proyecto ha emitido un concepto favorable
-                        respecto a la solicitud de cancelación de la siguiente modalidad de grado:
+                         Le informamos que el/la Director/a del proyecto ha emitido un concepto favorable
+                         respecto a la solicitud de cancelación de la siguiente modalidad de grado:
                 
-                        Modalidad:
-                        "%s"
+                         Modalidad:
+                         "%s"
                 
-                        Estudiantes vinculados al proceso:
-                        %s
+                         Estudiantes vinculados al proceso:
+                         %s
                 
-                        De acuerdo con el procedimiento académico institucional, la solicitud será ahora
-                        remitida al Comité de Currículo del programa académico, instancia que realizará
-                        la evaluación correspondiente y emitirá la decisión definitiva sobre la cancelación
-                        de la modalidad de grado.
+                         De acuerdo con el procedimiento académico institucional, la solicitud será ahora
+                         remitida al Comité de Currículo del programa académico, instancia que realizará
+                         la evaluación correspondiente y emitirá la decisión definitiva sobre la cancelación
+                         de la modalidad de grado.
                 
-                        El comité podrá determinar la aprobación o el rechazo de la solicitud, decisión
-                        que será notificada oportunamente a través del sistema institucional.
+                         El comité podrá determinar la aprobación o el rechazo de la solicitud, decisión
+                         que será notificada oportunamente a través del sistema institucional.
                 
-                        Esta comunicación se emite con el fin de mantener la trazabilidad y el registro
-                        formal del proceso académico asociado a las modalidades de grado.
+                         Esta comunicación se emite con el fin de mantener la trazabilidad y el registro
+                         formal del proceso académico asociado a las modalidades de grado.
                 
-                        Atentamente,
+                         Atentamente,
                 
-                        Sistema de Gestión de Modalidades de Grado
-                        Universidad Surcolombiana
+                         Sistema de Gestión de Modalidades de Grado
+                         Universidad Surcolombiana
                 
                 
-                """.formatted(
-                sm.getProjectDirector().getName(),
-                sm.getProgramDegreeModality().getDegreeModality().getName(),
-                miembros
+                 """.formatted(
+                 sm.getProjectDirector().getName(),
+                 modalidadInfo,
+                 miembros
         );
 
         Notification notification = Notification.builder()
@@ -119,6 +126,14 @@ public class DirectorNotificationListener {
         String miembros = members.stream()
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
+        
+        String degreeModalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = sm.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+        
         String subject = "Concepto del Director de Proyecto sobre solicitud de cancelación de modalidad";
         String message = """
                 Estimado/a %s,
@@ -156,7 +171,7 @@ public class DirectorNotificationListener {
                 
                 """.formatted(
                 sm.getProjectDirector().getName(),
-                sm.getProgramDegreeModality().getDegreeModality().getName(),
+                modalidadInfo,
                 miembros
         );
         Notification notification = Notification.builder()
@@ -184,6 +199,14 @@ public class DirectorNotificationListener {
         String miembros = members.stream()
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
+        
+        String degreeModalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = sm.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+        
         String subject = "Solicitud de cancelación de modalidad recibida";
         String message = """
                 Estimado/a %s,
@@ -216,7 +239,7 @@ public class DirectorNotificationListener {
                 
                 """.formatted(
                 sm.getProjectDirector().getName(),
-                sm.getProgramDegreeModality().getDegreeModality().getName(),
+                modalidadInfo,
                 miembros
 
         );
@@ -252,6 +275,13 @@ public class DirectorNotificationListener {
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
 
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String directorSubject = "Asignación como Director de Proyecto a modalidad de grado";
 
         String directorMessage = """
@@ -264,6 +294,9 @@ public class DirectorNotificationListener {
                 sistema institucional.
                 
                 A continuación, se presentan los datos asociados al proceso:
+                
+                Modalidad de grado:
+                "%s"
                 
                 Programa académico:
                 "%s"
@@ -290,6 +323,7 @@ public class DirectorNotificationListener {
                 
                 """.formatted(
                 director.getName(),
+                modalidadInfo,
                 modality.getProgramDegreeModality().getAcademicProgram().getName(),
                 miembros,
                 modality.getUpdatedAt()
@@ -323,6 +357,14 @@ public class DirectorNotificationListener {
         String miembros = members.stream()
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
+        
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+        
         String subject = "Resultado de la sustentación final – Estudiantes asignados";
         String message = """
                 Estimado/a %s,
@@ -366,8 +408,8 @@ public class DirectorNotificationListener {
                 Universidad Surcolombiana
                 """.formatted(
                 director.getName(),
+                modalidadInfo,
                 miembros,
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
                 translateModalityProcessStatus(event.getFinalStatus()),
                 translateAcademicDistinction(event.getAcademicDistinction()),
                 event.getObservations() != null ? event.getObservations() : "N/A"
@@ -402,6 +444,13 @@ public class DirectorNotificationListener {
         User student = modality.getLeader();
         User director = modality.getProjectDirector();
 
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Documento actualizado – Estudiante asignado";
 
         String message = """
@@ -414,10 +463,10 @@ public class DirectorNotificationListener {
                 A continuación, se detallan los datos correspondientes:
                 
                 Modalidad de grado:
-                “%s”
+                "%s"
                 
                 Documento actualizado:
-                “%s”
+                "%s"
                 
                 Estado actual del documento:
                 %s
@@ -431,7 +480,7 @@ public class DirectorNotificationListener {
             """.formatted(
                 director.getName(),
                 student.getName() + " " + student.getLastName(),
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
+                modalidadInfo,
                 document.getDocumentConfig().getDocumentName(),
                 translateDocumentStatus(document.getStatus())
         );

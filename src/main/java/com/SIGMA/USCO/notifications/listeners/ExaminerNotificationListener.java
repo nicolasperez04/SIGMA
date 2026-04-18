@@ -81,7 +81,12 @@ public class ExaminerNotificationListener {
                 ? modality.getProgramDegreeModality().getAcademicProgram().getFaculty().getName()
                 : "";
 
-        String modalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
 
         for (DefenseExaminer examinerAssignment : examiners) {
             User examiner = examinerAssignment.getExaminer();
@@ -94,60 +99,36 @@ public class ExaminerNotificationListener {
             String subject = "Designación oficial como Jurado Evaluador – Modalidad de Grado";
 
             String message = """
-                    Estimado/a %s %s,
+        Estimado(a) %s %s:
 
-                    Reciba un cordial saludo de parte del Sistema de Gestión Académica de la Universidad Surcolombiana.
+        Reciba un cordial saludo.
 
-                    Por medio de la presente, le informamos que ha sido designado/a oficialmente como **%s** en el proceso de evaluación de la siguiente modalidad de grado:
+        Nos permitimos informarle que ha sido designado(a) oficialmente como %s en el proceso de evaluación de la modalidad de grado, conforme a las disposiciones académicas vigentes.
 
-                    ───────────────────────────────
-                    INFORMACIÓN DE LA MODALIDAD
-                    ───────────────────────────────
-                    Modalidad de grado:
-                    "%s"
+        A continuación, se relaciona la información pertinente:
 
-                    Programa académico:
-                    %s
+        Modalidad de grado: "%s".
+        Programa académico: %s.
+        Facultad: %s.
+        Estudiantes asociados: %s.
+        Director de proyecto: %s.
+        Fecha de asignación: %s.
 
-                    Facultad:
-                    %s
+        En el marco de esta designación, le corresponde realizar la evaluación académica de la modalidad de grado, conforme a los lineamientos institucionales establecidos y dentro de los plazos definidos por el programa académico.
 
-                    ───────────────────────────────
-                    ESTUDIANTE(S) ASOCIADO(S)
-                    ───────────────────────────────
-                    %s
+        Podrá consultar la información completa de la modalidad y gestionar las actividades asociadas a su rol a través de la plataforma institucional.
 
-                    ───────────────────────────────
-                    DIRECTOR DE PROYECTO
-                    ───────────────────────────────
-                    %s
+        Este mensaje constituye una notificación automática generada como constancia de la designación realizada y para efectos de control y trazabilidad institucional.
 
-                    ───────────────────────────────
-                    FECHA DE ASIGNACIÓN
-                    ───────────────────────────────
-                    %s
+        Atentamente,
 
-                    ───────────────────────────────
-                    RESPONSABILIDADES
-                    ───────────────────────────────
-                    En su calidad de jurado evaluador, le solicitamos:
-
-                    1. Revisar y evaluar la documentación académica asociada a la modalidad en el sistema.
-                    2. Verificar el cumplimiento de los requisitos establecidos por el programa académico.
-                    3. Emitir su concepto evaluativo conforme a la normativa institucional vigente.
-
-                    Para acceder a la información completa de la modalidad y gestionar sus responsabilidades como jurado, le invitamos a ingresar a la plataforma.
-
-                    Agradecemos su disposición y valioso aporte al proceso académico.
-
-                    Cordialmente,
-                    Sistema de Gestión Académica
-                    Universidad Surcolombiana
-                    """.formatted(
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
+        """.formatted(
                     examiner.getName(),
                     examiner.getLastName(),
                     examinerRoleLabel,
-                    modalityName,
+                    modalidadInfo,
                     programName,
                     facultyName,
                     studentsString,
@@ -189,60 +170,40 @@ public class ExaminerNotificationListener {
         for (User student : studentsToNotify) {
             String studentSubject = "Jurados asignados a tu modalidad de grado – SIGMA";
             String studentMessage = """
-                    Estimado/a %s,
+        Estimado(a) %s:
 
-                    Reciba un cordial saludo de parte del Sistema de Gestión Académica de la Universidad Surcolombiana.
+        Reciba un cordial saludo.
 
-                    Le informamos que el Comité de Currículo del programa académico ha designado oficialmente los jurados evaluadores para su modalidad de grado:
+        Nos permitimos informarle que el Comité de Currículo del programa académico ha designado oficialmente los jurados evaluadores para su modalidad de grado, conforme a la normativa institucional vigente.
 
-                    ───────────────────────────────
-                    INFORMACIÓN DE LA MODALIDAD
-                    ───────────────────────────────
-                    Modalidad de grado:
-                    "%s"
+        A continuación, se relaciona la información pertinente:
 
-                    Programa académico:
-                    %s
+        Modalidad de grado: "%s".
+        Programa académico: %s.
+        Facultad: %s.
+        Director de proyecto: %s.
+        Jurados asignados: %s.
+        Fecha de asignación: %s.
 
-                    Facultad:
-                    %s
+        En virtud de esta designación, los jurados procederán con la evaluación de la documentación académica asociada a su modalidad de grado, conforme a los lineamientos establecidos.
 
-                    ───────────────────────────────
-                    DIRECTOR DE PROYECTO
-                    ───────────────────────────────
-                    %s
+        Se recomienda verificar que la documentación requerida se encuentre debidamente registrada en la plataforma institucional y mantenerse atento(a) a las comunicaciones emitidas durante el proceso.
 
-                    ───────────────────────────────
-                    JURADOS ASIGNADOS
-                    ───────────────────────────────
-                    %s
+        Este mensaje constituye una notificación automática generada como constancia de la asignación realizada y para efectos de control y trazabilidad institucional.
 
-                    ───────────────────────────────
-                    FECHA DE ASIGNACIÓN
-                    ───────────────────────────────
-                    %s
+        Atentamente,
 
-                    ───────────────────────────────
-                    PRÓXIMOS PASOS
-                    ───────────────────────────────
-                    Los jurados designados procederán a revisar y evaluar la documentación académica asociada a su modalidad. Le recomendamos:
-
-                    1. Asegurarse de que todos los documentos requeridos estén correctamente cargados en el sistema.
-                    2. Mantenerse atento/a a las notificaciones del sistema, ya que los jurados podrán solicitar correcciones o emitir conceptos sobre la documentación.
-                    3. Ante cualquier duda, comunicarse oportunamente con su Director de Proyecto.
-
-                    Esta notificación se genera automáticamente como parte del procedimiento institucional de asignación de jurados.
-
-                    Cordialmente,
-                    Sistema de Gestión Académica
-                    Universidad Surcolombiana
-                    """.formatted(
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
+        """.formatted(
                     student.getName(),
-                    modalityName,
+                    modalidadInfo,
                     programName,
                     facultyName,
                     directorName,
-                    examinersListForOthers.isBlank() ? "No asignados aún" : examinersListForOthers,
+                    examinersListForOthers != null && !examinersListForOthers.isBlank()
+                            ? examinersListForOthers
+                            : "Pendiente de asignación",
                     LocalDateTime.now().toLocalDate().toString()
             );
 
@@ -265,60 +226,42 @@ public class ExaminerNotificationListener {
         if (director != null) {
             String directorSubject = "Jurados asignados a modalidad bajo su dirección – SIGMA";
             String directorMessage = """
-                    Estimado/a %s,
+        Estimado(a) %s:
 
-                    Reciba un cordial saludo de parte del Sistema de Gestión Académica de la Universidad Surcolombiana.
+        Reciba un cordial saludo.
 
-                    Le informamos que el Comité de Currículo del programa académico ha designado oficialmente los jurados evaluadores para la siguiente modalidad de grado que se encuentra bajo su dirección:
+        Nos permitimos informarle que el Comité de Currículo del programa académico ha designado oficialmente los jurados evaluadores para la modalidad de grado bajo su dirección, conforme a la normativa institucional vigente.
 
-                    ───────────────────────────────
-                    INFORMACIÓN DE LA MODALIDAD
-                    ───────────────────────────────
-                    Modalidad de grado:
-                    "%s"
+        A continuación, se relaciona la información pertinente:
 
-                    Programa académico:
-                    %s
+        Modalidad de grado: "%s".
+        Programa académico: %s.
+        Facultad: %s.
+        Estudiantes asociados: %s.
+        Jurados asignados: %s.
+        Fecha de asignación: %s.
 
-                    Facultad:
-                    %s
+        En virtud de esta designación, los jurados iniciarán el proceso de revisión y evaluación de la documentación académica asociada a la modalidad de grado, conforme a los lineamientos institucionales establecidos.
 
-                    ───────────────────────────────
-                    ESTUDIANTE(S) ASOCIADO(S)
-                    ───────────────────────────────
-                    %s
+        En su calidad de Director de Proyecto, se recomienda realizar el seguimiento académico correspondiente, con el fin de garantizar el cumplimiento de los requisitos y la adecuada atención a las observaciones que se deriven del proceso evaluativo.
 
-                    ───────────────────────────────
-                    JURADOS ASIGNADOS
-                    ───────────────────────────────
-                    %s
+        Podrá consultar el detalle completo a través de la plataforma institucional.
 
-                    ───────────────────────────────
-                    FECHA DE ASIGNACIÓN
-                    ───────────────────────────────
-                    %s
+        Este mensaje constituye una notificación automática generada como constancia de la asignación realizada y para efectos de control y trazabilidad institucional.
 
-                    ───────────────────────────────
-                    INFORMACIÓN PARA EL DIRECTOR
-                    ───────────────────────────────
-                    Los jurados asignados iniciarán el proceso de revisión y evaluación de la documentación académica de la modalidad. Como Director/a de Proyecto, le recomendamos:
+        Atentamente,
 
-                    1. Coordinar con los estudiantes la correcta presentación de todos los documentos requeridos.
-                    2. Estar disponible para atender las observaciones que los jurados puedan generar durante el proceso.
-                    3. Una vez los jurados aprueben la documentación, podrá proceder con la programación formal de la sustentación a través de la plataforma SIGMA.
-
-                    Esta notificación se genera automáticamente como parte del procedimiento institucional de asignación de jurados.
-
-                    Cordialmente,
-                    Sistema de Gestión Académica
-                    Universidad Surcolombiana
-                    """.formatted(
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
+        """.formatted(
                     director.getName() + " " + director.getLastName(),
-                    modalityName,
+                    modalidadInfo,
                     programName,
                     facultyName,
                     studentsString,
-                    examinersListForOthers.isBlank() ? "No asignados aún" : examinersListForOthers,
+                    (examinersListForOthers != null && !examinersListForOthers.isBlank())
+                            ? examinersListForOthers
+                            : "Pendiente de asignación",
                     LocalDateTime.now().toLocalDate().toString()
             );
 
@@ -351,39 +294,43 @@ public class ExaminerNotificationListener {
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
 
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Notificación de modalidad lista para sustentación";
 
         String message = """
-            Estimado/a %s %s,
-            
-            Reciba un cordial saludo.
-            
-            Le informamos que la siguiente modalidad de grado ha sido marcada oficialmente como lista para sustentación por parte del Director de Proyecto:
-            
-            Estudiantes:
-            %s
-            
-            Modalidad de grado:
-            "%s"
-            
-            A partir de este momento, el proceso se encuentra disponible para su revisión en calidad de jurado evaluador.
-            
-            Le solicitamos ingresar a la plataforma institucional para:
-            - Revisar la documentación final presentada.
-            - Verificar el cumplimiento de los requisitos académicos.
-            - Continuar con las etapas correspondientes al proceso de sustentación.
-            
-            Agradecemos su disposición y compromiso con el proceso evaluativo.
-            
-            Cordialmente,
-            Sistema de Gestión Académica
-            """.formatted(
+        Estimado(a) %s %s:
+
+        Reciba un cordial saludo.
+
+        Nos permitimos informarle que la modalidad de grado relacionada a continuación ha sido registrada como lista para sustentación por parte del Director de Proyecto, conforme al proceso académico establecido.
+
+        A continuación, se relaciona la información pertinente:
+
+        Estudiantes asociados: %s.
+        Modalidad de grado: "%s".
+
+        En virtud de esta actuación, el proceso se encuentra disponible para su revisión en calidad de jurado evaluador, conforme a los lineamientos institucionales vigentes.
+
+        Podrá consultar la documentación final presentada y realizar el proceso de evaluación correspondiente a través de la plataforma institucional.
+
+        Este mensaje constituye una notificación automática generada como constancia del estado registrado y para efectos de control y trazabilidad institucional.
+
+        Atentamente,
+
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
+        """.formatted(
                 examiner.getName(),
                 examiner.getLastName(),
                 miembros,
-                modality.getProgramDegreeModality().getDegreeModality().getName()
+                modalidadInfo
         );
-
         Notification notification = Notification.builder()
                 .type(NotificationType.READY_FOR_DEFENSE_REQUESTED)
                 .recipientType(NotificationRecipientType.EXAMINER)
@@ -415,37 +362,44 @@ public class ExaminerNotificationListener {
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
 
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Aprobación final de documentos – Puede programar la sustentación";
 
         String message = """
-            Estimado/a %s %s,
-            
-            Reciba un cordial saludo.
-            
-            Le informamos que el jurado evaluador ha aprobado la totalidad de los documentos requeridos para la siguiente modalidad de grado:
-            
-            Estudiantes:
-            %s
-            
-            Modalidad de grado:
-            "%s"
-            
-            Con esta aprobación, el proceso académico cumple los requisitos necesarios para avanzar a la etapa de sustentación.
-            
-            En su calidad de Director/a de Proyecto, ahora puede:
-            - Programar la fecha y hora de la sustentación.
-            - Definir el lugar correspondiente.
-            - Continuar con la gestión formal del cierre del proceso.
-            
-            Le invitamos a ingresar al sistema para realizar la programación y dar continuidad al procedimiento institucional.
-            
-            Cordialmente,
-            Sistema de Gestión Académica
-            """.formatted(
+        Estimado(a) %s %s:
+
+        Reciba un cordial saludo.
+
+        Nos permitimos informarle que el jurado evaluador ha aprobado la totalidad de los documentos requeridos para la modalidad de grado, conforme al proceso académico establecido.
+
+        A continuación, se relaciona la información pertinente:
+
+        Estudiantes asociados: %s.
+        Modalidad de grado: "%s".
+
+        En virtud de esta aprobación, el proceso académico cumple con los requisitos necesarios para avanzar a la etapa de sustentación.
+
+        En su calidad de Director de Proyecto, corresponde continuar con la gestión académica asociada a la programación y desarrollo de la sustentación, conforme a los lineamientos institucionales vigentes.
+
+        Podrá realizar las acciones correspondientes y consultar el detalle del proceso a través de la plataforma institucional.
+
+        Este mensaje constituye una notificación automática generada como constancia del estado registrado y para efectos de control y trazabilidad institucional.
+
+        Atentamente,
+
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
+        """.formatted(
                 director.getName(),
                 director.getLastName(),
                 miembros,
-                modality.getProgramDegreeModality().getDegreeModality().getName()
+                modalidadInfo
         );
 
         Notification notification = Notification.builder()
@@ -469,47 +423,58 @@ public class ExaminerNotificationListener {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(event.getStudentModalityId());
         for (DefenseExaminer examinerAssignment : examiners) {
             User examiner = examinerAssignment.getExaminer();
             String subject = "Sustentación programada – Modalidad de Grado";
             String message = String.format(
-                """
-                          Estimado/a %s %s,
-                        
-                                             Reciba un cordial saludo.
-                        
-                                             Le informamos que ha sido programada la sustentación de la siguiente modalidad de grado:
-                        
-                                             Modalidad:
-                                             "%s"
-                        
-                                             Fecha y hora:
-                                             %s
-                        
-                                             Lugar:
-                                             %s
-                        
-                                             Director/a asignado/a:
-                                             %s
-                        
-                                             Estudiantes asociados:
-                                             %s
-                        
-                                             En su calidad de jurado evaluador, le solicitamos ingresar al sistema SIGMA para revisar la documentación final, verificar los lineamientos académicos y prepararse para la jornada de sustentación.
-                        
-                                             Agradecemos su compromiso con el proceso evaluativo.
-                        
-                                             Cordialmente,
-                                             Sistema de Gestión Académica
-                """,
-                examiner.getName(),
-                examiner.getLastName(),
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
-                event.getDefenseDate(),
-                event.getDefenseLocation(),
-                modality.getProjectDirector() != null ? modality.getProjectDirector().getName() + " " + modality.getProjectDirector().getLastName() : "No asignado",
-                modality.getMembers() != null && !modality.getMembers().isEmpty() ? modality.getMembers().stream().map(member -> member.getStudent().getName() + " " + member.getStudent().getLastName()).reduce((a, b) -> a + ", " + b).orElse("") : modality.getLeader().getName() + " " + modality.getLeader().getLastName()
+                    """
+                    Estimado(a) %s %s:
+            
+                    Reciba un cordial saludo.
+            
+                    Nos permitimos informarle que ha sido programada la sustentación correspondiente a la modalidad de grado, conforme al proceso académico establecido.
+            
+                    A continuación, se relaciona la información pertinente:
+            
+                    Modalidad de grado: "%s".
+                    Fecha y hora de la sustentación: %s.
+                    Lugar: %s.
+                    Director de proyecto: %s.
+                    Estudiantes asociados: %s.
+            
+                    En virtud de esta programación, la sustentación se desarrollará conforme a los lineamientos institucionales vigentes, en el marco del proceso de evaluación académica.
+            
+                    Podrá consultar la documentación final y el detalle del proceso a través de la plataforma institucional.
+            
+                    Este mensaje constituye una notificación automática generada como constancia de la programación registrada y para efectos de control y trazabilidad institucional.
+            
+                    Atentamente,
+            
+                    Sistema de Gestión Académica
+                    Universidad Surcolombiana
+                    """,
+                    examiner.getName(),
+                    examiner.getLastName(),
+                    modalidadInfo,
+                    event.getDefenseDate(),
+                    event.getDefenseLocation(),
+                    modality.getProjectDirector() != null
+                            ? modality.getProjectDirector().getName() + " " + modality.getProjectDirector().getLastName()
+                            : "Pendiente de asignación",
+                    modality.getMembers() != null && !modality.getMembers().isEmpty()
+                            ? modality.getMembers().stream()
+                            .map(member -> member.getStudent().getName() + " " + member.getStudent().getLastName())
+                            .reduce((a, b) -> a + ", " + b)
+                            .orElse("")
+                            : modality.getLeader().getName() + " " + modality.getLeader().getLastName()
             );
 
             Notification notification = Notification.builder()
@@ -536,37 +501,38 @@ public class ExaminerNotificationListener {
         for (User student : students) {
             String subject = "Sustentación programada – Modalidad de Grado";
             String message = String.format(
-                """
-                         Estimado/a %s,
-
-                                Reciba un cordial saludo.
-
-                                Le informamos que la sustentación de su modalidad de grado ha sido programada con los siguientes detalles:
-
-                                Modalidad:
-                                "%s"
-
-                                Fecha y hora:
-                                %s
-
-                                Lugar:
-                                %s
-
-                                Director/a asignado/a:
-                                %s
-
-                                Le recomendamos presentarse con la debida antelación y cumplir con los lineamientos académicos establecidos para la sustentación.
-
-                                Puede consultar la información completa en el sistema SIGMA.
-
-                                Cordialmente,
-                                Sistema de Gestión Académica
-                """,
-                student.getName(),
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
-                event.getDefenseDate(),
-                event.getDefenseLocation(),
-                modality.getProjectDirector() != null ? modality.getProjectDirector().getName() + " " + modality.getProjectDirector().getLastName() : "No asignado"
+                    """
+                    Estimado(a) %s:
+            
+                    Reciba un cordial saludo.
+            
+                    Nos permitimos informarle que la sustentación correspondiente a su modalidad de grado ha sido programada, conforme al proceso académico establecido.
+            
+                    A continuación, se relaciona la información pertinente:
+            
+                    Modalidad de grado: "%s".
+                    Fecha y hora de la sustentación: %s.
+                    Lugar: %s.
+                    Director de proyecto: %s.
+            
+                    La sustentación se desarrollará conforme a los lineamientos institucionales vigentes.
+            
+                    Podrá consultar el detalle completo del proceso a través de la plataforma institucional.
+            
+                    Este mensaje constituye una notificación automática generada como constancia de la programación registrada y para efectos de control y trazabilidad institucional.
+            
+                    Atentamente,
+            
+                    Sistema de Gestión Académica
+                    Universidad Surcolombiana
+                    """,
+                    student.getName(),
+                    modalidadInfo,
+                    event.getDefenseDate(),
+                    event.getDefenseLocation(),
+                    modality.getProjectDirector() != null
+                            ? modality.getProjectDirector().getName() + " " + modality.getProjectDirector().getLastName()
+                            : "Pendiente de asignación"
             );
 
             Notification notification = Notification.builder()
@@ -601,61 +567,54 @@ public class ExaminerNotificationListener {
                 .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName())
                 .collect(Collectors.joining(", "));
 
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Solicitud de edición de documento aprobado – Modalidad de grado";
 
         for (DefenseExaminer examinerAssignment : examiners) {
             User examiner = examinerAssignment.getExaminer();
             String message = """
-                    Estimado/a %s %s,
+        Estimado(a) %s %s:
 
-                    Reciba un cordial saludo.
+        Reciba un cordial saludo.
 
-                    Le informamos que el/los estudiante(s) de la siguiente modalidad de grado
-                    ha(n) solicitado editar un documento que ya fue previamente aprobado:
+        Nos permitimos informarle que los estudiantes asociados a la modalidad de grado han registrado una solicitud de edición sobre un documento previamente aprobado, conforme al procedimiento académico establecido.
 
-                    ───────────────────────────────
-                    INFORMACIÓN DE LA MODALIDAD
-                    ───────────────────────────────
-                    Modalidad de grado:
-                    "%s"
+        A continuación, se relaciona la información pertinente:
 
-                    Programa académico:
-                    "%s"
+        Modalidad de grado: "%s".
+        Programa académico: "%s".
+        Estudiantes asociados: %s.
+        Documento: "%s".
+        Identificador de la solicitud: %d.
+        Motivo de la solicitud: %s.
 
-                    Estudiante(s):
-                    %s
+        En virtud de esta solicitud, el caso se encuentra disponible para su revisión en calidad de jurado evaluador, conforme a los lineamientos institucionales vigentes.
 
-                    ───────────────────────────────
-                    DOCUMENTO
-                    ───────────────────────────────
-                    Nombre del documento:
-                    "%s"
+        Podrá consultar el detalle de la solicitud y emitir el concepto correspondiente a través de la plataforma institucional.
 
-                    ID de solicitud: %d
+        Este mensaje constituye una notificación automática generada como constancia del registro efectuado y para efectos de control y trazabilidad institucional.
 
-                    ───────────────────────────────
-                    MOTIVO DE LA SOLICITUD
-                    ───────────────────────────────
-                    %s
+        Atentamente,
 
-                    ───────────────────────────────
-                    ACCIÓN REQUERIDA
-                    ───────────────────────────────
-                    Como jurado evaluador, le solicitamos ingresar al sistema SIGMA
-                    y aprobar o rechazar la solicitud de edición del estudiante,
-                    según su criterio académico.
-
-                    Cordialmente,
-                    Sistema de Gestión Académica – SIGMA
-                    """.formatted(
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
+        """.formatted(
                     examiner.getName(),
                     examiner.getLastName(),
-                    modality.getProgramDegreeModality().getDegreeModality().getName(),
+                    modalidadInfo,
                     modality.getProgramDegreeModality().getAcademicProgram().getName(),
-                    studentNames.isBlank() ? "No registrado" : studentNames,
+                    (studentNames != null && !studentNames.isBlank()) ? studentNames : "No registrado",
                     event.getDocumentName(),
                     event.getEditRequestId(),
-                    event.getReason()
+                    event.getReason() != null && !event.getReason().isBlank()
+                            ? event.getReason()
+                            : "No se registra motivo"
             );
 
             Notification notification = Notification.builder()
@@ -777,6 +736,13 @@ public class ExaminerNotificationListener {
             case TIEBREAKER_EXAMINER -> "Jurado de Desempate";
         };
         
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+        
         List<StudentModalityMember> members = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
         String studentNames;
@@ -789,61 +755,41 @@ public class ExaminerNotificationListener {
                     ? modality.getLeader().getName() + " " + modality.getLeader().getLastName()
                     : "No registrado";
         }
-        
+
         return """
-            Estimado(a) %s,
-            
-            Reciba un cordial saludo de la Universidad Surcolombiana.
-            
-            Le informamos que la sustentación de la modalidad de grado en la cual usted participó como %s 
-            ha sido completada exitosamente.
-            
-            ───────────────────────────────
-            INFORMACIÓN DEL PROCESO
-            ───────────────────────────────
-            • Modalidad: %s
-            • Programa académico: %s
-            • Facultad: %s
-            • Resultado: APROBADA
-            • Estudiante(s): %s
-            
-            ───────────────────────────────
-            SU PARTICIPACIÓN
-            ───────────────────────────────
-            Usted participó activamente en todas las etapas de evaluación como %s, incluyendo:
-            
-            ✓ Revisión de documentación de propuesta
-            ✓ Revisión de documentos finales
-            ✓ Asistencia a la sustentación oral
-            ✓ Registro de evaluación académica
-            
-            ───────────────────────────────
-            ACTA DE PARTICIPACIÓN
-            ───────────────────────────────
-            Se adjunta a este correo el ACTA DE PARTICIPACIÓN oficial, que certifica su rol y 
-            contribución en el proceso de evaluación. Este documento constituye una evidencia formal 
-            de cumplimiento de funciones académicas y puede ser utilizado para certificaciones o 
-            como soporte en su hoja de vida profesional.
-            
-            El acta forma parte del registro institucional de trazabilidad y aseguramiento de calidad 
-            de nuestros programas académicos.
-            
-            Agradecemos su dedicación y excelente desempeño en el aseguramiento de la calidad académica 
-            de nuestros programas.
-            
-            Cordialmente,
-            
-            Sistema de Gestión Académica — SIGMA
-            Universidad Surcolombiana
-            """.formatted(
+        Estimado(a) %s:
+
+        Reciba un cordial saludo.
+
+        Nos permitimos informarle que la sustentación correspondiente a la modalidad de grado en la cual usted participó en calidad de %s ha finalizado y su resultado ha sido registrado oficialmente en el sistema.
+
+        A continuación, se relaciona la información pertinente:
+
+        Modalidad de grado: "%s".
+        Programa académico: %s.
+        Facultad: %s.
+        Resultado: APROBADA.
+        Estudiantes asociados: %s.
+
+        En el marco de este proceso, su participación como %s quedó registrada en las diferentes etapas de evaluación académica, conforme a los lineamientos institucionales vigentes.
+
+        Se adjunta a la presente comunicación el acta de participación en formato PDF, documento oficial que certifica su intervención en el proceso evaluativo y que forma parte del registro institucional de control y trazabilidad académica.
+
+        Este mensaje constituye una notificación automática generada como constancia del cierre del proceso.
+
+        Atentamente,
+
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
+        """.formatted(
                 examiner.getName(),
                 examinerRole,
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
+                modalidadInfo,
                 modality.getProgramDegreeModality().getAcademicProgram().getName(),
                 modality.getProgramDegreeModality().getAcademicProgram().getFaculty().getName(),
                 studentNames,
                 examinerRole
-            );
+        );
     }
 
 }

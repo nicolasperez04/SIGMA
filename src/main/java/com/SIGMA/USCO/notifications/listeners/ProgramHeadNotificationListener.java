@@ -41,6 +41,12 @@ public class ProgramHeadNotificationListener {
     public void handleModalityStartedEvent(StudentModalityStarted event){
         StudentModality studentModality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         List<User> programHeads = userRepository.findAllByRoles_Name("PROGRAM_HEAD");
+        String degreeModalityName = studentModality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = studentModality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
         String subject = "Nueva modalidad iniciada - Estudiantes asociados";
         String message = """
          Estimado/a Jefatura de Programa,
@@ -64,7 +70,7 @@ public class ProgramHeadNotificationListener {
         Cordialmente,
         Sistema de Gestión Académica
     """.formatted(
-        studentModality.getProgramDegreeModality().getDegreeModality().getName(),
+        modalidadInfo,
         getStudentList(studentModality)
     );
     for (User programHead : programHeads) {
@@ -92,51 +98,43 @@ public class ProgramHeadNotificationListener {
                         .orElseThrow();
         User student = modality.getLeader();
         List<User> programHeads = userRepository.findAllByRoles_Name("PROGRAM_HEAD");
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
         String subject = "Documento actualizado por estudiante";
         String message = """
-         Estimado/a Jefatura de Programa,
-        
-        Se informa que un estudiante ha realizado la actualización o
-        resubida de un documento previamente solicitado.
-        
-        ───────────────────────────────
-        INFORMACIÓN DEL ESTUDIANTE
-        ───────────────────────────────
-        Nombre completo: %s
-        Correo institucional: %s
-        
-        ───────────────────────────────
-        INFORMACIÓN ACADÉMICA
-        ───────────────────────────────
-        Modalidad de grado:
-        "%s"
-        
-        Documento actualizado:
-        "%s"
-        
-        Estado actual del documento:
-        %s
-        
-        ───────────────────────────────
-        ACCIÓN REQUERIDA
-        ───────────────────────────────
-        Se solicita ingresar al sistema para revisar el
-        documento actualizado y continuar con el proceso
-        correspondiente según la normativa institucional.
-        
-        Este mensaje constituye una notificación automática
-        generada por el sistema para garantizar la trazabilidad
-        del proceso académico.
-        
-       
+        Estimado(a) Jefatura de Programa:
+
+        Reciba un cordial saludo.
+
+        Nos permitimos informar que un estudiante ha realizado la actualización de un documento previamente solicitado, en el marco del proceso académico correspondiente.
+
+        A continuación, se relaciona la información pertinente:
+
+        Nombre del estudiante: %s.
+        Correo institucional: %s.
+        Modalidad de grado: "%s".
+        Documento actualizado: "%s".
+        Estado actual del documento: %s.
+
+        En este sentido, se solicita ingresar a la plataforma institucional, con el fin de revisar el documento actualizado y continuar con el trámite correspondiente, conforme a la normativa académica vigente.
+
+        Este mensaje constituye una notificación automática generada como constancia de la actualización registrada y para efectos de control y trazabilidad institucional.
+
+        Atentamente,
+
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
     """.formatted(
-        student.getName(),
-        student.getName() + " " + student.getLastName(),
-        student.getEmail(),
-        modality.getProgramDegreeModality().getDegreeModality().getName(),
-        document.getDocumentConfig().getDocumentName(),
-        translateDocumentStatus(document.getStatus())
-    );
+                student.getName() + " " + student.getLastName(),
+                student.getEmail(),
+                modalidadInfo,
+                document.getDocumentConfig().getDocumentName(),
+                translateDocumentStatus(document.getStatus())
+        );
     for (User programHead : programHeads) {
         Notification notification = Notification.builder()
                 .type(NotificationType.DOCUMENT_UPLOADED)
@@ -158,49 +156,39 @@ public class ProgramHeadNotificationListener {
     public void handleDefenseScheduledEvent(DefenseScheduledEvent event){
         StudentModality studentModality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         List<User> programHeads = userRepository.findAllByRoles_Name("PROGRAM_HEAD");
+        String degreeModalityName = studentModality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = studentModality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
         String subject = "Sustentación programada - Estudiantes asociados";
         String message = """
-                Estimada Jefatura de Programa,
-                
-                        Reciba un cordial saludo.
-                
-                        Se informa que ha sido programada oficialmente la sustentación
-                        correspondiente a la siguiente modalidad de grado:
-                
-                        ───────────────────────────────
-                        INFORMACIÓN DE LA MODALIDAD
-                        ───────────────────────────────
-                        Modalidad:
-                        "%s"
-                
-                        Estudiantes asociados:
-                        %s
-                
-                        ───────────────────────────────
-                        DETALLES DE LA SUSTENTACIÓN
-                        ───────────────────────────────
-                        Fecha y hora:
-                        %s
-                
-                        Lugar:
-                        %s
-                
-                        ───────────────────────────────
-                        ACCIÓN REQUERIDA
-                        ───────────────────────────────
-                        Se solicita tomar las medidas académicas y logísticas
-                        necesarias para garantizar el adecuado desarrollo
-                        de la sustentación conforme a la normativa institucional.
-                
-                        Puede consultar información adicional en el sistema.
-                
-                        Este mensaje constituye una notificación automática
-                        generada para efectos de control y trazabilidad
-                        del proceso académico.
-                
-                       
+                Estimada Jefatura de Programa:
+
+                Reciba un cordial saludo.
+
+                Nos permitimos informar que ha sido programada oficialmente la sustentación correspondiente a la modalidad de grado, conforme al proceso académico establecido.
+
+                A continuación, se relaciona la información pertinente:
+
+                Modalidad de grado: "%s".
+                Estudiantes asociados: %s.
+                Fecha y hora de la sustentación: %s.
+                Lugar: %s.
+
+                En este sentido, se solicita adoptar las medidas académicas y logísticas necesarias, con el fin de garantizar el adecuado desarrollo de la sustentación conforme a la normativa institucional vigente.
+
+                Podrá consultar información adicional a través de la plataforma institucional.
+
+                Este mensaje constituye una notificación automática generada como constancia de la programación realizada y para efectos de control y trazabilidad institucional.
+
+                Atentamente,
+
+                Sistema de Gestión Académica
+                Universidad Surcolombiana
                 """.formatted(
-                studentModality.getProgramDegreeModality().getDegreeModality().getName(),
+                modalidadInfo,
                 getStudentList(studentModality),
                 event.getDefenseDate().toString(),
                 event.getDefenseLocation()
@@ -231,44 +219,40 @@ public class ProgramHeadNotificationListener {
         List<User> programHeads =
                 userRepository.findAllByRoles_Name("PROGRAM_HEAD");
 
+        String degreeModalityName = studentModality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = studentModality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Nuevo director asignado - Estudiantes asociados";
 
         String message = """
-                 Estimada Jefatura de Programa,
-        
+        Estimada Jefatura de Programa:
+
         Reciba un cordial saludo.
-        
-        Se informa que ha sido registrada la asignación de un director
-        para la siguiente modalidad de grado:
-        
-        ───────────────────────────────
-        INFORMACIÓN DE LA MODALIDAD
-        ───────────────────────────────
-        Modalidad:
-        "%s"
-        
-        Estudiantes asociados:
-        %s
-        
-        Director asignado:
-        %s
-        
-        ───────────────────────────────
-        INFORMACIÓN DEL PROCESO
-        ───────────────────────────────
-        A partir de esta asignación, el director podrá iniciar
-        el acompañamiento académico correspondiente conforme
-        a los lineamientos institucionales.
-        
-        Puede consultar el detalle completo en el sistema.
-        
-        Este mensaje constituye una notificación automática
-        generada para efectos de control y trazabilidad
-        del proceso académico.
-        
-        
+
+        Nos permitimos informar que ha sido registrada la asignación de un director para la modalidad de grado, conforme al proceso académico establecido.
+
+        A continuación, se relaciona la información pertinente:
+
+        Modalidad de grado: "%s".
+        Estudiantes asociados: %s.
+        Director asignado: %s.
+
+        En virtud de esta asignación, el director designado podrá iniciar el acompañamiento académico correspondiente, conforme a los lineamientos institucionales vigentes.
+
+        Podrá consultar el detalle completo a través de la plataforma institucional.
+
+        Este mensaje constituye una notificación automática generada como constancia de la asignación realizada y para efectos de control y trazabilidad institucional.
+
+        Atentamente,
+
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
     """.formatted(
-                studentModality.getProgramDegreeModality().getDegreeModality().getName(),
+                modalidadInfo,
                 getStudentList(studentModality),
                 studentModality.getProjectDirector()
         );
@@ -300,57 +284,45 @@ public class ProgramHeadNotificationListener {
             return;
         }
         List<User> programHeads = userRepository.findAllByRoles_Name("PROGRAM_HEAD");
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
         String subject = "Resultado de la defensa final - Estudiantes asociados";
         String message = """
-                Estimado/a %s,
-                
-                Reciba un cordial saludo.
-                
-                Se informa que ha concluido la sustentación final
-                correspondiente a la modalidad de grado bajo su dirección.
-                A continuación, se detallan los resultados oficiales:
-                
-                ───────────────────────────────
-                INFORMACIÓN DE LOS ESTUDIANTES
-                ───────────────────────────────
-                Estudiantes asociados:
-                %s
-                
-                ───────────────────────────────
-                INFORMACIÓN DE LA MODALIDAD
-                ───────────────────────────────
-                Modalidad:
-                "%s"
-                
-                ───────────────────────────────
-                RESULTADO DE LA SUSTENTACIÓN
-                ───────────────────────────────
-                Resultado final:
-                %s
-                
-                Distinción académica:
-                %s
-                
-                Observaciones del jurado:
-                %s
-                
-                ───────────────────────────────
-                INFORMACIÓN DEL PROCESO
-                ───────────────────────────────
-                El resultado ha sido registrado oficialmente en el sistema.
-                Puede consultar el detalle completo y la documentación
-                asociada ingresando a la plataforma.
-                
-                Este mensaje constituye una notificación automática
-                generada para efectos de registro y trazabilidad
-                del proceso académico.
-    """.formatted(
-            director.getName(),
-            getStudentList(modality),
-            modality.getProgramDegreeModality().getDegreeModality().getName(),
-            translateModalityProcessStatus(event.getFinalStatus()),
-            translateAcademicDistinction(event.getAcademicDistinction()),
-            event.getObservations() != null ? event.getObservations() : "No se registraron observaciones"
+        Estimado(a) %s:
+
+        Reciba un cordial saludo.
+
+        Nos permitimos informar que ha concluido la sustentación final correspondiente a la modalidad de grado bajo su dirección, conforme al proceso académico establecido.
+
+        A continuación, se relaciona la información pertinente:
+
+        Estudiantes asociados: %s.
+        Modalidad de grado: "%s".
+        Resultado de la sustentación: %s.
+        Distinción académica: %s.
+        Observaciones del jurado: %s.
+
+        El resultado ha sido registrado oficialmente en el sistema. Podrá consultar el detalle completo y la documentación asociada a través de la plataforma institucional.
+
+        Este mensaje constituye una notificación automática generada como constancia del resultado registrado y para efectos de control y trazabilidad institucional.
+
+        Atentamente,
+
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
+        """.formatted(
+                director.getName(),
+                getStudentList(modality),
+                modalidadInfo,
+                translateModalityProcessStatus(event.getFinalStatus()),
+                translateAcademicDistinction(event.getAcademicDistinction()),
+                event.getObservations() != null && !event.getObservations().isBlank()
+                        ? event.getObservations()
+                        : "No se registran observaciones."
         );
         for (User programHead : programHeads) {
 
@@ -379,55 +351,45 @@ public class ProgramHeadNotificationListener {
 
         List<User> programHeads = userRepository.findAllByRoles_Name("PROGRAM_HEAD");
 
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Modalidad aprobada por el comité de currículo de programa - Estudiante: " + modality.getLeader().getName() + " " + modality.getLeader().getLastName();
 
         String message = """
-                Estimada Jefatura de Programa,
-                
-                        Reciba un cordial saludo.
-                
-                        Se informa que la modalidad de grado ha sido aprobada
-                        oficialmente por el Comité de Currículo del Programa.
-                        A continuación, se detallan los datos correspondientes:
-                
-                        ───────────────────────────────
-                        INFORMACIÓN DEL ESTUDIANTE
-                        ───────────────────────────────
-                        Nombre completo:
-                        %s
-                
-                        Correo institucional:
-                        %s
-                
-                        ───────────────────────────────
-                        INFORMACIÓN DE LA MODALIDAD
-                        ───────────────────────────────
-                        Modalidad:
-                        "%s"
-                
-                        Fecha de aprobación:
-                        %s
-                
-                        ───────────────────────────────
-                        INFORMACIÓN DEL PROCESO
-                        ───────────────────────────────
-                        La decisión ha sido registrada en el sistema y el proceso
-                        académico continúa conforme a la normativa institucional vigente.
-                
-                        Puede consultar el detalle completo en la plataforma SIGMA.
-                
-                        Este mensaje constituye una notificación automática
-                        generada para efectos de control y trazabilidad
-                        del proceso académico.
-                
-                        
-                """.formatted(
+        Estimada Jefatura de Programa:
+
+        Reciba un cordial saludo.
+
+        Nos permitimos informar que la modalidad de grado ha sido aprobada oficialmente por el Comité de Currículo del programa académico, conforme a la normativa institucional vigente.
+
+        A continuación, se relaciona la información pertinente:
+
+        Nombre del estudiante: %s.
+        Correo institucional: %s.
+        Modalidad de grado: "%s".
+        Fecha de aprobación: %s.
+
+        La decisión ha sido registrada en el sistema y el proceso académico continúa conforme a los lineamientos establecidos.
+
+        Podrá consultar el detalle completo a través de la plataforma institucional.
+
+        Este mensaje constituye una notificación automática generada como constancia de la decisión registrada y para efectos de control y trazabilidad institucional.
+
+        Atentamente,
+
+        Sistema de Gestión Académica – SIGMA
+        Universidad Surcolombiana
+        """.formatted(
                 modality.getLeader().getName(),
                 modality.getLeader().getEmail(),
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
+                modalidadInfo,
                 modality.getSelectionDate()
         );
-
         for (User programHead : programHeads) {
 
             Notification notification = Notification.builder()
@@ -458,44 +420,38 @@ public class ProgramHeadNotificationListener {
 
         List<User> programHeads = userRepository.findAllByRoles_Name("PROGRAM_HEAD");
 
-        String subject = "Documentos finales listos para revisión - " +
-                modality.getProgramDegreeModality().getDegreeModality().getName();
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
+        String subject = "Documentos finales listos para revisión - " + modalidadInfo;
 
         String message = """
-                Estimada Jefatura de Programa,
+        Estimada Jefatura de Programa:
 
-                Reciba un cordial saludo.
+        Reciba un cordial saludo.
 
-                Le informamos que el Director de Proyecto %s ha indicado que
-                los documentos finales de la siguiente modalidad de grado están
-                listos para su revisión institucional previa a la sustentación:
+        Nos permitimos informar que el Director de Proyecto %s ha registrado que los documentos finales de la modalidad de grado se encuentran disponibles para su revisión institucional previa a la sustentación, conforme al proceso académico establecido.
 
-                ───────────────────────────────
-                INFORMACIÓN DE LA MODALIDAD
-                ───────────────────────────────
-                Modalidad:
-                "%s"
+        A continuación, se relaciona la información pertinente:
 
-                Estudiantes asociados:
-                %s
+        Modalidad de grado: "%s".
+        Estudiantes asociados: %s.
 
-                ───────────────────────────────
-                ACCIÓN REQUERIDA
-                ───────────────────────────────
-                Se solicita ingresar a la plataforma para revisar la
-                documentación final y, una vez verificada, proceder a
-                notificar a los jurados evaluadores para que continúen
-                con el proceso de sustentación.
+        En este sentido, se solicita ingresar a la plataforma institucional con el fin de verificar la documentación final y, una vez validada, proceder con la notificación a los jurados evaluadores para dar continuidad al proceso de sustentación.
 
-                Este mensaje constituye una notificación automática
-                generada para efectos de control y trazabilidad
-                del proceso académico.
+        Este mensaje constituye una notificación automática generada como constancia de la actuación registrada y para efectos de control y trazabilidad institucional.
 
-                Cordialmente,
-                Sistema de Gestión Académica
-                """.formatted(
+        Atentamente,
+
+        Sistema de Gestión Académica
+        Universidad Surcolombiana
+        """.formatted(
                 directorNombre,
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
+                modalidadInfo,
                 getStudentList(modality)
         );
 

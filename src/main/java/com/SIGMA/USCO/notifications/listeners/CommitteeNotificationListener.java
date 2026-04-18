@@ -41,6 +41,13 @@ public class CommitteeNotificationListener {
 
         List<User> committeeMembers = userRepository.findAllByRoles_Name("PROGRAM_CURRICULUM_COMMITTEE");
 
+        String degreeModalityName = studentModality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = studentModality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Solicitud de cancelación de modalidad";
 
         String message = """
@@ -62,7 +69,7 @@ public class CommitteeNotificationListener {
                 Plataforma de Gestión de Modalidades de Grado
                 
                 """.formatted(
-                studentModality.getLeader().getName() + " " + studentModality.getLeader().getLastName()
+                modalidadInfo
         );
 
         for (User committeeMember : committeeMembers) {
@@ -91,6 +98,13 @@ public class CommitteeNotificationListener {
         List<User> committeeMembers =
                 userRepository.findAllByRoles_Name("PROGRAM_CURRICULUM_COMMITTEE");
 
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Modalidad de grado aprobada por Jefatura de Programa";
 
         String message = """
@@ -103,7 +117,7 @@ public class CommitteeNotificationListener {
 
                 Sistema SIGMA
                 """.formatted(
-                modality.getLeader().getName() + " " + modality.getLeader().getLastName()
+                modalidadInfo
         );
 
         for (User committeMember : committeeMembers) {
@@ -152,6 +166,13 @@ public class CommitteeNotificationListener {
 
         User student = modality.getLeader();
 
+        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String projectTitle = modality.getModalityTitle();
+        String modalidadInfo = degreeModalityName;
+        if (projectTitle != null && !projectTitle.isBlank()) {
+            modalidadInfo += " – " + projectTitle;
+        }
+
         String subject = "Documento actualizado – Modalidad en revisión";
 
         String message = """
@@ -186,7 +207,7 @@ public class CommitteeNotificationListener {
                 Plataforma de Gestión de Modalidades de Grado
                 """.formatted(
                 student.getName() + " " + student.getLastName(),
-                modality.getProgramDegreeModality().getAcademicProgram().getName(),
+                modalidadInfo,
                 document.getDocumentConfig().getDocumentName(),
                 translateDocumentStatus(document.getStatus())
         );
