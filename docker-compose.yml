@@ -1,0 +1,41 @@
+version: "3.9"
+services:
+  sigma:
+    build: .
+    image: sigma
+    container_name: sigma-api-container
+    ports:
+      - "8080:8080"
+    networks:
+      - sigma-network
+    depends_on:
+      - mysql
+
+  mysql:
+    image: mysql:8.0
+    container_name: sigma_bd
+    environment:
+        MYSQL_ROOT_PASSWORD: root
+        MYSQL_DATABASE: SIGMABD
+    ports:
+      - "3308:3306"
+    networks:
+        - sigma-network
+    volumes:
+      - sigma-volume:/var/lib/mysql
+
+  front:
+    image: sigma-frontend
+    container_name: sigma-frontend-container
+    ports:
+      - "5173:80"
+    networks:
+        - sigma-network
+    depends_on:
+      - sigma
+
+networks:
+  sigma-network:
+volumes:
+  sigma-volume:
+

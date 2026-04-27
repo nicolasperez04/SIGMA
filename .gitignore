@@ -4,6 +4,17 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+# ========== SECRETOS Y CONFIGURACIÓN ==========
+.env
+.env.local
+.env.prod
+.env.*.local
+application-prod.properties
+*.key
+*.jks
+*.keystore
+*.p12
+
 ### STS ###
 .apt_generated
 .classpath
