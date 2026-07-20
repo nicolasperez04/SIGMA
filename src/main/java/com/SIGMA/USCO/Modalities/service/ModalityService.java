@@ -5196,7 +5196,7 @@ public class ModalityService {
         }
 
         // Validar que tenga director de proyecto asignado
-        if (studentModality.getProjectDirector() == null) {
+        if (studentModality.getProgramDegreeModality().isRequiresDefenseProcess() &&  studentModality.getProjectDirector() == null) {
             return ResponseEntity.badRequest().body(
                     Map.of(
                             "success", false,
