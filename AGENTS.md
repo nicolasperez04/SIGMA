@@ -56,3 +56,24 @@ OpenAPI docs at: `http://localhost:8080/v3/api-docs`
 - **Upload files**: Stored in `./SIGMA-uploads/` (ensure directory exists before running)
 - **Database**: Auto-updates schema (`hibernate.ddl-auto=update` in dev profile)
 - **CORS**: Configured to allow frontend at `${FRONTEND_URL}` (default: `http://localhost:5173`)
+
+## Refactoring: Notification Listeners (Ponytail Phase 0-1)
+
+### Objective
+Eliminate duplicated save+dispatch patterns across 5 notification listeners by:
+1. Moving shared helper methods to `TranslationUtils.java`
+2. Centralizing build+save+dispatch in `NotificationFactory.java`
+
+### Completed
+- **TranslationUtils.java**: `translateExaminerType()`, `getStudentList()`, `localizeObservations()` extracted from listeners
+- **NotificationFactory.java**: Created with 5 methods — `buildAndDispatch` (2 overloads), `buildAndSave`, `saveAndDispatch`, `buildAndDispatchWithAttachment` (2 overloads)
+- **CommitteeNotificationListener.java**: Fully converted, fields replaced with `NotificationFactory`
+- **ProgramHeadNotificationListener.java**: Fully converted, fields replaced with `NotificationFactory`
+- **DirectorNotificationListener.java**: Fully converted, fields replaced with `NotificationFactory`
+- **ExaminerNotificationListener.java**: Fully converted, `NotificationRepository` field removed
+- **StudentNotificationListener.java**: Fully converted (~1780 lines, 26+ handlers). All `NotificationRepository.save()` + `dispatcher.dispatch()` pairs replaced with factory calls. 3 hand-rolled `Notification.builder()` cases remain (1 with `invitationId`, 1 with attachment in `handleDefenseResult`, 1 with attachment in `handleModalityFinalApprovedByCommittee`) — these use `buildAndSave()`/`saveAndDispatch()` + inline `dispatchWithAttachment()`
+
+### Hand-rolled builders still in StudentNotificationListener
+- `handleModalityInvitationSent` (line 1028): uses `.invitationId()` — kept hand-rolled + `saveAndDispatch()`
+- `handleDefenseResult` leader path (line 449): uses `buildAndSave()` + inline `dispatchWithAttachment()`
+- `handleModalityFinalApprovedByCommittee` (line 1244): uses `buildAndSave()` + inline `dispatchWithAttachment()`

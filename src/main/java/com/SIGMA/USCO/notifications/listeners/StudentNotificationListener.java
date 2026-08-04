@@ -17,43 +17,15 @@ import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.Notification;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.CancellationApprovedEvent;
-import com.SIGMA.USCO.notifications.event.CancellationRejectedEvent;
-import com.SIGMA.USCO.notifications.event.CancellationRequestedEvent;
-import com.SIGMA.USCO.notifications.event.CorrectionApprovedEvent;
-import com.SIGMA.USCO.notifications.event.CorrectionDeadlineExpiredEvent;
-import com.SIGMA.USCO.notifications.event.CorrectionDeadlineReminderEvent;
-import com.SIGMA.USCO.notifications.event.CorrectionRejectedFinalEvent;
-import com.SIGMA.USCO.notifications.event.CorrectionResubmittedEvent;
-import com.SIGMA.USCO.notifications.event.DefenseScheduledEvent;
-import com.SIGMA.USCO.notifications.event.DirectorAssignedEvent;
-import com.SIGMA.USCO.notifications.event.DocumentCorrectionsRequestedEvent;
-import com.SIGMA.USCO.notifications.event.DocumentEditResolvedEvent;
-import com.SIGMA.USCO.notifications.event.ExaminersAssignedEvent;
-import com.SIGMA.USCO.notifications.event.FinalDefenseResultEvent;
-import com.SIGMA.USCO.notifications.event.ModalityApprovedByCommitteeEvent;
-import com.SIGMA.USCO.notifications.event.ModalityApprovedByExaminers;
-import com.SIGMA.USCO.notifications.event.ModalityApprovedByProgramHead;
-import com.SIGMA.USCO.notifications.event.ModalityClosedByCommitteeEvent;
-import com.SIGMA.USCO.notifications.event.ModalityFinalApprovedByCommitteeEvent;
-import com.SIGMA.USCO.notifications.event.ModalityInvitationAcceptedEvent;
-import com.SIGMA.USCO.notifications.event.ModalityInvitationRejectedEvent;
-import com.SIGMA.USCO.notifications.event.ModalityInvitationSentEvent;
-import com.SIGMA.USCO.notifications.event.ModalityRejectedByCommitteeEvent;
-import com.SIGMA.USCO.notifications.event.SeminarCancelledEvent;
-import com.SIGMA.USCO.notifications.event.SeminarStartedEvent;
-import com.SIGMA.USCO.notifications.event.StudentModalityStarted;
-import com.SIGMA.USCO.notifications.repository.NotificationRepository;
+import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import com.SIGMA.USCO.notifications.service.AcademicCertificatePdfService;
+import com.SIGMA.USCO.notifications.service.NotificationBuilderHelper;
 import com.SIGMA.USCO.notifications.service.NotificationDispatcherService;
+import com.SIGMA.USCO.notifications.service.NotificationFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -67,23 +39,50 @@ public class StudentNotificationListener {
 
     private final StudentModalityRepository studentModalityRepository;
     private final StudentModalityMemberRepository studentModalityMemberRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationFactory notificationFactory;
     private final NotificationDispatcherService dispatcher;
     private final UserRepository userRepository;
     private final StudentDocumentRepository studentDocumentRepository;
     private final AcademicCertificatePdfService certificatePdfService;
 
-
     @EventListener
-    public void ModalityStarted(StudentModalityStarted event){
+    public void handleEvent(ModalityEvent event) {
+        switch (event.getType()) {
+            case MODALITY_STARTED -> handleModalityStarted(event);
+            case DOCUMENT_CORRECTIONS_REQUESTED -> handleDocumentCorrectionsRequested(event);
+            case MODALITY_CANCELLATION_REQUESTED -> handleCancellationRequested(event);
+            case MODALITY_CANCELLATION_APPROVED -> handleCancellationApproved(event);
+            case MODALITY_CANCELLATION_REJECTED -> handleCancellationRejected(event);
+            case DEFENSE_SCHEDULED -> handleDefenseScheduled(event);
+            case DIRECTOR_ASSIGNED -> handleDirectorAssigned(event);
+            case DEFENSE_COMPLETED -> handleDefenseResult(event);
+            case MODALITY_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> handleModalityApprovedByCommittee(event);
+            case MODALITY_APPROVED_BY_PROGRAM_HEAD -> handleModalityApprovedByProgramHead(event);
+            case CORRECTION_DEADLINE_REMINDER -> handleCorrectionDeadlineReminder(event);
+            case CORRECTION_DEADLINE_EXPIRED -> handleCorrectionDeadlineExpired(event);
+            case CORRECTION_RESUBMITTED -> handleCorrectionResubmitted(event);
+            case CORRECTION_APPROVED -> handleCorrectionApproved(event);
+            case CORRECTION_REJECTED_FINAL -> handleCorrectionRejectedFinal(event);
+            case MODALITY_CLOSED_BY_COMMITTEE -> handleModalityClosedByCommittee(event);
+            case MODALITY_INVITATION_RECEIVED -> handleModalityInvitationSent(event);
+            case MODALITY_INVITATION_ACCEPTED -> handleModalityInvitationAccepted(event);
+            case MODALITY_INVITATION_REJECTED -> handleModalityInvitationRejected(event);
+            case MODALITY_FINAL_APPROVED_BY_COMMITTEE -> handleModalityFinalApprovedByCommittee(event);
+            case MODALITY_REJECTED_BY_COMMITTEE -> handleModalityRejectedByCommittee(event);
+            case SEMINAR_STARTED -> handleSeminarStarted(event);
+            case SEMINAR_CANCELLED -> handleSeminarCancelled(event);
+            case MODALITY_APPROVED_BY_EXAMINERS -> handleModalityApprovedByExaminers(event);
+            case EXAMINER_ASSIGNED -> handleExaminersAssigned(event);
+            case DOCUMENT_EDIT_APPROVED, DOCUMENT_EDIT_REJECTED -> handleDocumentEditResolved(event);
+            default -> log.warn("Unhandled notification type: {}", event.getType());
+        }
+    }
+
+    private void handleModalityStarted(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         User student = modality.getLeader();
         String subject = "Modalidad iniciada – SIGMA";
-        String message = """
-                Estimado(a) %s:
-
-                Reciba un cordial saludo.
-
+        String body = """
                 Nos permitimos informarle que su modalidad de grado ha sido registrada e iniciada oficialmente en el sistema institucional. A continuación, se relaciona la información correspondiente:
 
                 Modalidad de grado: "%s".
@@ -92,57 +91,41 @@ public class StudentNotificationListener {
                 Actualmente, la modalidad se encuentra en etapa de revisión y evaluación por parte de la Jefatura de Programa y del Comité de Currículo correspondiente.
 
                 Se recomienda consultar periódicamente el sistema y mantenerse atento(a) a las notificaciones institucionales, ya que a través de este medio se comunicarán solicitudes, observaciones o decisiones relacionadas con su proceso académico.
-
-                Atentamente,
-
-                Sistema de Gestión Académica
-        """.formatted(
-                student.getName(),
-                modality.getProgramDegreeModality().getDegreeModality().getName(),
-                translateModalityProcessStatus(modality.getStatus())
+                """.formatted(
+                NotificationBuilderHelper.buildModalityInfo(modality),
+                TranslationUtils.translateModalityProcessStatus(modality.getStatus())
         );
-        Notification notification = Notification.builder()
-                .type(NotificationType.MODALITY_STARTED)
-                .recipientType(NotificationRecipientType.STUDENT)
-                .recipient(student)
-                .triggeredBy(null)
-                .studentModality(modality)
-                .subject(subject)
-                .message(message)
-                .createdAt(LocalDateTime.now())
-                .build();
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
+        String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closing();
+        notificationFactory.buildAndDispatch(NotificationType.MODALITY_STARTED, NotificationRecipientType.STUDENT, student, modality, subject, message);
+
     }
 
-    @EventListener
-    public void onDocumentCorrectionsRequested(DocumentCorrectionsRequestedEvent event) {
-        StudentDocument document = studentDocumentRepository.findById(event.getStudentDocumentId())
-                .orElseThrow();
+
+    private void handleDocumentCorrectionsRequested(ModalityEvent event) {
+        StudentDocument document = studentDocumentRepository.findById(
+                event.get(ModalityEvent.KEY_STUDENT_DOCUMENT_ID, Long.class)
+        ).orElseThrow();
         StudentModality modality = document.getStudentModality();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
         String subject = "Correcciones solicitadas en documento académico – Acción requerida";
+        NotificationRecipientType requestedBy = event.get(ModalityEvent.KEY_REQUESTED_BY, NotificationRecipientType.class);
+        String observations = event.get(ModalityEvent.KEY_OBSERVATIONS, String.class);
         for (var member : members) {
             User student = member.getStudent();
-            
-            // Determinar quién solicita las correcciones
+
             String requestedByText;
-            if (event.getRequestedBy() == NotificationRecipientType.PROGRAM_HEAD) {
+            if (requestedBy == NotificationRecipientType.PROGRAM_HEAD) {
                 requestedByText = "la Jefatura de Programa y/o Coordinación de Modalidades";
-            } else if (event.getRequestedBy() == NotificationRecipientType.EXAMINER) {
+            } else if (requestedBy == NotificationRecipientType.EXAMINER) {
                 requestedByText = "un jurado evaluador";
             } else {
                 requestedByText = "el Comité de Currículo del Programa";
             }
 
-            String message = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos informarle que %s ha solicitado la realización de correcciones en uno de los documentos asociados a su modalidad de grado, en el marco del proceso de revisión académica.
 
         A continuación, se detalla la información correspondiente:
@@ -153,55 +136,32 @@ public class StudentNotificationListener {
         En este sentido, se solicita ingresar a la plataforma institucional, revisar detalladamente las observaciones indicadas y efectuar los ajustes correspondientes, con el fin de dar continuidad al proceso académico dentro de los plazos establecidos.
 
         Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad del proceso.
-
-        Atentamente,
-
-        Sistema de Gestión Académica
         """.formatted(
-                    student.getName(),
                     requestedByText,
                     document.getDocumentConfig().getDocumentName(),
-                    event.getObservations() != null && !event.getObservations().isBlank()
-                            ? event.getObservations()
+                    observations != null && !observations.isBlank()
+                            ? observations
                             : "No se registraron observaciones adicionales."
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.DOCUMENT_CORRECTIONS_REQUESTED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closing();
+            notificationFactory.buildAndDispatch(NotificationType.DOCUMENT_CORRECTIONS_REQUESTED, NotificationRecipientType.STUDENT, student, modality, subject, message);
+
         }
     }
 
-    @EventListener
-    public void onCancellationRequested(CancellationRequestedEvent event){
+
+    private void handleCancellationRequested(ModalityEvent event) {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            sm.getId(),
-            MemberStatus.ACTIVE
+                sm.getId(),
+                MemberStatus.ACTIVE
         );
         String subject = "Solicitud de cancelación registrada – Modalidad de grado";
-        String degreeModalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = sm.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos informarle que su solicitud de cancelación de la modalidad de grado ha sido registrada correctamente en el sistema institucional.
 
         A continuación, se relaciona la información correspondiente:
@@ -213,51 +173,28 @@ public class StudentNotificationListener {
         Una vez se emita una decisión oficial, esta le será notificada oportunamente a través de la plataforma institucional.
 
         Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad del proceso académico.
-
-        Atentamente,
-
-        Sistema de Gestión Académica
         """.formatted(
-                    student.getName(),
                     modalidadInfo
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.MODALITY_CANCELLATION_REQUESTED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(sm)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closing();
+            notificationFactory.buildAndDispatch(NotificationType.MODALITY_CANCELLATION_REQUESTED, NotificationRecipientType.STUDENT, student, sm, subject, message);
+
         }
     }
 
-    @EventListener
-    public void onCancellationApproved(CancellationApprovedEvent event) {
+
+    private void handleCancellationApproved(ModalityEvent event) {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            sm.getId(),
-            MemberStatus.ACTIVE
+                sm.getId(),
+                MemberStatus.ACTIVE
         );
         String subject = "Cancelación aprobada – Modalidad de grado";
-        String degreeModalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = sm.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos informarle que el Comité de Currículo del programa académico ha aprobado oficialmente su solicitud de cancelación de la modalidad de grado.
 
         A continuación, se relaciona la información correspondiente:
@@ -269,51 +206,29 @@ public class StudentNotificationListener {
         En caso de requerir orientación adicional o información complementaria sobre su situación académica, podrá comunicarse con la Jefatura de Programa.
 
         Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad institucional.
-
-        Atentamente,
-
-        Sistema de Gestión Académica – SIGMA
         """.formatted(
-                    student.getName(),
                     modalidadInfo
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.MODALITY_CANCELLATION_APPROVED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(sm)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closingSigma();
+            notificationFactory.buildAndDispatch(NotificationType.MODALITY_CANCELLATION_APPROVED, NotificationRecipientType.STUDENT, student, sm, subject, message);
+
         }
     }
 
-    @EventListener
-    public void onCancellationRejected(CancellationRejectedEvent event){
+
+    private void handleCancellationRejected(ModalityEvent event) {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            sm.getId(),
-            MemberStatus.ACTIVE
+                sm.getId(),
+                MemberStatus.ACTIVE
         );
         String subject = "Cancelación no aprobada – Modalidad de grado";
-        String degreeModalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = sm.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
+        String reason = event.get(ModalityEvent.KEY_REASON, String.class);
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos informarle que el Comité de Currículo del programa académico ha decidido no aprobar su solicitud de cancelación de la modalidad de grado.
 
         A continuación, se relaciona la información correspondiente:
@@ -326,58 +241,33 @@ public class StudentNotificationListener {
         En caso de requerir mayor claridad sobre la presente decisión o desear orientación adicional, podrá comunicarse con la Jefatura de Programa.
 
         Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad institucional.
-
-        Atentamente,
-
-        Sistema de Gestión Académica
         """.formatted(
-                    student.getName(),
                     modalidadInfo,
-                    event.getReason() != null && !event.getReason().isBlank()
-                            ? event.getReason()
+                    reason != null && !reason.isBlank()
+                            ? reason
                             : "No se especifican motivos adicionales."
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.MODALITY_CANCELLATION_REJECTED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(sm)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closing();
+            notificationFactory.buildAndDispatch(NotificationType.MODALITY_CANCELLATION_REJECTED, NotificationRecipientType.STUDENT, student, sm, subject, message);
+
         }
     }
 
-    @EventListener
-    public void handleDefenseScheduled(DefenseScheduledEvent event) {
 
+    private void handleDefenseScheduled(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
-
         User director = modality.getProjectDirector();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
-        String studentSubject =
-                "Sustentación programada – Modalidad de Grado";
-
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+        String studentSubject = "Sustentación programada – Modalidad de Grado";
+        Object defenseDate = event.get(ModalityEvent.KEY_DEFENSE_DATE, Object.class);
+        String defenseLocation = event.get(ModalityEvent.KEY_DEFENSE_LOCATION, String.class);
         for (var member : members) {
             User student = member.getStudent();
-            String studentMessage = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos informarle que la sustentación correspondiente a su modalidad de grado ha sido programada, conforme al proceso académico establecido.
 
         A continuación, se relaciona la información correspondiente:
@@ -392,61 +282,35 @@ public class StudentNotificationListener {
         Se recomienda presentarse con la debida antelación y cumplir estrictamente con los lineamientos académicos establecidos para el desarrollo de la sesión de sustentación.
 
         Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad del proceso académico.
-
-        Atentamente,
-
-        Sistema de Gestión Académica
         """.formatted(
-                    student.getName(),
                     modalidadInfo,
-                    event.getDefenseDate(),
-                    event.getDefenseLocation(),
+                    defenseDate,
+                    defenseLocation,
                     director != null
                             ? director.getName() + " " + director.getLastName()
                             : "No asignado"
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.DEFENSE_SCHEDULED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(studentSubject)
-                    .message(studentMessage)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String studentMessage = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closing();
+            notificationFactory.buildAndDispatch(NotificationType.DEFENSE_SCHEDULED, NotificationRecipientType.STUDENT, student, modality, studentSubject, studentMessage);
+
         }
     }
 
-    @EventListener
-    public void DirectorAssigned(DirectorAssignedEvent event){
 
+    private void handleDirectorAssigned(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                        .orElseThrow();
-
-        User director = userRepository.findById(event.getDirectorId())
+                .orElseThrow();
+        User director = userRepository.findById(event.get(ModalityEvent.KEY_DIRECTOR_ID, Long.class))
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
-        String studentSubject =
-                "Director de proyecto asignado – Modalidad de grado";
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+        String studentSubject = "Director de proyecto asignado – Modalidad de grado";
         for (var member : members) {
             User student = member.getStudent();
-            String studentMessage = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos informarle que ha sido designado oficialmente un Director de Proyecto para su modalidad de grado, conforme a los lineamientos académicos vigentes.
 
         A continuación, se relaciona la información correspondiente:
@@ -460,54 +324,37 @@ public class StudentNotificationListener {
         Se recomienda establecer contacto oportunamente con el director, con el fin de coordinar las actividades iniciales y definir el plan de trabajo correspondiente.
 
         Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad del proceso académico.
-
-        Atentamente,
-
-        Sistema de Gestión Académica
         """.formatted(
-                    student.getName(),
                     modalidadInfo,
                     director.getName() + " " + director.getLastName(),
                     director.getEmail()
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.DIRECTOR_ASSIGNED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(studentSubject)
-                    .message(studentMessage)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String studentMessage = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closing();
+            notificationFactory.buildAndDispatch(NotificationType.DIRECTOR_ASSIGNED, NotificationRecipientType.STUDENT, student, modality, studentSubject, studentMessage);
+
         }
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void handleDefenseResult(FinalDefenseResultEvent event){
 
+    private void handleDefenseResult(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                        .orElseThrow();
+                .orElseThrow();
 
-        boolean approved = event.getFinalStatus() == ModalityProcessStatus.GRADED_APPROVED;
-        boolean approvedPendingCommitteeReview = event.getFinalStatus() == ModalityProcessStatus.PENDING_DISTINCTION_COMMITTEE_REVIEW;
+        ModalityProcessStatus finalStatus = event.get(ModalityEvent.KEY_FINAL_STATUS, ModalityProcessStatus.class);
+        boolean approved = finalStatus == ModalityProcessStatus.GRADED_APPROVED;
+        boolean approvedPendingCommitteeReview = finalStatus == ModalityProcessStatus.PENDING_DISTINCTION_COMMITTEE_REVIEW;
         boolean shouldSendCertificate = approved || approvedPendingCommitteeReview;
 
         String studentSubject = shouldSendCertificate
                 ? (approvedPendingCommitteeReview
-                    ? "Resultado de sustentación – Modalidad aprobada (distinción en revisión del comité)"
-                    : "Resultado final de sustentación – Modalidad aprobada")
+                ? "Resultado de sustentación – Modalidad aprobada (distinción en revisión del comité)"
+                : "Resultado final de sustentación – Modalidad aprobada")
                 : "Resultado final de sustentación – Modalidad no aprobada";
 
-        // Obtener todos los miembros activos
         List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(), MemberStatus.ACTIVE
+                modality.getId(), MemberStatus.ACTIVE
         );
 
-        // Fallback para modalidades individuales sin registros activos en StudentModalityMember
         if (members == null || members.isEmpty()) {
             StudentModalityMember syntheticLeaderMember = StudentModalityMember.builder()
                     .studentModality(modality)
@@ -518,7 +365,6 @@ public class StudentNotificationListener {
             members = List.of(syntheticLeaderMember);
         }
 
-        // GENERAR EL PDF UNA SOLA VEZ (FUERA DEL LOOP)
         AcademicCertificate certificate = null;
         Path pdfPath = null;
         if (shouldSendCertificate) {
@@ -538,24 +384,15 @@ public class StudentNotificationListener {
             }
         }
 
-        // ENVIAR CORREO CON ACTA SOLO AL LÍDER (evita múltiples adjuntos)
         User leader = modality.getLeader();
         if (leader != null) {
             String leaderMessage = shouldSendCertificate
                     ? buildApprovedStudentMessage(leader, modality, event)
                     : buildRejectedStudentMessage(leader, modality, event);
 
-            Notification leaderNotification = Notification.builder()
-                    .type(NotificationType.DEFENSE_COMPLETED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(leader)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(studentSubject)
-                    .message(leaderMessage)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(leaderNotification);
+            Notification leaderNotification = notificationFactory.buildAndSave(
+                    NotificationType.DEFENSE_COMPLETED, NotificationRecipientType.STUDENT,
+                    leader, null, modality, studentSubject, leaderMessage);
 
             if (shouldSendCertificate && pdfPath != null) {
                 try {
@@ -574,9 +411,7 @@ public class StudentNotificationListener {
             }
         }
 
-        // ENVIAR NOTIFICACIÓN SIN ACTA A LOS DEMÁS MIEMBROS (si la modalidad es grupal)
         for (StudentModalityMember member : members) {
-            // Si ya es el líder, saltarlo (ya recibió el correo con acta)
             if (leader != null && member.getStudent().getId().equals(leader.getId())) {
                 continue;
             }
@@ -586,24 +421,12 @@ public class StudentNotificationListener {
                     ? buildApprovedStudentMessage(student, modality, event)
                     : buildRejectedStudentMessage(student, modality, event);
 
-            Notification notification = Notification.builder()
-                    .type(NotificationType.DEFENSE_COMPLETED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(studentSubject)
-                    .message(studentMessage)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-
-            // Sin adjunto para los demás miembros (el líder ya tiene el acta)
-            dispatcher.dispatch(notification);
+            notificationFactory.buildAndDispatch(
+                    NotificationType.DEFENSE_COMPLETED, NotificationRecipientType.STUDENT,
+                    student, null, modality, studentSubject, studentMessage);
             log.info("Notificación enviada al miembro {} (modalidad ID {}, sin acta adjunta)", student.getId(), modality.getId());
         }
 
-        // MARCAR COMO ENVIADA UNA SOLA VEZ
         if (certificate != null && shouldSendCertificate) {
             try {
                 certificatePdfService.updateCertificateStatus(certificate.getId(), CertificateStatus.SENT);
@@ -614,19 +437,11 @@ public class StudentNotificationListener {
         }
     }
 
-    private String buildApprovedStudentMessage(User student, StudentModality modality, FinalDefenseResultEvent event) {
-        String observaciones = localizeObservations(event.getObservations());
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
-        return """
-            Estimado(a) %s:
 
-            Reciba un cordial saludo.
-
+    private String buildApprovedStudentMessage(User student, StudentModality modality, ModalityEvent event) {
+        String observaciones = TranslationUtils.localizeObservations(event.get(ModalityEvent.KEY_OBSERVATIONS, String.class));
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+        String body = """
             Nos permitimos informarle que, una vez realizada la sustentación y evaluado el resultado por los jurados designados, ha aprobado oficialmente la modalidad de grado.
 
             A continuación, se relaciona la información correspondiente:
@@ -642,31 +457,18 @@ public class StudentNotificationListener {
             Reciba un reconocimiento institucional por este importante logro académico.
 
             Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad del proceso académico.
-
-            Atentamente,
-
-            Sistema de Gestión Académica
-            Universidad Surcolombiana
             """.formatted(
-                student.getName(),
                 modalidadInfo,
-                translateAcademicDistinction(event.getAcademicDistinction()),
+                TranslationUtils.translateAcademicDistinction(event.get(ModalityEvent.KEY_ACADEMIC_DISTINCTION, AcademicDistinction.class)),
                 observaciones != null && !observaciones.isBlank() ? observaciones : "No se registran observaciones."
         );
+        return NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.universityClosing();
     }
 
-    private String buildRejectedStudentMessage(User student, StudentModality modality, FinalDefenseResultEvent event) {
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
-        return """
-            Estimado(a) %s:
-
-            Reciba un cordial saludo.
-
+    private String buildRejectedStudentMessage(User student, StudentModality modality, ModalityEvent event) {
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+        String observations = event.get(ModalityEvent.KEY_OBSERVATIONS, String.class);
+        String body = """
             Nos permitimos informarle que, una vez realizada la sustentación y evaluado el resultado por los jurados designados, no se ha determinado la aprobación de la modalidad de grado en la presente oportunidad.
 
             A continuación, se relaciona la información correspondiente:
@@ -677,41 +479,27 @@ public class StudentNotificationListener {
             De acuerdo con la normativa académica vigente, se recomienda revisar detenidamente las observaciones consignadas y establecer comunicación con el Director de Proyecto, así como con la Jefatura de Programa, con el fin de definir las acciones a seguir dentro del proceso académico.
 
             Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad del proceso académico.
-
-            Atentamente,
-
-            Sistema de Gestión Académica – SIGMA
-            Universidad Surcolombiana
             """.formatted(
-                student.getName(),
                 modalidadInfo,
-                event.getObservations() != null && !event.getObservations().isBlank()
-                        ? event.getObservations()
+                observations != null && !observations.isBlank()
+                        ? observations
                         : "No se registran observaciones adicionales."
         );
+        return NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closingSigma() + "\nUniversidad Surcolombiana";
     }
 
-    @EventListener
-    public void ModalityApprovedByCommittee(ModalityApprovedByCommitteeEvent event) {
+
+    private void handleModalityApprovedByCommittee(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Modalidad de grado aprobada – Comité de Currículo";
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos informarle que la modalidad de grado ha sido aprobada oficialmente por el Comité de Currículo del programa académico.
 
         A continuación, se relaciona la información correspondiente:
@@ -726,13 +514,7 @@ public class StudentNotificationListener {
         Se recomienda mantenerse atento(a) a las notificaciones del sistema institucional y conservar comunicación permanente con el Director de Proyecto y la Jefatura de Programa, con el fin de garantizar el adecuado desarrollo y seguimiento del proceso.
 
         Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad del proceso académico.
-
-        Atentamente,
-
-        Sistema de Gestión Académica
-        Universidad Surcolombiana
         """.formatted(
-                    student.getName(),
                     modalidadInfo,
                     modality.getProjectDirector() != null
                             ? modality.getProjectDirector().getName() + " " +
@@ -740,43 +522,24 @@ public class StudentNotificationListener {
                             : "No se registra director asignado.",
                     modality.getUpdatedAt()
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.MODALITY_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.universityClosing();
+            notificationFactory.buildAndDispatch(NotificationType.MODALITY_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE, NotificationRecipientType.STUDENT, student, modality, subject, message);
+
         }
     }
 
-    @EventListener
-    public void ModalityApprovedByProgramHead(ModalityApprovedByProgramHead event) {
 
+    private void handleModalityApprovedByProgramHead(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Modalidad de grado aprobada – Jefatura de Programa y/o Coordinación de Modalidades";
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos informarle que la modalidad de grado ha sido aprobada oficialmente por la Jefatura de Programa y/o la coordinación de modalidades del programa académico.
 
         A continuación, se relaciona la información correspondiente:
@@ -789,55 +552,31 @@ public class StudentNotificationListener {
         Se recomienda mantenerse atento(a) a las notificaciones del sistema institucional y conservar comunicación con la Jefatura de Programa, en caso de requerir información adicional o aclaraciones relacionadas con el trámite.
 
         Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad del proceso académico.
-
-        Atentamente,
-
-        Sistema de Gestión Académica
-        Universidad Surcolombiana
         """.formatted(
-                    student.getName(),
                     modalidadInfo
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.MODALITY_APPROVED_BY_PROGRAM_HEAD)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.universityClosing();
+            notificationFactory.buildAndDispatch(NotificationType.MODALITY_APPROVED_BY_PROGRAM_HEAD, NotificationRecipientType.STUDENT, student, modality, subject, message);
+
         }
     }
 
 
-
-    @EventListener
-    public void handleCorrectionDeadlineReminder(CorrectionDeadlineReminderEvent event) {
+    private void handleCorrectionDeadlineReminder(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+        Integer daysRemaining = event.get(ModalityEvent.KEY_DAYS_REMAINING, Integer.class, 0);
+        Object deadline = event.get(ModalityEvent.KEY_DEADLINE, Object.class);
         String subject = "Recordatorio oficial – Plazo de correcciones (%d días restantes)"
-                .formatted(event.getDaysRemaining());
+                .formatted(daysRemaining);
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos recordarle que actualmente presenta correcciones pendientes asociadas a su modalidad de grado, conforme al proceso de revisión académica.
 
         A continuación, se relaciona la información correspondiente:
@@ -858,55 +597,32 @@ public class StudentNotificationListener {
         En caso de presentar alguna dificultad o requerir orientación adicional, podrá comunicarse a la mayor brevedad con la Jefatura de Programa.
 
         Este mensaje constituye una notificación automática generada como recordatorio preventivo y para efectos de control y trazabilidad del proceso académico.
-
-        Atentamente,
-
-        Sistema de Gestión Académica – SIGMA
-        Universidad Surcolombiana
         """.formatted(
-                    student.getName(),
                     modalidadInfo,
-                    event.getDaysRemaining(),
-                    event.getDeadline().toLocalDate()
+                    daysRemaining,
+                    deadline
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.CORRECTION_DEADLINE_REMINDER)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closingSigma() + "\nUniversidad Surcolombiana";
+            notificationFactory.buildAndDispatch(NotificationType.CORRECTION_DEADLINE_REMINDER, NotificationRecipientType.STUDENT, student, modality, subject, message);
+
             log.info("Recordatorio de plazo de corrección enviado al estudiante {}", student.getId());
         }
     }
 
-    @EventListener
-    public void handleCorrectionDeadlineExpired(CorrectionDeadlineExpiredEvent event) {
+
+    private void handleCorrectionDeadlineExpired(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Cancelación automática de modalidad por vencimiento de plazo";
+        Object requestDate = event.get(ModalityEvent.KEY_REQUEST_DATE, Object.class);
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-            Estimado(a) %s:
-
-            Reciba un cordial saludo.
-
+            String body = """
             Nos permitimos informarle que la modalidad de grado relacionada a continuación ha sido cancelada de manera automática, debido al vencimiento del plazo establecido para la entrega de las correcciones solicitadas, sin que se haya efectuado la carga del documento ajustado dentro del término reglamentario.
 
             A continuación, se relaciona la información correspondiente:
@@ -923,54 +639,31 @@ public class StudentNotificationListener {
             Se recomienda comunicarse con la Jefatura de Programa, con el fin de recibir orientación sobre los pasos a seguir.
 
             Este mensaje constituye una notificación automática generada como constancia del cierre del proceso y para efectos de control y trazabilidad institucional.
-
-            Atentamente,
-
-            Sistema de Gestión Académica
-            Universidad Surcolombiana
             """.formatted(
-                    student.getName(),
                     modalidadInfo,
-                    event.getRequestDate().toLocalDate()
+                    requestDate
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.CORRECTION_DEADLINE_EXPIRED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.universityClosing();
+            notificationFactory.buildAndDispatch(NotificationType.CORRECTION_DEADLINE_EXPIRED, NotificationRecipientType.STUDENT, student, modality, subject, message);
+
             log.info("Notificación de cancelación por vencimiento enviada al estudiante {}", student.getId());
         }
     }
 
-    @EventListener
-    public void handleCorrectionResubmitted(CorrectionResubmittedEvent event) {
+
+    private void handleCorrectionResubmitted(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Documento corregido recibido";
+        String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-            Estimado(a) %s:
-
-            Reciba un cordial saludo.
-
+            String body = """
             Nos permitimos informarle que la carga del documento corregido ha sido registrada correctamente en el Sistema de Gestión Académica, en el marco del proceso de revisión de su modalidad de grado.
 
             A continuación, se relaciona la información correspondiente:
@@ -985,55 +678,32 @@ public class StudentNotificationListener {
             Se recomienda permanecer atento(a) a las comunicaciones emitidas por el sistema, con el fin de garantizar la adecuada continuidad del proceso académico.
 
             Este mensaje constituye una notificación automática generada como constancia del registro de la nueva versión del documento y para efectos de control y trazabilidad institucional.
-
-            Atentamente,
-
-            Sistema de Gestión Académica
-            Universidad Surcolombiana
             """.formatted(
-                    student.getName(),
                     modalidadInfo,
-                    event.getDocumentName(),
+                    documentName,
                     LocalDateTime.now().toLocalDate()
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.CORRECTION_RESUBMITTED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.universityClosing();
+            notificationFactory.buildAndDispatch(NotificationType.CORRECTION_RESUBMITTED, NotificationRecipientType.STUDENT, student, modality, subject, message);
+
             log.info("Notificación de resubmisión de corrección enviada al estudiante {}", student.getId());
         }
     }
 
-    @EventListener
-    public void handleCorrectionApproved(CorrectionApprovedEvent event) {
+
+    private void handleCorrectionApproved(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Correcciones aprobadas";
+        String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-            Estimado(a) %s:
-
-            Reciba un cordial saludo.
-
+            String body = """
             Nos permitimos informarle que las correcciones remitidas han sido aprobadas por el jurado evaluador, en el marco del proceso de revisión académica de su modalidad de grado.
 
             A continuación, se relaciona la información correspondiente:
@@ -1047,54 +717,32 @@ public class StudentNotificationListener {
             La siguiente actuación dentro del proceso será notificada oportunamente a través de la plataforma institucional.
 
             Este mensaje constituye una notificación automática generada como constancia de la decisión registrada y para efectos de control y trazabilidad institucional.
-
-            Atentamente,
-
-            Sistema de Gestión Académica
-            Universidad Surcolombiana
             """.formatted(
-                    student.getName(),
                     modalidadInfo,
-                    event.getDocumentName()
+                    documentName
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.CORRECTION_APPROVED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.universityClosing();
+            notificationFactory.buildAndDispatch(NotificationType.CORRECTION_APPROVED, NotificationRecipientType.STUDENT, student, modality, subject, message);
+
             log.info("Notificación de aprobación de corrección enviada al estudiante {}", student.getId());
         }
     }
 
-    @EventListener
-    public void handleCorrectionRejectedFinal(CorrectionRejectedFinalEvent event) {
+
+    private void handleCorrectionRejectedFinal(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Cancelación de modalidad por rechazo definitivo de correcciones";
+        String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
+        String reason = event.get(ModalityEvent.KEY_REASON, String.class);
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-            Estimado(a) %s:
-
-            Reciba un cordial saludo.
-
+            String body = """
             Nos permitimos informarle que, como resultado de la evaluación realizada por el jurado designado, no se ha determinado la aprobación de uno o más documentos asociados a su modalidad de grado. En consecuencia, se ha dispuesto la cancelación definitiva del proceso académico correspondiente.
 
             A continuación, se relaciona la información pertinente:
@@ -1111,60 +759,38 @@ public class StudentNotificationListener {
             Se recomienda comunicarse con la Jefatura de Programa, con el fin de recibir orientación sobre las alternativas disponibles.
 
             Este mensaje constituye una notificación automática generada como constancia del cierre definitivo del proceso y para efectos de control y trazabilidad institucional.
-
-            Atentamente,
-
-            Sistema de Gestión Académica – SIGMA
-            Universidad Surcolombiana
             """.formatted(
-                    student.getName(),
                     modalidadInfo,
-                    event.getDocumentName(),
-                    event.getReason() != null && !event.getReason().isBlank()
-                            ? event.getReason()
+                    documentName,
+                    reason != null && !reason.isBlank()
+                            ? reason
                             : "No se registran motivos adicionales."
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.CORRECTION_REJECTED_FINAL)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.closingSigma() + "\nUniversidad Surcolombiana";
+            notificationFactory.buildAndDispatch(NotificationType.CORRECTION_REJECTED_FINAL, NotificationRecipientType.STUDENT,
+                    student, modality, subject, message
+            );
+
             log.info("Notificación de rechazo final de corrección enviada al estudiante {}", student.getId());
         }
     }
 
-    @EventListener
-    public void handleModalityClosedByCommittee(ModalityClosedByCommitteeEvent event) {
+
+    private void handleModalityClosedByCommittee(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
-
-        User committeeMember = userRepository.findById(event.getCommitteeMemberId())
+        User committeeMember = userRepository.findById(event.get(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, Long.class))
                 .orElseThrow();
         var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-            modality.getId(),
-            MemberStatus.ACTIVE
+                modality.getId(),
+                MemberStatus.ACTIVE
         );
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Cierre de modalidad por decisión del Comité de Currículo";
+        String reason = event.get(ModalityEvent.KEY_REASON, String.class);
         for (var member : members) {
             User student = member.getStudent();
-            String message = """
-            Estimado(a) %s:
-
-            Reciba un cordial saludo.
-
+            String body = """
             Nos permitimos informarle que el Comité de Currículo del programa académico ha decidido el cierre de la modalidad de grado, conforme a sus competencias y a la normativa académica vigente.
 
             A continuación, se relaciona la información correspondiente:
@@ -1181,64 +807,42 @@ public class StudentNotificationListener {
             Para dar continuidad a su proceso académico, se recomienda solicitar orientación ante la Jefatura de Programa, con el fin de recibir asesoría sobre las alternativas disponibles y, en caso de ser procedente, iniciar una nueva modalidad de grado conforme al reglamento institucional.
 
             Este mensaje constituye una notificación automática generada como constancia de la decisión registrada y para efectos de control y trazabilidad institucional.
-
-            Atentamente,
-
-            Sistema de Gestión Académica
-            Universidad Surcolombiana
-                """.formatted(
-                    student.getName(),
+            """.formatted(
                     modalidadInfo,
                     modality.getAcademicProgram().getName(),
                     committeeMember.getName(),
                     committeeMember.getLastName(),
                     LocalDateTime.now().toString(),
-                    event.getReason() != null && !event.getReason().isBlank()
-                            ? event.getReason()
+                    reason != null && !reason.isBlank()
+                            ? reason
                             : "No se registran motivos adicionales."
             );
-            Notification notification = Notification.builder()
-                    .type(NotificationType.MODALITY_CLOSED_BY_COMMITTEE)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(committeeMember)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            String message = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.universityClosing();
+            notificationFactory.buildAndDispatch(NotificationType.MODALITY_CLOSED_BY_COMMITTEE, NotificationRecipientType.STUDENT,
+                    student, committeeMember, modality, subject, message
+            );
+
             log.info("Notificación de cierre de modalidad por comité enviada al estudiante {}", student.getId());
         }
     }
 
-    @EventListener
-    public void onModalityInvitationSent(ModalityInvitationSentEvent event) {
 
+    private void handleModalityInvitationSent(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        User invitee = userRepository.findById(event.getInviteeId())
+        User invitee = userRepository.findById(event.get(ModalityEvent.KEY_INVITEE_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Estudiante invitado no encontrado"));
 
-        User inviter = userRepository.findById(event.getInviterId())
+        User inviter = userRepository.findById(event.get(ModalityEvent.KEY_INVITER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Estudiante que invita no encontrado"));
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+        Long invitationId = event.get(ModalityEvent.KEY_INVITATION_ID, Long.class);
 
         String subject = "Invitación para unirte a una modalidad de grado grupal – SIGMA";
 
-        String message = """
-                Estimado(a) %s:
-
-                Reciba un cordial saludo.
-
+        String body = """
                 Nos permitimos informarle que ha recibido una invitación para integrarse a una modalidad de grado en la modalidad grupal, conforme a los lineamientos académicos vigentes.
 
                 A continuación, se relaciona la información correspondiente:
@@ -1257,19 +861,14 @@ public class StudentNotificationListener {
                 Se recomienda establecer comunicación previa con %s, con el fin de asegurar la alineación de expectativas, responsabilidades y objetivos del proyecto académico.
 
                 Este mensaje constituye una notificación automática generada para efectos de control y trazabilidad del proceso académico.
-
-                Atentamente,
-
-                Sistema de Gestión Académica – SIGMA
-                Universidad Surcolombiana
                 """.formatted(
-                invitee.getName(),
                 modalidadInfo,
                 modality.getAcademicProgram().getName(),
                 inviter.getName() + " " + inviter.getLastName(),
                 LocalDateTime.now().toString(),
                 inviter.getName()
         );
+        String message = NotificationMessageTemplates.greeting(invitee.getName()) + body + NotificationMessageTemplates.closingSigma() + "\nUniversidad Surcolombiana";
 
         Notification notification = Notification.builder()
                 .type(NotificationType.MODALITY_INVITATION_RECEIVED)
@@ -1277,46 +876,34 @@ public class StudentNotificationListener {
                 .recipient(invitee)
                 .triggeredBy(inviter)
                 .studentModality(modality)
-                .invitationId(event.getInvitationId())
+                .invitationId(invitationId)
                 .subject(subject)
                 .message(message)
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
+        notificationFactory.saveAndDispatch(notification);
 
         log.info("Notificación de invitación a modalidad grupal enviada al estudiante {} por el estudiante {}",
                 invitee.getId(), inviter.getId());
     }
 
 
-    @EventListener
-    public void onModalityInvitationAccepted(ModalityInvitationAcceptedEvent event) {
-
+    private void handleModalityInvitationAccepted(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        User acceptedBy = userRepository.findById(event.getAcceptedById())
+        User acceptedBy = userRepository.findById(event.get(ModalityEvent.KEY_ACCEPTED_BY_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Estudiante que aceptó no encontrado"));
 
-        User leader = userRepository.findById(event.getLeaderId())
+        User leader = userRepository.findById(event.get(ModalityEvent.KEY_LEADER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Líder del grupo no encontrado"));
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
         String subject = "Un estudiante aceptó tu invitación a la modalidad grupal – SIGMA";
 
-        String message = """
-                Estimado(a) %s:
-
-                Reciba un cordial saludo.
-
+        String body = """
                 Nos permitimos informarle que un estudiante ha aceptado su invitación para integrarse a la modalidad de grado en la modalidad grupal.
 
                 A continuación, se relaciona la información correspondiente:
@@ -1333,64 +920,39 @@ public class StudentNotificationListener {
                 Así mismo, se sugiere establecer mecanismos de comunicación efectivos y realizar seguimiento permanente a los avances del proyecto, conforme a los lineamientos institucionales.
 
                 Este mensaje constituye una notificación automática generada como constancia de la vinculación del estudiante y para efectos de control y trazabilidad del proceso académico.
-
-                Atentamente,
-
-                Sistema de Gestión Académica – SIGMA
-                Universidad Surcolombiana
                 """.formatted(
-                leader.getName(),
                 acceptedBy.getName() + " " + acceptedBy.getLastName(),
                 modalidadInfo,
                 modality.getAcademicProgram().getName(),
                 LocalDateTime.now().toString()
         );
+        String message = NotificationMessageTemplates.greeting(leader.getName()) + body + NotificationMessageTemplates.closingSigma() + "\nUniversidad Surcolombiana";
 
-        Notification notification = Notification.builder()
-                .type(NotificationType.MODALITY_INVITATION_ACCEPTED)
-                .recipientType(NotificationRecipientType.STUDENT)
-                .recipient(leader)
-                .triggeredBy(acceptedBy)
-                .studentModality(modality)
-                .subject(subject)
-                .message(message)
-                .createdAt(LocalDateTime.now())
-                .build();
+        notificationFactory.buildAndDispatch(NotificationType.MODALITY_INVITATION_ACCEPTED, NotificationRecipientType.STUDENT,
+                leader, acceptedBy, modality, subject, message
+        );
 
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
 
         log.info("Notificación de aceptación de invitación enviada al líder {} por el estudiante {}",
                 leader.getId(), acceptedBy.getId());
     }
 
 
-    @EventListener
-    public void onModalityInvitationRejected(ModalityInvitationRejectedEvent event) {
-
+    private void handleModalityInvitationRejected(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        User rejectedBy = userRepository.findById(event.getRejectedById())
+        User rejectedBy = userRepository.findById(event.get(ModalityEvent.KEY_REJECTED_BY_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Estudiante que rechazó no encontrado"));
 
-        User leader = userRepository.findById(event.getLeaderId())
+        User leader = userRepository.findById(event.get(ModalityEvent.KEY_LEADER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Líder del grupo no encontrado"));
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
         String subject = "Un estudiante rechazó tu invitación a la modalidad grupal – SIGMA";
 
-        String message = """
-                Estimado(a) %s:
-
-                Reciba un cordial saludo.
-
+        String body = """
                 Nos permitimos informarle que un estudiante ha registrado el rechazo de la invitación para integrarse a la modalidad de grado en la modalidad grupal.
 
                 A continuación, se relaciona la información correspondiente:
@@ -1409,65 +971,43 @@ public class StudentNotificationListener {
                 Se recomienda coordinar con los integrantes actuales del grupo y definir las acciones pertinentes para garantizar la continuidad y adecuado desarrollo del proceso académico.
 
                 Este mensaje constituye una notificación automática generada como constancia del registro de la decisión y para efectos de control y trazabilidad institucional.
-
-                Atentamente,
-
-                Sistema de Gestión Académica – SIGMA
-                Universidad Surcolombiana
                 """.formatted(
-                leader.getName(),
                 rejectedBy.getName() + " " + rejectedBy.getLastName(),
                 modalidadInfo,
                 modality.getAcademicProgram().getName(),
                 LocalDateTime.now().toString(),
-                3, // MAX_GROUP_SIZE
+                3,
                 studentModalityMemberRepository.countByStudentModalityIdAndStatus(
                         modality.getId(),
                         MemberStatus.ACTIVE
                 )
         );
+        String message = NotificationMessageTemplates.greeting(leader.getName()) + body + NotificationMessageTemplates.closingSigma() + "\nUniversidad Surcolombiana";
 
-        Notification notification = Notification.builder()
-                .type(NotificationType.MODALITY_INVITATION_REJECTED)
-                .recipientType(NotificationRecipientType.STUDENT)
-                .recipient(leader)
-                .triggeredBy(rejectedBy)
-                .studentModality(modality)
-                .subject(subject)
-                .message(message)
-                .createdAt(LocalDateTime.now())
-                .build();
+        notificationFactory.buildAndDispatch(NotificationType.MODALITY_INVITATION_REJECTED, NotificationRecipientType.STUDENT,
+                leader, rejectedBy, modality, subject, message
+        );
 
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
 
         log.info("Notificación de rechazo de invitación enviada al líder {} por el estudiante {}",
                 leader.getId(), rejectedBy.getId());
     }
 
 
-    @EventListener
-    public void handleModalityFinalApprovedByCommittee(ModalityFinalApprovedByCommitteeEvent event) {
+    private void handleModalityFinalApprovedByCommittee(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        User committeeMember = userRepository.findById(event.getCommitteeMemberId())
+        User committeeMember = userRepository.findById(event.get(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Miembro del comité no encontrado"));
 
-        // Obtener todos los miembros activos de la modalidad
         List<StudentModalityMember> activeMembers = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
         String subject = "¡Felicitaciones! — Modalidad de Grado Aprobada por el Comité de Currículo";
 
-        // Generar el acta simplificada UNA SOLA VEZ (la misma para todos los miembros)
         AcademicCertificate certificate = null;
         Path pdfPath = null;
         try {
@@ -1479,6 +1019,8 @@ public class StudentNotificationListener {
             log.error("Error generando acta simplificada para modalidad ID {}: {}",
                     modality.getId(), e.getMessage(), e);
         }
+
+        String observations = event.get(ModalityEvent.KEY_OBSERVATIONS, String.class);
 
         for (StudentModalityMember memberEntry : activeMembers) {
             User student = memberEntry.getStudent();
@@ -1521,23 +1063,14 @@ public class StudentNotificationListener {
                     committeeMember.getLastName(),
                     LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern(
                             "d 'de' MMMM 'de' yyyy", java.util.Locale.forLanguageTag("es-CO"))),
-                    event.getObservations() != null && !event.getObservations().isBlank()
-                            ? "Observaciones del Comité: " + event.getObservations() + ".\n\n"
+                    observations != null && !observations.isBlank()
+                            ? "Observaciones del Comité: " + observations + ".\n\n"
                             : ""
             );
 
-            Notification notification = Notification.builder()
-                    .type(NotificationType.MODALITY_FINAL_APPROVED_BY_COMMITTEE)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(committeeMember)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-
-            notificationRepository.save(notification);
+            Notification notification = notificationFactory.buildAndSave(
+                    NotificationType.MODALITY_FINAL_APPROVED_BY_COMMITTEE, NotificationRecipientType.STUDENT,
+                    student, committeeMember, modality, subject, message);
 
             if (pdfPath != null) {
                 try {
@@ -1553,7 +1086,6 @@ public class StudentNotificationListener {
             }
         }
 
-        // Actualizar estado del certificado a SENT si se generó correctamente
         if (certificate != null) {
             try {
                 certificatePdfService.updateCertificateStatus(certificate.getId(), CertificateStatus.SENT);
@@ -1567,25 +1099,21 @@ public class StudentNotificationListener {
     }
 
 
-    @EventListener
-    public void handleModalityRejectedByCommittee(ModalityRejectedByCommitteeEvent event) {
+    private void handleModalityRejectedByCommittee(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        User student = userRepository.findById(event.getStudentId())
+        User student = userRepository.findById(event.get(ModalityEvent.KEY_STUDENT_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Estudiante no encontrado"));
 
-        User committeeMember = userRepository.findById(event.getCommitteeMemberId())
+        User committeeMember = userRepository.findById(event.get(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Miembro del comité no encontrado"));
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
         String subject = "IMPORTANTE: Modalidad de Grado NO APROBADA - Decisión del Comité";
+
+        String reason = event.get(ModalityEvent.KEY_REASON, String.class);
 
         String message = """
                 Estimado(a) %s:
@@ -1620,28 +1148,27 @@ public class StudentNotificationListener {
                 modalidadInfo,
                 modality.getAcademicProgram().getName(),
                 LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")),
-                event.getReason() != null && !event.getReason().isBlank()
-                        ? event.getReason()
+                reason != null && !reason.isBlank()
+                        ? reason
                         : "No se registran motivos adicionales."
         );
-        Notification notification = Notification.builder()
-                .type(NotificationType.MODALITY_REJECTED_BY_COMMITTEE)
-                .recipientType(NotificationRecipientType.STUDENT)
-                .recipient(student)
-                .triggeredBy(committeeMember)
-                .studentModality(modality)
-                .subject(subject)
-                .message(message)
-                .createdAt(LocalDateTime.now())
-                .build();
 
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
+        notificationFactory.buildAndDispatch(NotificationType.MODALITY_REJECTED_BY_COMMITTEE, NotificationRecipientType.STUDENT,
+                student, committeeMember, modality, subject, message
+        );
+
     }
 
-    @EventListener
-    public void onSeminarStarted(SeminarStartedEvent event) {
-        String subject = "Inicio de Seminario: " + event.getSeminarName();
+
+    private void handleSeminarStarted(ModalityEvent event) {
+        String seminarName = event.get(ModalityEvent.KEY_SEMINAR_NAME, String.class);
+        String recipientName = event.get(ModalityEvent.KEY_RECIPIENT_NAME, String.class);
+        String recipientEmail = event.get(ModalityEvent.KEY_RECIPIENT_EMAIL, String.class);
+        String programName = event.get(ModalityEvent.KEY_PROGRAM_NAME, String.class);
+        Object startDate = event.get(ModalityEvent.KEY_START_DATE, Object.class);
+        Integer totalHours = event.get(ModalityEvent.KEY_TOTAL_HOURS, Integer.class, 0);
+
+        String subject = "Inicio de Seminario: " + seminarName;
 
         String body = String.format("""
                 Estimado/a %s,
@@ -1664,33 +1191,37 @@ public class StudentNotificationListener {
                 %s
                 Universidad Surcolombiana
                 """,
-                event.getRecipientName(),
-                event.getSeminarName(),
-                event.getSeminarName(),
-                event.getProgramName(),
-                event.getStartDate(),
-                event.getTotalHours(),
-                event.getProgramName()
+                recipientName,
+                seminarName,
+                seminarName,
+                programName,
+                startDate,
+                totalHours,
+                programName
         );
 
-        User recipient = userRepository.findByEmail(event.getRecipientEmail()).orElse(null);
+        User recipient = userRepository.findByEmail(recipientEmail).orElse(null);
 
-        Notification notification = Notification.builder()
-                .recipient(recipient)
-                .subject(subject)
-                .message(body)
-                .type(NotificationType.SEMINAR_STARTED)
-                .recipientType(NotificationRecipientType.STUDENT)
-                .createdAt(LocalDateTime.now())
-                .build();
+        if (recipient != null) {
+            notificationFactory.buildAndDispatch(NotificationType.SEMINAR_STARTED, NotificationRecipientType.STUDENT,
+                    recipient, null, null, subject, body
+            );
 
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
+        } else {
+            log.warn("No se encontró usuario con email {} para notificación de inicio de seminario", recipientEmail);
+        }
     }
 
-    @EventListener
-    public void onSeminarCancelled(SeminarCancelledEvent event) {
-        String subject = "Cancelación de Seminario: " + event.getSeminarName();
+
+    private void handleSeminarCancelled(ModalityEvent event) {
+        String seminarName = event.get(ModalityEvent.KEY_SEMINAR_NAME, String.class);
+        String recipientName = event.get(ModalityEvent.KEY_RECIPIENT_NAME, String.class);
+        String recipientEmail = event.get(ModalityEvent.KEY_RECIPIENT_EMAIL, String.class);
+        String programName = event.get(ModalityEvent.KEY_PROGRAM_NAME, String.class);
+        Object cancelledDate = event.get(ModalityEvent.KEY_CANCELLED_DATE, Object.class);
+        String reason = event.get(ModalityEvent.KEY_REASON, String.class);
+
+        String subject = "Cancelación de Seminario: " + seminarName;
 
         String body = String.format("""
                 Estimado/a %s,
@@ -1713,39 +1244,35 @@ public class StudentNotificationListener {
                 %s
                 Universidad Surcolombiana
                 """,
-                event.getRecipientName(),
-                event.getSeminarName(),
-                event.getSeminarName(),
-                event.getProgramName(),
-                event.getCancelledDate(),
-                event.getReason() != null ? "\nMotivo: " + event.getReason() : "",
-                event.getProgramName()
+                recipientName,
+                seminarName,
+                seminarName,
+                programName,
+                cancelledDate,
+                reason != null ? "\nMotivo: " + reason : "",
+                programName
         );
 
-        User recipient = userRepository.findByEmail(event.getRecipientEmail()).orElse(null);
+        User recipient = userRepository.findByEmail(recipientEmail).orElse(null);
 
-        Notification notification = Notification.builder()
-                .recipient(recipient)
-                .subject(subject)
-                .message(body)
-                .type(NotificationType.SEMINAR_CANCELLED)
-                .recipientType(NotificationRecipientType.STUDENT)
-                .createdAt(LocalDateTime.now())
-                .build();
+        if (recipient != null) {
+            notificationFactory.buildAndDispatch(NotificationType.SEMINAR_CANCELLED, NotificationRecipientType.STUDENT,
+                    recipient, null, null, subject, body
+            );
 
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
+        } else {
+            log.warn("No se encontró usuario con email {} para notificación de cancelación de seminario", recipientEmail);
+        }
     }
 
-    @EventListener
-    public void handleModalityApprovedByExaminers(ModalityApprovedByExaminers event) {
 
+    private void handleModalityApprovedByExaminers(ModalityEvent event) {
         StudentModality modality = studentModalityRepository
                 .findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
         User examiner = userRepository
-                .findById(event.getExaminerUserId())
+                .findById(event.get(ModalityEvent.KEY_EXAMINER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Jurado no encontrado"));
 
         var members = studentModalityMemberRepository
@@ -1790,59 +1317,41 @@ public class StudentNotificationListener {
             Universidad Surcolombiana
             """;
 
-        for (var member : members) {
+        String modalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
 
+        for (var member : members) {
             User student = member.getStudent();
 
             String personalizedMessage = String.format(
                     messageTemplate,
                     student.getName(),
-                    modality.getProgramDegreeModality().getDegreeModality().getName(),
+                    modalityName,
                     modality.getAcademicProgram().getName(),
                     LocalDateTime.now()
-
             );
 
-            Notification notification = Notification.builder()
-                    .type(NotificationType.MODALITY_APPROVED_BY_EXAMINERS)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(examiner)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(personalizedMessage)
-                    .createdAt(LocalDateTime.now())
-                    .build();
+            notificationFactory.buildAndDispatch(NotificationType.MODALITY_APPROVED_BY_EXAMINERS, NotificationRecipientType.STUDENT,
+                    student, examiner, modality, subject, personalizedMessage
+            );
 
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
         }
     }
 
-    @EventListener
-    public void onExaminersAssigned(ExaminersAssignedEvent event) {
+
+    private void handleExaminersAssigned(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
         List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
         List<DefenseExaminer> examiners = modality.getDefenseExaminers();
         String jurados = examiners.stream()
-                .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + translateExaminerType(e.getExaminerType()) + ")")
+                .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + TranslationUtils.translateExaminerType(e.getExaminerType()) + ")")
                 .toList()
                 .isEmpty() ? "-" : String.join(", ", examiners.stream()
-                .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + translateExaminerType(e.getExaminerType()) + ")")
+                .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + TranslationUtils.translateExaminerType(e.getExaminerType()) + ")")
                 .toList());
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Asignación de jurados evaluadores a tu modalidad de grado";
-        String messageTemplate = """
-            Estimado(a) %s:
-
-            Reciba un cordial saludo.
-
+        String bodyTemplate = """
             Nos permitimos informarle que han sido designados oficialmente los jurados evaluadores para su modalidad de grado, conforme al proceso académico establecido.
 
             A continuación, se relaciona la información correspondiente:
@@ -1857,148 +1366,48 @@ public class StudentNotificationListener {
             Se recomienda consultar periódicamente la plataforma institucional, con el fin de hacer seguimiento al estado y avance del proceso académico.
 
             Este mensaje constituye una notificación automática generada como constancia de la asignación realizada y para efectos de control y trazabilidad institucional.
-
-            Atentamente,
-
-            Sistema de Gestión Académica
-            Universidad Surcolombiana
             """;
 
         for (StudentModalityMember member : members) {
             User student = member.getStudent();
-            String message = String.format(messageTemplate,
-                    student.getName() + " " + student.getLastName(),
+            String body = String.format(bodyTemplate,
                     modalidadInfo,
                     modality.getProgramDegreeModality().getAcademicProgram().getName(),
                     jurados,
                     LocalDateTime.now()
             );
+            String message = NotificationMessageTemplates.greeting(student.getName() + " " + student.getLastName()) + body + NotificationMessageTemplates.universityClosing();
 
-            Notification notification = Notification.builder()
-                    .type(NotificationType.EXAMINER_ASSIGNED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            notificationFactory.buildAndDispatch(NotificationType.EXAMINER_ASSIGNED, NotificationRecipientType.STUDENT,
+                    student, modality, subject, message
+            );
+
         }
     }
 
-    private String translateModalityProcessStatus(ModalityProcessStatus status) {
-        if (status == null) return "N/A";
-        return switch (status) {
-            case MODALITY_SELECTED -> "Modalidad seleccionada";
-            case UNDER_REVIEW_PROGRAM_HEAD -> "En revisión por Jefatura de programa y/o coordinación de modalidades";
-            case CORRECTIONS_REQUESTED_PROGRAM_HEAD -> "Correcciones solicitadas por Jefatura";
-            case CORRECTIONS_SUBMITTED -> "Correcciones enviadas";
-            case CORRECTIONS_SUBMITTED_TO_PROGRAM_HEAD -> "Correcciones enviadas a Jefatura de Programa y/o coordinador de modalidades";
-            case CORRECTIONS_SUBMITTED_TO_COMMITTEE -> "Correcciones enviadas al Comité de Currículo";
-            case CORRECTIONS_SUBMITTED_TO_EXAMINERS -> "Correcciones enviadas a los Jurados";
-            case CORRECTIONS_APPROVED -> "Correcciones aprobadas";
-            case CORRECTIONS_REJECTED_FINAL -> "Correcciones rechazadas (final)";
-            case READY_FOR_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para Comité de Currículo";
-            case UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE -> "En revisión por Comité de Currículo";
-            case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones solicitadas por Comité de Currículo";
-            case READY_FOR_DIRECTOR_ASSIGNMENT -> "Lista para asignación de Director de Proyecto";
-            case READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para aprobación por Comité de Currículo";
-            case APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Aprobada por Comité de Currículo";
-            case PROPOSAL_APPROVED -> "Propuesta aprobada";
-            case PENDING_PROGRAM_HEAD_FINAL_REVIEW -> "Pendiente revisión final por Jefatura de Programa";
-            case APPROVED_BY_PROGRAM_HEAD_FINAL_REVIEW -> "Documentos finales aprobados por Jefatura de Programa";
-            case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR -> "Sustentación solicitada por Director";
-            case DEFENSE_SCHEDULED -> "Sustentación programada";
-            case EXAMINERS_ASSIGNED -> "Jurados asignados";
-            case READY_FOR_EXAMINERS -> "Lista para Jurados";
-            case DOCUMENTS_APPROVED_BY_EXAMINERS -> "Documentos de propuesta aprobados por los jurados";
-            case SECONDARY_DOCUMENTS_APPROVED_BY_EXAMINERS -> "Documentos finales aprobados por los jurados";
-            case DOCUMENT_REVIEW_TIEBREAKER_REQUIRED -> "Revisión de documentos con desempate requerida";
-            case EDIT_REQUESTED_BY_STUDENT -> "Edición de documento solicitado por estudiante";
-            case CORRECTIONS_REQUESTED_EXAMINERS -> "Correcciones solicitadas por Jurados";
-            case READY_FOR_DEFENSE -> "Lista para sustentación";
-            case FINAL_REVIEW_COMPLETED -> "Revisión final completada";
-            case DEFENSE_COMPLETED -> "Sustentación realizada";
-            case UNDER_EVALUATION_PRIMARY_EXAMINERS -> "En evaluación por jurados principales";
-            case DISAGREEMENT_REQUIRES_TIEBREAKER -> "Desacuerdo, requiere desempate";
-            case UNDER_EVALUATION_TIEBREAKER -> "En evaluación por jurado de desempate";
-            case EVALUATION_COMPLETED -> "Evaluación completada";
-            case PENDING_DISTINCTION_COMMITTEE_REVIEW -> "Aprobado - Distinción honorífica pendiente de revisión por el Comité";
-            case GRADED_APPROVED -> "Aprobado";
-            case GRADED_FAILED -> "Reprobado";
-            case MODALITY_CLOSED -> "Modalidad cerrada";
-            case SEMINAR_CANCELED -> "Seminario cancelado";
-            case MODALITY_CANCELLED -> "Modalidad cancelada";
-            case CANCELLATION_REQUESTED -> "Cancelación solicitada";
-            case CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR -> "Cancelación aprobada por Director";
-            case CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR -> "Cancelación rechazada por Director";
-            case CANCELLED_WITHOUT_REPROVAL -> "Cancelada sin reprobación";
-            case CANCELLATION_REJECTED -> "Cancelación rechazada";
-            case CANCELLED_BY_CORRECTION_TIMEOUT -> "Cancelada por tiempo de corrección";
-        };
-    }
 
-    private String translateAcademicDistinction(AcademicDistinction distinction) {
-        if (distinction == null) return "Ninguna";
-        return switch (distinction) {
-            case NO_DISTINCTION -> "Sin distinción";
-            case AGREED_APPROVED -> "Aprobado";
-            case AGREED_MERITORIOUS -> "Meritorio";
-            case AGREED_LAUREATE -> "Laureado";
-            case AGREED_REJECTED -> "Reprobado";
-            case DISAGREEMENT_PENDING_TIEBREAKER -> "Desacuerdo, pendiente desempate";
-            case TIEBREAKER_APPROVED -> "Aprobado por desempate";
-            case TIEBREAKER_MERITORIOUS -> "Meritorio por desempate";
-            case TIEBREAKER_LAUREATE -> "Laureado por desempate";
-            case TIEBREAKER_REJECTED -> "Reprobado por desempate";
-            case REJECTED_BY_COMMITTEE -> "Rechazado por comité";
-            case PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria propuesta (pendiente del comité)";
-            case PENDING_COMMITTEE_LAUREATE -> "Mención Laureada propuesta (pendiente del comité)";
-            case TIEBREAKER_PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria por desempate (pendiente del comité)";
-            case TIEBREAKER_PENDING_COMMITTEE_LAUREATE -> "Mención Laureada por desempate (pendiente del comité)";
-        };
-    }
-
-    /**
-     * Determina si la modalidad requiere acta completa (sustentación/jurados/director)
-     * o simplificada (comité).
-     */
-    private boolean isCompleteModality(StudentModality modality) {
-        boolean hasDefenseDate = modality.getDefenseDate() != null;
-        boolean hasExaminers = modality.getDefenseExaminers() != null && !modality.getDefenseExaminers().isEmpty();
-        boolean hasDirector = modality.getProjectDirector() != null;
-        return hasDefenseDate || hasExaminers || hasDirector;
-    }
-
-    /**
-     * Notifica a todos los estudiantes miembros de la modalidad cuando un jurado
-     * aprueba o rechaza su solicitud de edición de un documento.
-     */
-    @EventListener
-    public void onDocumentEditResolved(DocumentEditResolvedEvent event) {
+    private void handleDocumentEditResolved(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
         List<StudentModalityMember> members = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
 
-        boolean approved = event.isApproved();
+        boolean approved = Boolean.TRUE.equals(event.get(ModalityEvent.KEY_APPROVED, Boolean.class));
+        NotificationType type = approved ? NotificationType.DOCUMENT_EDIT_APPROVED : NotificationType.DOCUMENT_EDIT_REJECTED;
         String subject = approved
                 ? "Solicitud de edición de documento aprobada"
                 : "Solicitud de edición de documento rechazada";
 
+        String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
+        String resolutionNotes = event.get(ModalityEvent.KEY_RESOLUTION_NOTES, String.class);
+
         for (StudentModalityMember member : members) {
             User student = member.getStudent();
             String message;
+            String closing = NotificationMessageTemplates.closingSigma() + "\nUniversidad Surcolombiana";
             if (approved) {
-                message = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+                String body = """
         Nos permitimos informarle que la solicitud de edición del documento ha sido aprobada por el jurado evaluador, conforme al proceso de revisión académica.
 
         A continuación, se relaciona la información correspondiente:
@@ -2009,24 +1418,15 @@ public class StudentNotificationListener {
         En virtud de esta decisión, podrá ingresar a la plataforma institucional y realizar la carga de la versión actualizada del documento. Una vez registrada, la nueva versión será objeto de evaluación por parte del jurado designado.
 
         Este mensaje constituye una notificación automática generada como constancia de la decisión adoptada y para efectos de control y trazabilidad institucional.
-
-        Atentamente,
-
-        Sistema de Gestión Académica – SIGMA
-        Universidad Surcolombiana
         """.formatted(
-                        student.getName(),
-                        event.getDocumentName(),
-                        event.getResolutionNotes() != null && !event.getResolutionNotes().isBlank()
-                                ? event.getResolutionNotes()
+                        documentName,
+                        resolutionNotes != null && !resolutionNotes.isBlank()
+                                ? resolutionNotes
                                 : "No se registran observaciones adicionales."
                 );
+                message = NotificationMessageTemplates.greeting(student.getName()) + body + closing;
             } else {
-                message = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+                String body = """
         Nos permitimos informarle que la solicitud de edición del documento no ha sido aprobada por el jurado evaluador, conforme al proceso de revisión académica.
 
         A continuación, se relaciona la información correspondiente:
@@ -2037,108 +1437,29 @@ public class StudentNotificationListener {
         En consecuencia, el documento conserva su estado actual dentro del proceso académico. En caso de requerir aclaraciones adicionales, podrá comunicarse con la Jefatura de Programa o con el Director de Proyecto.
 
         Este mensaje constituye una notificación automática generada como constancia de la decisión adoptada y para efectos de control y trazabilidad institucional.
-
-        Atentamente,
-
-        Sistema de Gestión Académica – SIGMA
-        Universidad Surcolombiana
         """.formatted(
-                        student.getName(),
-                        event.getDocumentName(),
-                        event.getResolutionNotes() != null && !event.getResolutionNotes().isBlank()
-                                ? event.getResolutionNotes()
+                        documentName,
+                        resolutionNotes != null && !resolutionNotes.isBlank()
+                                ? resolutionNotes
                                 : "No se registran motivos adicionales."
                 );
+                message = NotificationMessageTemplates.greeting(student.getName()) + body + closing;
             }
 
-            Notification notification = Notification.builder()
-                    .type(approved ? NotificationType.DOCUMENT_EDIT_APPROVED : NotificationType.DOCUMENT_EDIT_REJECTED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            notificationFactory.buildAndDispatch(type, NotificationRecipientType.STUDENT,
+                    student, modality, subject, message
+            );
+
         }
     }
 
-    private String translateExaminerType(com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType type) {
-        if (type == null) return "Jurado";
-        return switch (type) {
-            case PRIMARY_EXAMINER_1 -> "Jurado Principal 1";
-            case PRIMARY_EXAMINER_2 -> "Jurado Principal 2";
-            case TIEBREAKER_EXAMINER -> "Jurado de Desempate";
-        };
+
+    private boolean isCompleteModality(StudentModality modality) {
+        boolean hasDefenseDate = modality.getDefenseDate() != null;
+        boolean hasExaminers = modality.getDefenseExaminers() != null && !modality.getDefenseExaminers().isEmpty();
+        boolean hasDirector = modality.getProjectDirector() != null;
+        return hasDefenseDate || hasExaminers || hasDirector;
     }
 
-    private String localizeObservations(String observations) {
-        if (observations == null) return "Ninguna";
-
-        // Crear mapa de traducciones para enums
-        java.util.Map<String, String> translations = java.util.Map.ofEntries(
-            // Tipos de jurados
-            java.util.Map.entry("PRIMARY_EXAMINER_1", "Jurado Principal 1"),
-            java.util.Map.entry("PRIMARY_EXAMINER_2", "Jurado Principal 2"),
-            java.util.Map.entry("TIEBREAKER_EXAMINER", "Jurado de Desempate"),
-            
-            // Estados de distinción
-            java.util.Map.entry("PENDING_COMMITTEE_MERITORIOUS", "Mención Meritoria propuesta (pendiente del comité)"),
-            java.util.Map.entry("PENDING_COMMITTEE_LAUREATE", "Mención Laureada propuesta (pendiente del comité)"),
-            java.util.Map.entry("TIEBREAKER_PENDING_COMMITTEE_MERITORIOUS", "Mención Meritoria por desempate (pendiente del comité)"),
-            java.util.Map.entry("TIEBREAKER_PENDING_COMMITTEE_LAUREATE", "Mención Laureada por desempate (pendiente del comité)"),
-            java.util.Map.entry("NO_DISTINCTION", "Sin distinción"),
-            java.util.Map.entry("AGREED_APPROVED", "Aprobado"),
-            java.util.Map.entry("AGREED_MERITORIOUS", "Meritorio"),
-            java.util.Map.entry("AGREED_LAUREATE", "Laureado"),
-            java.util.Map.entry("AGREED_REJECTED", "Reprobado"),
-            java.util.Map.entry("DISAGREEMENT_PENDING_TIEBREAKER", "Desacuerdo, pendiente desempate"),
-            java.util.Map.entry("TIEBREAKER_APPROVED", "Aprobado por desempate"),
-            java.util.Map.entry("TIEBREAKER_MERITORIOUS", "Meritorio por desempate"),
-            java.util.Map.entry("TIEBREAKER_LAUREATE", "Laureado por desempate"),
-            java.util.Map.entry("TIEBREAKER_REJECTED", "Reprobado por desempate"),
-            java.util.Map.entry("REJECTED_BY_COMMITTEE", "Rechazado por comité")
-        );
-
-        // Aplicar todas las traducciones
-        String result = observations;
-        for (java.util.Map.Entry<String, String> entry : translations.entrySet()) {
-            result = result.replace(entry.getKey(), entry.getValue());
-        }
-
-        // Traducir distinción en formato "Distinción propuesta: X → Distinción confirmada: Y"
-        if (result.contains("Distinción propuesta:") && result.contains("Distinción confirmada:")) {
-            try {
-                String regex = "Distinción propuesta: ([A-Z_]+) → Distinción confirmada: ([A-Z_]+)";
-                java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(regex).matcher(result);
-                if (matcher.find()) {
-                    String propuesta = matcher.group(1);
-                    String confirmada = matcher.group(2);
-                    AcademicDistinction propuestaEnum = null;
-                    AcademicDistinction confirmadaEnum = null;
-                    try {
-                        propuestaEnum = AcademicDistinction.valueOf(propuesta);
-                        confirmadaEnum = AcademicDistinction.valueOf(confirmada);
-                    } catch (Exception ignored) {}
-
-                    String propuestaLabel = propuestaEnum != null ? translateAcademicDistinction(propuestaEnum) : propuesta;
-                    String confirmadaLabel = confirmadaEnum != null ? translateAcademicDistinction(confirmadaEnum) : confirmada;
-                    // Reemplaza en la observación
-                    result = result.replace(
-                        "Distinción propuesta: " + propuesta + " → Distinción confirmada: " + confirmada,
-                        "Distinción propuesta: " + propuestaLabel + " → Distinción confirmada: " + confirmadaLabel
-                    );
-                }
-            } catch (Exception e) {
-                // Ignorar error de formateo
-            }
-        }
-
-        return result;
-    }
 }
-
 

@@ -1,9 +1,23 @@
 package com.SIGMA.USCO.report.service;
 
+import com.SIGMA.USCO.Modalities.Entity.StudentModality;
+import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.Entity.enums.ModalityType;
+import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
+import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
+import com.SIGMA.USCO.academic.entity.AcademicProgram;
+import com.SIGMA.USCO.academic.entity.StudentProfile;
+import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
+import com.SIGMA.USCO.report.dto.StudentInfoDTO;
+import com.SIGMA.USCO.security.SecurityUtils;
+import com.itextpdf.text.BaseColor;
 
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Utilidades compartidas para los servicios de reportes
@@ -41,72 +55,6 @@ public class ReportUtils {
         return ACTIVE_STATUSES;
     }
 
-    public static String describeModalityStatus(ModalityProcessStatus status) {
-        return switch (status) {
-            // Estados de selección y revisión inicial
-            case MODALITY_SELECTED -> "Modalidad Seleccionada";
-            case UNDER_REVIEW_PROGRAM_HEAD -> "En Revisión - Jefe de Programa";
-            case CORRECTIONS_REQUESTED_PROGRAM_HEAD -> "Correcciones Solicitadas - Jefe";
-            case CORRECTIONS_SUBMITTED -> "Correcciones Entregadas";
-            case CORRECTIONS_SUBMITTED_TO_PROGRAM_HEAD -> "Correcciones Entregadas - Jefatura de Programa y/o coordinación de modalidad";
-            case CORRECTIONS_SUBMITTED_TO_COMMITTEE -> "Correcciones Entregadas - Comité";
-            case CORRECTIONS_SUBMITTED_TO_EXAMINERS -> "Correcciones Entregadas - Jurados";
-            case CORRECTIONS_APPROVED -> "Correcciones Aprobadas";
-            case CORRECTIONS_REJECTED_FINAL -> "Correcciones Rechazadas (Final)";
-
-            // Estados de revisión de comité
-            case READY_FOR_PROGRAM_CURRICULUM_COMMITTEE -> "Listo para Comité";
-            case UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE -> "En Revisión - Comité";
-            case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones Solicitadas - Comité";
-            case READY_FOR_DIRECTOR_ASSIGNMENT -> "Listo para Asignar Director";
-            case READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Listo para Aprobación por Comité";
-            case APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Aprobado por Comité";
-            case PROPOSAL_APPROVED -> "Propuesta Aprobada";
-
-            // Estados de revisión final por jefatura (paso intermedio antes de jurados)
-            case PENDING_PROGRAM_HEAD_FINAL_REVIEW -> "Pendiente Revisión Final - Jefatura";
-            case APPROVED_BY_PROGRAM_HEAD_FINAL_REVIEW -> "Aprobado por Jefatura - Notificando Jurados";
-
-            // Estados de programación de sustentación
-            case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR -> "Sustentación Solicitada";
-            case DEFENSE_SCHEDULED -> "Sustentación Programada";
-            case EXAMINERS_ASSIGNED -> "Jurados Asignados";
-            case READY_FOR_EXAMINERS -> "Listo para Revisión por Jurados";
-            case CORRECTIONS_REQUESTED_EXAMINERS -> "Correcciones Solicitadas - Jurados";
-            case READY_FOR_DEFENSE -> "Listo para Sustentar";
-            case DOCUMENTS_APPROVED_BY_EXAMINERS -> "Documentos Aprobados por Jurados";
-            case SECONDARY_DOCUMENTS_APPROVED_BY_EXAMINERS -> "Documentos Finales Aprobados por Jurados";
-            case DOCUMENT_REVIEW_TIEBREAKER_REQUIRED -> "Requiere Jurado de Desempate (Documento)";
-            case FINAL_REVIEW_COMPLETED -> "Revisión Final Completada";
-            case EDIT_REQUESTED_BY_STUDENT -> "Solicitud de Edición por Estudiante";
-            case SEMINAR_CANCELED -> "Seminario Cancelado";
-
-            // Estados de sustentación y evaluación
-            case DEFENSE_COMPLETED -> "Sustentación Completada";
-            case UNDER_EVALUATION_PRIMARY_EXAMINERS -> "En Evaluación - Jurados Principales";
-            case DISAGREEMENT_REQUIRES_TIEBREAKER -> "Requiere Jurado de Desempate";
-            case UNDER_EVALUATION_TIEBREAKER -> "En Evaluación - Desempate";
-            case EVALUATION_COMPLETED -> "Evaluación Completada";
-
-            // Estados finales de resultado
-            case PENDING_DISTINCTION_COMMITTEE_REVIEW -> "Aprobado – Distinción Honorífica Pendiente del Comité";
-            case GRADED_APPROVED -> "Aprobado";
-            case GRADED_FAILED -> "Reprobado";
-            case MODALITY_CLOSED -> "Modalidad Cerrada";
-
-            // Estados de cancelación
-            case MODALITY_CANCELLED -> "Cancelado";
-            case CANCELLATION_REQUESTED -> "Cancelación Solicitada";
-            case CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR -> "Cancelación Aprobada por Director";
-            case CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR -> "Cancelación Rechazada por Director";
-            case CANCELLED_WITHOUT_REPROVAL -> "Cancelado sin Reprobación";
-            case CANCELLATION_REJECTED -> "Cancelación Rechazada";
-            case CANCELLED_BY_CORRECTION_TIMEOUT -> "Cancelado por Tiempo Expirado";
-
-            default -> status.name();
-        };
-    }
-
     public static boolean isPendingStatus(ModalityProcessStatus status) {
         return status == ModalityProcessStatus.MODALITY_SELECTED ||
                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
@@ -131,6 +79,94 @@ public class ReportUtils {
                status == ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER ||
                status == ModalityProcessStatus.UNDER_EVALUATION_TIEBREAKER ||
                status == ModalityProcessStatus.EVALUATION_COMPLETED;
+    }
+
+    public static String translatePerformanceVerdict(String verdict) {
+        if (verdict == null) return "Sin Evaluar";
+        switch (verdict) {
+            case "EXCELLENT": return "EXCELENTE";
+            case "GOOD": return "BUENO";
+            case "REGULAR": return "REGULAR";
+            case "NEEDS_IMPROVEMENT": return "NECESITA MEJORA";
+            default: return verdict;
+        }
+    }
+
+    public static BaseColor getPerformanceColor(String verdict) {
+        if (verdict == null) return InstitutionalPdfHeader.LIGHT_GOLD;
+        switch (verdict) {
+            case "EXCELLENT": return InstitutionalPdfHeader.INST_GOLD;
+            case "GOOD": return InstitutionalPdfHeader.INST_GOLD;
+            case "REGULAR": return InstitutionalPdfHeader.INST_RED;
+            case "NEEDS_IMPROVEMENT": return InstitutionalPdfHeader.INST_RED;
+            default: return InstitutionalPdfHeader.LIGHT_GOLD;
+        }
+    }
+
+    public static List<StudentInfoDTO> buildStudentInfos(List<StudentModalityMember> members, StudentProfileRepository profileRepo) {
+        return members.stream().map(member -> {
+            User student = member.getStudent();
+            StudentProfile profile = profileRepo.findByUserId(student.getId()).orElse(null);
+            return StudentInfoDTO.builder()
+                    .studentId(student.getId())
+                    .fullName(student.getName() + " " + student.getLastName())
+                    .studentCode(profile != null ? profile.getStudentCode() : "N/A")
+                    .email(student.getEmail())
+                    .semester(profile != null ? profile.getSemester() : null)
+                    .gpa(profile != null ? profile.getGpa() : null)
+                    .isLeader(member.getIsLeader())
+                    .build();
+        }).collect(Collectors.toList());
+    }
+
+    public static String translateSessionType(ModalityType type) {
+        if (type == null) return "Individual";
+        return switch (type) {
+            case INDIVIDUAL -> "Individual";
+            case GROUP -> "Grupal";
+        };
+    }
+
+    public static AcademicProgram getAuthenticatedUserProgram(ProgramAuthorityRepository programAuthorityRepository) {
+        User user = SecurityUtils.getCurrentUser();
+        List<ProgramAuthority> authorities = programAuthorityRepository.findByUser_Id(user.getId());
+        if (authorities.isEmpty()) {
+            throw new IllegalArgumentException("El usuario no tiene asignado ningún programa académico");
+        }
+        return authorities.get(0).getAcademicProgram();
+    }
+
+    public static int getSemesterFromDate(LocalDateTime date) {
+        if (date == null) return 1;
+        int month = date.getMonthValue();
+        return month <= 6 ? 1 : 2;
+    }
+
+    public static boolean isDirectorRequired(String modalityName) {
+        if (modalityName == null) {
+            return true;
+        }
+        String normalizedName = modalityName.toUpperCase().trim();
+        return !(normalizedName.contains("PLAN COMPLEMENTARIO") ||
+                normalizedName.contains("PRODUCCIÓN ACADEMICA") ||
+                normalizedName.contains("PRODUCCION ACADEMICA") ||
+                normalizedName.contains("SEMINARIO"));
+    }
+
+    public static boolean filterByModalityTypeFilter(StudentModality modality, String modalityTypeFilter) {
+        if (modalityTypeFilter == null || modalityTypeFilter.isEmpty()) return true;
+        if ("INDIVIDUAL".equals(modalityTypeFilter)) {
+            return modality.getModalityType() == ModalityType.INDIVIDUAL;
+        } else if ("GROUP".equals(modalityTypeFilter)) {
+            return modality.getModalityType() == ModalityType.GROUP;
+        }
+        return true;
+    }
+
+    public static boolean filterByModalityTypes(StudentModality modality, List<String> modalityTypes) {
+        if (modalityTypes == null || modalityTypes.isEmpty()) return true;
+        String modalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        return modalityTypes.contains(modalityName);
     }
 }
 

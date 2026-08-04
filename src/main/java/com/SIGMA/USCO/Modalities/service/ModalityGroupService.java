@@ -18,15 +18,14 @@ import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentStatusHistoryRepository;
-import com.SIGMA.USCO.notifications.event.ModalityInvitationAcceptedEvent;
-import com.SIGMA.USCO.notifications.event.ModalityInvitationRejectedEvent;
-import com.SIGMA.USCO.notifications.publisher.NotificationEventPublisher;
+import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
+import com.SIGMA.USCO.security.SecurityUtils;
+import org.springframework.context.ApplicationEventPublisher;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -49,7 +48,7 @@ public class ModalityGroupService {
     private final StudentDocumentRepository studentDocumentRepository;
     private final ModalityProcessStatusHistoryRepository historyRepository;
     private final StudentDocumentStatusHistoryRepository documentHistoryRepository;
-    private final NotificationEventPublisher notificationEventPublisher;
+    private final ApplicationEventPublisher applicationEventPublisher;
     private final FacultyRepository facultyRepository;
     private final ProgramDegreeModalityRepository programDegreeModalityRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
@@ -63,11 +62,7 @@ public class ModalityGroupService {
     @Transactional
     public ResponseEntity<?> startStudentModalityGroup(Long modalityId) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User student = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User student = SecurityUtils.getCurrentUser();
 
         StudentProfile profile = studentProfileRepository.findByUserId(student.getId())
                 .orElseThrow(() -> new RuntimeException("Debe completar su perfil académico antes de seleccionar una modalidad"));
@@ -222,11 +217,8 @@ public class ModalityGroupService {
         );
 
 
-        notificationEventPublisher.publish(
-                new com.SIGMA.USCO.notifications.event.StudentModalityStarted(
-                        studentModality.getId(),
-                        student.getId()
-                )
+        applicationEventPublisher.publishEvent(
+                new ModalityEvent(NotificationType.MODALITY_STARTED, studentModality.getId(), student.getId(), Map.of())
         );
 
         return ResponseEntity.ok(
@@ -242,11 +234,7 @@ public class ModalityGroupService {
 
     public ResponseEntity<?> getEligibleStudentsForInvitation(String nameFilter) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User leader = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User leader = SecurityUtils.getCurrentUser();
 
         StudentProfile leaderProfile = studentProfileRepository.findByUserId(leader.getId())
                 .orElseThrow(() -> new RuntimeException("Debe completar su perfil académico antes de invitar estudiantes"));
@@ -318,11 +306,7 @@ public class ModalityGroupService {
 
     public ResponseEntity<?> inviteStudentToModality(Long studentModalityId, Long inviteeId) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User inviter = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User inviter = SecurityUtils.getCurrentUser();
 
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
@@ -437,15 +421,14 @@ public class ModalityGroupService {
         modalityInvitationRepository.save(invitation);
 
 
-        notificationEventPublisher.publish(
-                new com.SIGMA.USCO.notifications.event.ModalityInvitationSentEvent(
-                        studentModalityId,
-                        invitation.getId(),
-                        inviteeId,
-                        inviter.getId(),
-                        studentModality.getProgramDegreeModality().getDegreeModality().getName(),
-                        inviter.getName() + " " + inviter.getLastName()
-                )
+        applicationEventPublisher.publishEvent(
+                new ModalityEvent(NotificationType.MODALITY_INVITATION_RECEIVED, studentModalityId, inviter.getId(), Map.of(
+                        ModalityEvent.KEY_INVITATION_ID, invitation.getId(),
+                        ModalityEvent.KEY_INVITEE_ID, inviteeId,
+                        ModalityEvent.KEY_INVITER_ID, inviter.getId(),
+                        ModalityEvent.KEY_MODALITY_NAME, studentModality.getProgramDegreeModality().getDegreeModality().getName(),
+                        ModalityEvent.KEY_INVITER_NAME, inviter.getName() + " " + inviter.getLastName()
+                ))
         );
 
         return ResponseEntity.ok(
@@ -461,11 +444,7 @@ public class ModalityGroupService {
     @Transactional
     public ResponseEntity<?> acceptInvitation(Long invitationId) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User student = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User student = SecurityUtils.getCurrentUser();
 
 
         ModalityInvitation invitation = modalityInvitationRepository.findById(invitationId)
@@ -615,15 +594,14 @@ public class ModalityGroupService {
         }
 
 
-        notificationEventPublisher.publish(
-                new ModalityInvitationAcceptedEvent(
-                        studentModality.getId(),
-                        invitationId,
-                        student.getId(),
-                        studentModality.getLeader().getId(),
-                        student.getName() + " " + student.getLastName(),
-                        studentModality.getProgramDegreeModality().getDegreeModality().getName()
-                )
+        applicationEventPublisher.publishEvent(
+                new ModalityEvent(NotificationType.MODALITY_INVITATION_ACCEPTED, studentModality.getId(), student.getId(), Map.of(
+                        ModalityEvent.KEY_INVITATION_ID, invitationId,
+                        ModalityEvent.KEY_ACCEPTED_BY_ID, student.getId(),
+                        ModalityEvent.KEY_LEADER_ID, studentModality.getLeader().getId(),
+                        ModalityEvent.KEY_ACCEPTED_BY_NAME, student.getName() + " " + student.getLastName(),
+                        ModalityEvent.KEY_MODALITY_NAME, studentModality.getProgramDegreeModality().getDegreeModality().getName()
+                ))
         );
 
         return ResponseEntity.ok(
@@ -641,11 +619,7 @@ public class ModalityGroupService {
     @Transactional
     public ResponseEntity<?> rejectInvitation(Long invitationId) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User student = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User student = SecurityUtils.getCurrentUser();
 
 
         ModalityInvitation invitation = modalityInvitationRepository.findById(invitationId)
@@ -691,15 +665,14 @@ public class ModalityGroupService {
         );
 
 
-        notificationEventPublisher.publish(
-                new ModalityInvitationRejectedEvent(
-                        studentModality.getId(),
-                        invitationId,
-                        student.getId(),
-                        studentModality.getLeader().getId(),
-                        student.getName() + " " + student.getLastName(),
-                        studentModality.getProgramDegreeModality().getDegreeModality().getName()
-                )
+        applicationEventPublisher.publishEvent(
+                new ModalityEvent(NotificationType.MODALITY_INVITATION_REJECTED, studentModality.getId(), student.getId(), Map.of(
+                        ModalityEvent.KEY_INVITATION_ID, invitationId,
+                        ModalityEvent.KEY_REJECTED_BY_ID, student.getId(),
+                        ModalityEvent.KEY_LEADER_ID, studentModality.getLeader().getId(),
+                        ModalityEvent.KEY_REJECTED_BY_NAME, student.getName() + " " + student.getLastName(),
+                        ModalityEvent.KEY_MODALITY_NAME, studentModality.getProgramDegreeModality().getDegreeModality().getName()
+                ))
         );
 
         return ResponseEntity.ok(

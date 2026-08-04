@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -19,24 +20,6 @@ import java.util.Map;
 @Service
 public class DirectorAssignedModalitiesPdfGenerator {
 
-    // COLORES INSTITUCIONALES - USO EXCLUSIVO
-    private static final BaseColor INSTITUTIONAL_RED = new BaseColor(143, 30, 30); // #8F1E1E - Color primario
-    private static final BaseColor INSTITUTIONAL_GOLD = new BaseColor(213, 203, 160); // #D5CBA0 - Color secundario
-    private static final BaseColor WHITE = BaseColor.WHITE; // Color primario
-    private static final BaseColor LIGHT_GOLD = new BaseColor(245, 242, 235); // Tono muy claro de dorado para fondos sutiles
-    private static final BaseColor TEXT_BLACK = BaseColor.BLACK; // Texto principal
-    private static final BaseColor TEXT_GRAY = new BaseColor(80, 80, 80); // Texto secundario
-
-    // Fuentes con colores institucionales
-    private static final Font TITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, INSTITUTIONAL_RED);
-    private static final Font SUBTITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA, 16, INSTITUTIONAL_RED);
-    private static final Font HEADER_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 15, INSTITUTIONAL_RED);
-    private static final Font SUBHEADER_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, INSTITUTIONAL_RED);
-    private static final Font BOLD_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_BLACK);
-    private static final Font NORMAL_FONT = FontFactory.getFont(FontFactory.HELVETICA, 10, TEXT_BLACK);
-    private static final Font SMALL_FONT = FontFactory.getFont(FontFactory.HELVETICA, 9, TEXT_GRAY);
-    private static final Font TINY_FONT = FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY);
-    private static final Font HEADER_TABLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, WHITE);
 
     public ByteArrayOutputStream generatePDF(DirectorAssignedModalitiesReportDTO report)
             throws DocumentException, IOException {
@@ -45,9 +28,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         Document document = new Document(PageSize.A4, 50, 50, 50, 50);
         PdfWriter writer = PdfWriter.getInstance(document, outputStream);
 
-        // Agregar eventos de página (encabezado y pie de página)
-        PageEventHelper pageEvent = new PageEventHelper(report);
-        writer.setPageEvent(pageEvent);
+        writer.setPageEvent(new InstitutionalPageEventHelper(report.getAcademicProgramName()));
 
         document.open();
 
@@ -56,33 +37,38 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         // 2. Resumen Ejecutivo
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addExecutiveSummary(document, report);
 
         // 3. Análisis de Carga de Trabajo (si está disponible)
         if (report.getWorkloadAnalysis() != null) {
             document.newPage();
-            addInternalHeader(document, report);
+            InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
             addWorkloadAnalysis(document, report);
         }
 
         // 4. Directores y sus Modalidades
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addDirectorsAndModalities(document, report);
 
         // 5. Estadísticas por Estado y Tipo
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addStatisticsByStatusAndType(document, report);
 
         // 6. Recomendaciones
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addRecommendations(document, report);
 
         // 7. Pie institucional de cierre
-        addFooterSection(document, report);
+        InstitutionalPdfHeader.addFooterSection(document,
+                "Este reporte fue generado autom\u00e1ticamente por el sistema SIGMA a partir de los datos acad\u00e9micos " +
+                "registrados para el programa: " + report.getAcademicProgramName() + ". " +
+                "Para consultas o asignaciones de directores, contacte con la coordinaci\u00f3n del programa acad\u00e9mico.",
+                "Sistema Integral de Gesti\u00f3n de Modalidades de Grado \u2014 SIGMA\n" +
+                "Universidad Surcolombiana | Facultad de Ingenier\u00eda | Neiva \u2013 Huila");
 
         document.close();
         return outputStream;
@@ -94,180 +80,42 @@ public class DirectorAssignedModalitiesPdfGenerator {
     private void addCoverPage(Document document, DirectorAssignedModalitiesReportDTO report)
             throws DocumentException, IOException {
 
-        // 1. Encabezado con logo institucional
-        InstitutionalPdfHeader.addHeader(
+        List<String> boxLines = new ArrayList<>();
+        if (report.getDirectorInfo() != null) {
+            boxLines.add(report.getDirectorInfo().getFullName());
+        }
+
+        List<String[]> infoRows = new ArrayList<>();
+        infoRows.add(new String[]{"Programa académico:", report.getAcademicProgramName()});
+        if (report.getAcademicProgramCode() != null) {
+            infoRows.add(new String[]{"Código del programa:", report.getAcademicProgramCode()});
+        }
+        infoRows.add(new String[]{"Fecha de generación:",
+                report.getGeneratedAt().format(DateTimeFormatter.ofPattern("dd 'de' MMMM 'de' yyyy  HH:mm"))});
+        infoRows.add(new String[]{"Generado por:", report.getGeneratedBy().split(" \\(")[0]});
+        infoRows.add(new String[]{"Total de directores:",
+                String.valueOf(report.getSummary().getTotalDirectors())});
+        infoRows.add(new String[]{"Total de modalidades asignadas:",
+                String.valueOf(report.getSummary().getTotalModalitiesAssigned())});
+
+        InstitutionalPdfHeader.addCoverPage(
                 document,
-                "Facultad de Ingeniería",
                 report.getAcademicProgramName() + (report.getAcademicProgramCode() != null
                         ? " — Cód. " + report.getAcademicProgramCode() : ""),
-                "Reporte de Modalidades por Director Asignado"
-        );
-
-        // 2. Caja de título principal roja
-        PdfPTable titleBox = new PdfPTable(1);
-        titleBox.setWidthPercentage(100);
-        titleBox.setSpacingAfter(18);
-
-        PdfPCell titleCell = new PdfPCell();
-        titleCell.setBackgroundColor(INSTITUTIONAL_RED);
-        titleCell.setPadding(18);
-        titleCell.setBorder(Rectangle.NO_BORDER);
-
-        Paragraph titlePara = new Paragraph("REPORTE DE MODALIDADES\nPOR DIRECTOR ASIGNADO",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, WHITE));
-        titlePara.setAlignment(Element.ALIGN_CENTER);
-        titleCell.addElement(titlePara);
-
-        // Si es reporte de un director específico, mostrarlo
-        if (report.getDirectorInfo() != null) {
-            Paragraph dirPara = new Paragraph(report.getDirectorInfo().getFullName(),
-                    FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 13, INSTITUTIONAL_GOLD));
-            dirPara.setAlignment(Element.ALIGN_CENTER);
-            dirPara.setSpacingBefore(6);
-            titleCell.addElement(dirPara);
-        }
-
-        titleBox.addCell(titleCell);
-        document.add(titleBox);
-
-        // Línea dorada decorativa
-        InstitutionalPdfHeader.addGoldLine(document);
-
-        // 3. Tabla de información con fondo dorado claro
-        PdfPTable infoTable = new PdfPTable(2);
-        infoTable.setWidthPercentage(85);
-        infoTable.setHorizontalAlignment(Element.ALIGN_CENTER);
-        infoTable.setSpacingBefore(18);
-        infoTable.setSpacingAfter(22);
-        try { infoTable.setWidths(new float[]{42f, 58f}); } catch (DocumentException ignored) {}
-
-        addCoverInfoRow(infoTable, "Programa académico:", report.getAcademicProgramName());
-        if (report.getAcademicProgramCode() != null) {
-            addCoverInfoRow(infoTable, "Código del programa:", report.getAcademicProgramCode());
-        }
-        addCoverInfoRow(infoTable, "Fecha de generación:",
-                report.getGeneratedAt().format(DateTimeFormatter.ofPattern("dd 'de' MMMM 'de' yyyy  HH:mm")));
-        addCoverInfoRow(infoTable, "Generado por:", report.getGeneratedBy().split(" \\(")[0]);
-        addCoverInfoRow(infoTable, "Total de directores:", String.valueOf(report.getSummary().getTotalDirectors()));
-        addCoverInfoRow(infoTable, "Total de modalidades asignadas:", String.valueOf(report.getSummary().getTotalModalitiesAssigned()));
-
-        document.add(infoTable);
-
-        // 4. Líneas de cierre institucionales
-        InstitutionalPdfHeader.addRedLine(document);
-        InstitutionalPdfHeader.addGoldLine(document);
-
-        // 5. Nota al pie de portada
-        Paragraph note = new Paragraph(
-                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
-                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila",
-                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
-        note.setAlignment(Element.ALIGN_CENTER);
-        note.setSpacingBefore(10);
-        document.add(note);
+                "Reporte de Modalidades por Director Asignado",
+                "REPORTE DE MODALIDADES\nPOR DIRECTOR ASIGNADO",
+                boxLines,
+                infoRows,
+                null);
     }
 
-    /**
-     * Encabezado compacto institucional para páginas internas.
-     */
-    private void addInternalHeader(Document document, DirectorAssignedModalitiesReportDTO report)
-            throws DocumentException {
-        PdfPTable strip = new PdfPTable(2);
-        strip.setWidthPercentage(100);
-        strip.setSpacingAfter(8f);
-        try { strip.setWidths(new float[]{65f, 35f}); } catch (DocumentException ignored) {}
 
-        PdfPCell leftCell = new PdfPCell(new Phrase(
-                "UNIVERSIDAD SURCOLOMBIANA — SIGMA",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, INSTITUTIONAL_RED)));
-        leftCell.setBorder(Rectangle.BOTTOM);
-        leftCell.setBorderColorBottom(INSTITUTIONAL_RED);
-        leftCell.setBorderWidthBottom(1.5f);
-        leftCell.setPadding(4f);
-        strip.addCell(leftCell);
 
-        PdfPCell rightCell = new PdfPCell(new Phrase(
-                "Modalidades por Director — " + report.getAcademicProgramName(),
-                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY)));
-        rightCell.setBorder(Rectangle.BOTTOM);
-        rightCell.setBorderColorBottom(INSTITUTIONAL_GOLD);
-        rightCell.setBorderWidthBottom(1.5f);
-        rightCell.setPadding(4f);
-        rightCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        strip.addCell(rightCell);
 
-        document.add(strip);
-    }
 
-    /**
-     * Pie institucional de cierre del reporte.
-     */
-    private void addFooterSection(Document document, DirectorAssignedModalitiesReportDTO report)
-            throws DocumentException {
-        addSpacingParagraph(document, 20f);
-        InstitutionalPdfHeader.addRedLine(document);
-        InstitutionalPdfHeader.addGoldLine(document);
-        addSpacingParagraph(document, 8f);
 
-        PdfPTable noteTable = new PdfPTable(1);
-        noteTable.setWidthPercentage(100);
 
-        PdfPCell noteCell = new PdfPCell();
-        noteCell.setBackgroundColor(LIGHT_GOLD);
-        noteCell.setPadding(12f);
-        noteCell.setBorder(Rectangle.NO_BORDER);
 
-        Paragraph note = new Paragraph(
-                "Este reporte fue generado automáticamente por el sistema SIGMA a partir de los datos académicos " +
-                "registrados para el programa: " + report.getAcademicProgramName() + ". " +
-                "Para consultas o asignaciones de directores, contacte con la coordinación del programa académico.",
-                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
-        note.setAlignment(Element.ALIGN_JUSTIFIED);
-        noteCell.addElement(note);
-        noteTable.addCell(noteCell);
-        document.add(noteTable);
-
-        addSpacingParagraph(document, 10f);
-        Paragraph closing = new Paragraph(
-                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
-                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila",
-                FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
-        closing.setAlignment(Element.ALIGN_CENTER);
-        document.add(closing);
-    }
-
-    /** Párrafo de espaciado auxiliar. */
-    private void addSpacingParagraph(Document document, float height) throws DocumentException {
-        Paragraph spacer = new Paragraph(" ");
-        spacer.setSpacingAfter(height);
-        document.add(spacer);
-    }
-
-    /**
-     * Fila de la tabla de portada con estilo institucional.
-     */
-    private void addCoverInfoRow(PdfPTable table, String label, String value) {
-        if (value == null) value = "—";
-
-        PdfPCell labelCell = new PdfPCell(new Phrase(label,
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_GRAY)));
-        labelCell.setBackgroundColor(LIGHT_GOLD);
-        labelCell.setPadding(8f);
-        labelCell.setBorder(Rectangle.BOX);
-        labelCell.setBorderColor(INSTITUTIONAL_GOLD);
-        labelCell.setBorderWidth(0.8f);
-        labelCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        table.addCell(labelCell);
-
-        PdfPCell valueCell = new PdfPCell(new Phrase(value,
-                FontFactory.getFont(FontFactory.HELVETICA, 10, TEXT_BLACK)));
-        valueCell.setPadding(8f);
-        valueCell.setBorder(Rectangle.BOX);
-        valueCell.setBorderColor(INSTITUTIONAL_GOLD);
-        valueCell.setBorderWidth(0.8f);
-        valueCell.setHorizontalAlignment(Element.ALIGN_LEFT);
-        table.addCell(valueCell);
-    }
 
     /**
      * Resumen ejecutivo con diseño mejorado
@@ -275,7 +123,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
     private void addExecutiveSummary(Document document, DirectorAssignedModalitiesReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "1. RESUMEN EJECUTIVO");
+        InstitutionalPdfHeader.addSectionTitle(document, "1. RESUMEN EJECUTIVO");
 
         DirectorAssignedModalitiesReportDTO.DirectorSummaryDTO summary = report.getSummary();
 
@@ -287,19 +135,19 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         // Tarjeta 1: Total de directores
         addMetricCard(summaryTable, "Directores",
-                String.valueOf(summary.getTotalDirectors()), INSTITUTIONAL_GOLD);
+                String.valueOf(summary.getTotalDirectors()), InstitutionalPdfHeader.INST_GOLD);
 
         // Tarjeta 2: Total de modalidades
         addMetricCard(summaryTable, "Modalidades Asignadas",
-                String.valueOf(summary.getTotalModalitiesAssigned()), INSTITUTIONAL_RED);
+                String.valueOf(summary.getTotalModalitiesAssigned()), InstitutionalPdfHeader.INST_RED);
 
         // Tarjeta 3: Modalidades activas
         addMetricCard(summaryTable, "Modalidades Activas",
-                String.valueOf(summary.getTotalActiveModalities()), INSTITUTIONAL_GOLD);
+                String.valueOf(summary.getTotalActiveModalities()), InstitutionalPdfHeader.INST_GOLD);
 
         // Tarjeta 4: Estudiantes supervisados
         addMetricCard(summaryTable, "Estudiantes Supervisados",
-                String.valueOf(summary.getTotalStudentsSupervised()), INSTITUTIONAL_RED);
+                String.valueOf(summary.getTotalStudentsSupervised()), InstitutionalPdfHeader.INST_RED);
 
         document.add(summaryTable);
 
@@ -313,18 +161,18 @@ public class DirectorAssignedModalitiesPdfGenerator {
             mostTable.setSpacingAfter(12);
 
             PdfPCell mostCell = new PdfPCell();
-            mostCell.setBackgroundColor(LIGHT_GOLD);
+            mostCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
             mostCell.setPadding(12);
-            mostCell.setBorderColor(INSTITUTIONAL_GOLD);
+            mostCell.setBorderColor(InstitutionalPdfHeader.INST_GOLD);
             mostCell.setBorderWidth(2f);
 
             Paragraph mostText = new Paragraph();
             mostText.add(new Chunk("🏆 DIRECTOR CON MÁS MODALIDADES: ",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, INSTITUTIONAL_RED)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, InstitutionalPdfHeader.INST_RED)));
             mostText.add(new Chunk(summary.getDirectorWithMostModalities() + " ",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, TEXT_BLACK)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, InstitutionalPdfHeader.TEXT_BLACK)));
             mostText.add(new Chunk("(" + summary.getMaxModalitiesCount() + " modalidades)",
-                    FontFactory.getFont(FontFactory.HELVETICA, 10, INSTITUTIONAL_RED)));
+                    FontFactory.getFont(FontFactory.HELVETICA, 10, InstitutionalPdfHeader.INST_RED)));
             mostCell.addElement(mostText);
             mostTable.addCell(mostCell);
 
@@ -337,16 +185,16 @@ public class DirectorAssignedModalitiesPdfGenerator {
         avgTable.setSpacingAfter(20);
 
         PdfPCell avgCell = new PdfPCell();
-        avgCell.setBackgroundColor(LIGHT_GOLD);
+        avgCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         avgCell.setPadding(12);
-        avgCell.setBorderColor(INSTITUTIONAL_GOLD);
+        avgCell.setBorderColor(InstitutionalPdfHeader.INST_GOLD);
         avgCell.setBorderWidth(1.5f);
 
         Paragraph avgText = new Paragraph();
         avgText.add(new Chunk("📊 PROMEDIO DE MODALIDADES POR DIRECTOR: ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, INSTITUTIONAL_RED)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, InstitutionalPdfHeader.INST_RED)));
         avgText.add(new Chunk(String.valueOf(summary.getAverageModalitiesPerDirector()),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, INSTITUTIONAL_RED)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, InstitutionalPdfHeader.INST_RED)));
         avgCell.addElement(avgText);
         avgTable.addCell(avgCell);
 
@@ -361,10 +209,10 @@ public class DirectorAssignedModalitiesPdfGenerator {
         statusTable.setSpacingAfter(10);
 
         addDirectorStatusCard(statusTable, "Directores con Carga Alta/Sobrecarga",
-                String.valueOf(summary.getDirectorsOverloaded()), INSTITUTIONAL_RED);
+                String.valueOf(summary.getDirectorsOverloaded()), InstitutionalPdfHeader.INST_RED);
 
         addDirectorStatusCard(statusTable, "Directores Disponibles",
-                String.valueOf(summary.getDirectorsAvailable()), INSTITUTIONAL_GOLD);
+                String.valueOf(summary.getDirectorsAvailable()), InstitutionalPdfHeader.INST_GOLD);
 
         document.add(statusTable);
     }
@@ -374,14 +222,14 @@ public class DirectorAssignedModalitiesPdfGenerator {
      */
     private void addMetricCard(PdfPTable table, String label, String value, BaseColor color) {
         // Usar solo colores institucionales: rojo o dorado
-        BaseColor cardColor = (color == INSTITUTIONAL_GOLD || color == INSTITUTIONAL_RED) ?
-                color : INSTITUTIONAL_RED;
+        BaseColor cardColor = (color == InstitutionalPdfHeader.INST_GOLD || color == InstitutionalPdfHeader.INST_RED) ?
+                color : InstitutionalPdfHeader.INST_RED;
 
         PdfPCell card = new PdfPCell();
         card.setPadding(15);
         card.setBorderColor(cardColor);
         card.setBorderWidth(2f);
-        card.setBackgroundColor(WHITE);
+        card.setBackgroundColor(InstitutionalPdfHeader.WHITE);
 
         // Valor grande
         Paragraph valuePara = new Paragraph(value,
@@ -392,7 +240,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         // Etiqueta
         Paragraph labelPara = new Paragraph(label,
-                FontFactory.getFont(FontFactory.HELVETICA, 9, TEXT_GRAY));
+                FontFactory.getFont(FontFactory.HELVETICA, 9, InstitutionalPdfHeader.TEXT_GRAY));
         labelPara.setAlignment(Element.ALIGN_CENTER);
         card.addElement(labelPara);
 
@@ -404,16 +252,16 @@ public class DirectorAssignedModalitiesPdfGenerator {
      */
     private void addDirectorStatusCard(PdfPTable table, String label, String value, BaseColor color) {
         // Usar solo rojo o dorado institucional
-        BaseColor cardColor = (color == INSTITUTIONAL_RED) ? INSTITUTIONAL_RED : INSTITUTIONAL_GOLD;
+        BaseColor cardColor = (color == InstitutionalPdfHeader.INST_RED) ? InstitutionalPdfHeader.INST_RED : InstitutionalPdfHeader.INST_GOLD;
 
         PdfPCell card = new PdfPCell();
         card.setPadding(12);
         card.setBorderColor(cardColor);
         card.setBorderWidth(2f);
-        card.setBackgroundColor(WHITE);
+        card.setBackgroundColor(InstitutionalPdfHeader.WHITE);
 
         Paragraph text = new Paragraph();
-        text.add(new Chunk(label + ": ", NORMAL_FONT));
+        text.add(new Chunk(label + ": ", InstitutionalPdfHeader.NORMAL_FONT));
         text.add(new Chunk(value, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, cardColor)));
         text.setAlignment(Element.ALIGN_CENTER);
         card.addElement(text);
@@ -427,7 +275,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
     private void addWorkloadAnalysis(Document document, DirectorAssignedModalitiesReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "2. ANÁLISIS DE CARGA DE TRABAJO");
+        InstitutionalPdfHeader.addSectionTitle(document, "2. ANÁLISIS DE CARGA DE TRABAJO");
 
         DirectorAssignedModalitiesReportDTO.WorkloadAnalysisDTO workload = report.getWorkloadAnalysis();
 
@@ -437,7 +285,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         overallTable.setSpacingAfter(20);
 
         BaseColor statusColor = "BALANCED".equals(workload.getOverallWorkloadStatus()) ?
-                INSTITUTIONAL_GOLD : INSTITUTIONAL_RED;
+                InstitutionalPdfHeader.INST_GOLD : InstitutionalPdfHeader.INST_RED;
         String statusIcon = "BALANCED".equals(workload.getOverallWorkloadStatus()) ? "✓" : "⚠";
 
         PdfPCell statusCell = new PdfPCell();
@@ -447,10 +295,10 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         Paragraph statusText = new Paragraph();
         statusText.add(new Chunk(statusIcon + " ESTADO GENERAL DE CARGA: ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, WHITE)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, InstitutionalPdfHeader.WHITE)));
         statusText.add(new Chunk(
                 "BALANCED".equals(workload.getOverallWorkloadStatus()) ? "EQUILIBRADA" : "DESEQUILIBRADA",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, WHITE)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, InstitutionalPdfHeader.WHITE)));
         statusCell.addElement(statusText);
         overallTable.addCell(statusCell);
 
@@ -469,7 +317,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         document.add(infoTable);
 
         // Distribución de carga - Título
-        Paragraph distTitle = new Paragraph("📊 Distribución de Carga de Trabajo:", SUBHEADER_FONT);
+        Paragraph distTitle = new Paragraph("📊 Distribución de Carga de Trabajo:", InstitutionalPdfHeader.SECTION_FONT);
         distTitle.setSpacingBefore(15);
         distTitle.setSpacingAfter(10);
         document.add(distTitle);
@@ -482,13 +330,13 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         // Directores sobrecargados
         if (workload.getDirectorsOverloaded() != null && !workload.getDirectorsOverloaded().isEmpty()) {
-            Paragraph overloadedTitle = new Paragraph("⚠ Directores con Sobrecarga:", SUBHEADER_FONT);
+            Paragraph overloadedTitle = new Paragraph("⚠ Directores con Sobrecarga:", InstitutionalPdfHeader.SECTION_FONT);
             overloadedTitle.setSpacingBefore(10);
             overloadedTitle.setSpacingAfter(5);
             document.add(overloadedTitle);
 
             for (String director : workload.getDirectorsOverloaded()) {
-                Paragraph dirPara = new Paragraph("• " + director, NORMAL_FONT);
+                Paragraph dirPara = new Paragraph("• " + director, InstitutionalPdfHeader.NORMAL_FONT);
                 dirPara.setIndentationLeft(20);
                 dirPara.setSpacingAfter(3);
                 document.add(dirPara);
@@ -499,13 +347,13 @@ public class DirectorAssignedModalitiesPdfGenerator {
         // Directores disponibles
         if (workload.getDirectorsAvailable() != null && !workload.getDirectorsAvailable().isEmpty()) {
             Paragraph availableTitle = new Paragraph("✓ Directores Disponibles para Nuevas Asignaciones:",
-                    SUBHEADER_FONT);
+                    InstitutionalPdfHeader.SECTION_FONT);
             availableTitle.setSpacingBefore(10);
             availableTitle.setSpacingAfter(5);
             document.add(availableTitle);
 
             for (String director : workload.getDirectorsAvailable()) {
-                Paragraph dirPara = new Paragraph("• " + director, NORMAL_FONT);
+                Paragraph dirPara = new Paragraph("• " + director, InstitutionalPdfHeader.NORMAL_FONT);
                 dirPara.setIndentationLeft(20);
                 dirPara.setSpacingAfter(3);
                 document.add(dirPara);
@@ -517,69 +365,16 @@ public class DirectorAssignedModalitiesPdfGenerator {
      * Agregar fila de información de carga
      */
     private void addWorkloadInfoRow(PdfPTable table, String label, String value) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, BOLD_FONT));
-        labelCell.setBackgroundColor(LIGHT_GOLD);
+        PdfPCell labelCell = new PdfPCell(new Phrase(label, InstitutionalPdfHeader.BOLD_FONT));
+        labelCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         labelCell.setPadding(8);
         table.addCell(labelCell);
 
         PdfPCell valueCell = new PdfPCell(new Phrase(value,
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, INSTITUTIONAL_RED)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, InstitutionalPdfHeader.INST_RED)));
         valueCell.setHorizontalAlignment(Element.ALIGN_CENTER);
         valueCell.setPadding(8);
         table.addCell(valueCell);
-    }
-
-    /**
-     * Agregar fila de distribución de carga
-     */
-    private void addWorkloadDistributionRow(PdfPTable table, String label, int count, int total, BaseColor color) {
-        // Etiqueta
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, SMALL_FONT));
-        labelCell.setPadding(8);
-        labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        table.addCell(labelCell);
-
-        // Barra visual
-        PdfPCell barCell = new PdfPCell();
-        barCell.setPadding(5);
-        barCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-
-        PdfPTable innerTable = new PdfPTable(2);
-        float percentage = total > 0 ? ((float) count / total * 100) : 0;
-        float barWidth = percentage > 0 ? percentage : 0.1f;
-        float emptyWidth = 100 - barWidth;
-
-        try {
-            innerTable.setWidths(new float[]{barWidth, emptyWidth});
-        } catch (Exception e) {
-            try {
-                innerTable.setWidths(new float[]{50, 50});
-            } catch (Exception ex) {
-                // Ignorar
-            }
-        }
-
-        PdfPCell filledCell = new PdfPCell();
-        filledCell.setBackgroundColor(color);
-        filledCell.setBorder(Rectangle.NO_BORDER);
-        filledCell.setPadding(4);
-        innerTable.addCell(filledCell);
-
-        PdfPCell emptyCell = new PdfPCell();
-        emptyCell.setBackgroundColor(LIGHT_GOLD);
-        emptyCell.setBorder(Rectangle.NO_BORDER);
-        emptyCell.setPadding(4);
-        innerTable.addCell(emptyCell);
-
-        barCell.addElement(innerTable);
-        table.addCell(barCell);
-
-        // Cantidad y porcentaje
-        PdfPCell countCell = new PdfPCell(new Phrase(count + " (" + String.format("%.1f", percentage) + "%)",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, color)));
-        countCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        countCell.setPadding(8);
-        table.addCell(countCell);
     }
 
     /**
@@ -588,7 +383,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
     private void addDirectorsAndModalities(Document document, DirectorAssignedModalitiesReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "3. DIRECTORES Y MODALIDADES ASIGNADAS");
+        InstitutionalPdfHeader.addSectionTitle(document, "3. DIRECTORES Y MODALIDADES ASIGNADAS");
 
         List<DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO> directors = report.getDirectors();
 
@@ -633,19 +428,19 @@ public class DirectorAssignedModalitiesPdfGenerator {
             statsTable.setSpacingAfter(15);
 
             addDirectorStatCell(statsTable, "Total Asignadas",
-                    String.valueOf(director.getTotalAssignedModalities()), INSTITUTIONAL_RED);
+                    String.valueOf(director.getTotalAssignedModalities()), InstitutionalPdfHeader.INST_RED);
             addDirectorStatCell(statsTable, "Activas",
-                    String.valueOf(director.getActiveModalities()), INSTITUTIONAL_GOLD);
+                    String.valueOf(director.getActiveModalities()), InstitutionalPdfHeader.INST_GOLD);
             addDirectorStatCell(statsTable, "Completadas",
-                    String.valueOf(director.getCompletedModalities()), INSTITUTIONAL_GOLD);
+                    String.valueOf(director.getCompletedModalities()), InstitutionalPdfHeader.INST_GOLD);
             addDirectorStatCell(statsTable, "En Revisión",
-                    String.valueOf(director.getPendingApprovalModalities()), INSTITUTIONAL_RED);
+                    String.valueOf(director.getPendingApprovalModalities()), InstitutionalPdfHeader.INST_RED);
 
             document.add(statsTable);
 
             // Modalidades del director
             if (director.getModalities() != null && !director.getModalities().isEmpty()) {
-                Paragraph modalitiesTitle = new Paragraph("Modalidades Asignadas:", SUBHEADER_FONT);
+                Paragraph modalitiesTitle = new Paragraph("Modalidades Asignadas:", InstitutionalPdfHeader.SECTION_FONT);
                 modalitiesTitle.setSpacingBefore(10);
                 modalitiesTitle.setSpacingAfter(10);
                 document.add(modalitiesTitle);
@@ -676,12 +471,12 @@ public class DirectorAssignedModalitiesPdfGenerator {
         switch (workloadStatus) {
             case "LOW":
             case "NORMAL":
-                return INSTITUTIONAL_GOLD;  // Carga baja/normal: dorado
+                return InstitutionalPdfHeader.INST_GOLD;  // Carga baja/normal: dorado
             case "HIGH":
             case "OVERLOADED":
-                return INSTITUTIONAL_RED;   // Carga alta/sobrecarga: rojo
+                return InstitutionalPdfHeader.INST_RED;   // Carga alta/sobrecarga: rojo
             default:
-                return INSTITUTIONAL_GOLD;
+                return InstitutionalPdfHeader.INST_GOLD;
         }
     }
 
@@ -690,14 +485,14 @@ public class DirectorAssignedModalitiesPdfGenerator {
      */
     private void addDirectorStatCell(PdfPTable table, String label, String value, BaseColor color) {
         // Usar solo rojo o dorado
-        BaseColor statColor = (color == INSTITUTIONAL_RED || color == INSTITUTIONAL_GOLD) ?
-                color : INSTITUTIONAL_RED;
+        BaseColor statColor = (color == InstitutionalPdfHeader.INST_RED || color == InstitutionalPdfHeader.INST_GOLD) ?
+                color : InstitutionalPdfHeader.INST_RED;
 
         PdfPCell cell = new PdfPCell();
         cell.setPadding(10);
         cell.setBorderColor(statColor);
         cell.setBorderWidth(2f);
-        cell.setBackgroundColor(WHITE);
+        cell.setBackgroundColor(InstitutionalPdfHeader.WHITE);
 
         Paragraph valuePara = new Paragraph(value,
                 FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, statColor));
@@ -705,7 +500,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         cell.addElement(valuePara);
 
         Paragraph labelPara = new Paragraph(label,
-                FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
+                FontFactory.getFont(FontFactory.HELVETICA, 8, InstitutionalPdfHeader.TEXT_GRAY));
         labelPara.setAlignment(Element.ALIGN_CENTER);
         labelPara.setSpacingBefore(3);
         cell.addElement(labelPara);
@@ -724,14 +519,14 @@ public class DirectorAssignedModalitiesPdfGenerator {
         modalityTable.setSpacingAfter(10);
 
         PdfPCell modalityCell = new PdfPCell();
-        modalityCell.setBackgroundColor(LIGHT_GOLD);
+        modalityCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         modalityCell.setPadding(10);
         modalityCell.setBorder(Rectangle.BOX);
-        modalityCell.setBorderColor(LIGHT_GOLD);
+        modalityCell.setBorderColor(InstitutionalPdfHeader.LIGHT_GOLD);
 
         // Título
         Paragraph title = new Paragraph(number + ". " + modality.getModalityTypeName(),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_BLACK));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, InstitutionalPdfHeader.TEXT_BLACK));
         modalityCell.addElement(title);
 
         // Estudiantes
@@ -742,20 +537,20 @@ public class DirectorAssignedModalitiesPdfGenerator {
             students.append(student.getFullName());
             if (student.getIsLeader()) students.append(" (Líder)");
         }
-        Paragraph studentsPara = new Paragraph(students.toString(), SMALL_FONT);
+        Paragraph studentsPara = new Paragraph(students.toString(), InstitutionalPdfHeader.SMALL_FONT);
         studentsPara.setSpacingBefore(3);
         modalityCell.addElement(studentsPara);
 
         // Estado
         Paragraph status = new Paragraph("Estado: " + modality.getStatusDescription(),
-                FontFactory.getFont(FontFactory.HELVETICA, 9, INSTITUTIONAL_RED));
+                FontFactory.getFont(FontFactory.HELVETICA, 9, InstitutionalPdfHeader.INST_RED));
         status.setSpacingBefore(3);
         modalityCell.addElement(status);
 
         // Observaciones si hay
         if (modality.getObservations() != null && !"Sin observaciones".equals(modality.getObservations())) {
             Paragraph obs = new Paragraph("⚡ " + modality.getObservations(),
-                    FontFactory.getFont(FontFactory.HELVETICA, 8, INSTITUTIONAL_RED));
+                    FontFactory.getFont(FontFactory.HELVETICA, 8, InstitutionalPdfHeader.INST_RED));
             obs.setSpacingBefore(3);
             modalityCell.addElement(obs);
         }
@@ -770,7 +565,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
     private void addStatisticsByStatusAndType(Document document, DirectorAssignedModalitiesReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "4. ESTADÍSTICAS POR ESTADO Y TIPO");
+        InstitutionalPdfHeader.addSectionTitle(document, "4. ESTADÍSTICAS POR ESTADO Y TIPO");
 
         // NUEVO: Resumen visual con tarjetas
         PdfPTable summaryCards = new PdfPTable(3);
@@ -785,14 +580,14 @@ public class DirectorAssignedModalitiesPdfGenerator {
         int uniqueStatuses = byStatus.size();
         int uniqueTypes = byType.size();
 
-        addStatsCard(summaryCards, "Total Estados", String.valueOf(uniqueStatuses), INSTITUTIONAL_GOLD);
-        addStatsCard(summaryCards, "Total Tipos", String.valueOf(uniqueTypes), INSTITUTIONAL_RED);
-        addStatsCard(summaryCards, "Modalidades Totales", String.valueOf(totalStatus), INSTITUTIONAL_GOLD);
+        addStatsCard(summaryCards, "Total Estados", String.valueOf(uniqueStatuses), InstitutionalPdfHeader.INST_GOLD);
+        addStatsCard(summaryCards, "Total Tipos", String.valueOf(uniqueTypes), InstitutionalPdfHeader.INST_RED);
+        addStatsCard(summaryCards, "Modalidades Totales", String.valueOf(totalStatus), InstitutionalPdfHeader.INST_GOLD);
 
         document.add(summaryCards);
 
         // Por estado con gráfico mejorado
-        Paragraph statusTitle = new Paragraph("📌 Distribución por Estado:", SUBHEADER_FONT);
+        Paragraph statusTitle = new Paragraph("📌 Distribución por Estado:", InstitutionalPdfHeader.SECTION_FONT);
         statusTitle.setSpacingAfter(10);
         document.add(statusTitle);
 
@@ -802,14 +597,14 @@ public class DirectorAssignedModalitiesPdfGenerator {
                 .collect(java.util.stream.Collectors.toList());
 
         for (Map.Entry<String, Integer> entry : sortedByStatus) {
-            addEnhancedStatisticBar(document, entry.getKey(), entry.getValue(), totalStatus, INSTITUTIONAL_GOLD);
+            addEnhancedStatisticBar(document, entry.getKey(), entry.getValue(), totalStatus, InstitutionalPdfHeader.INST_GOLD);
         }
 
         document.add(Chunk.NEWLINE);
         document.add(Chunk.NEWLINE);
 
         // Por tipo con gráfico mejorado
-        Paragraph typeTitle = new Paragraph("📂 Distribución por Tipo de Modalidad:", SUBHEADER_FONT);
+        Paragraph typeTitle = new Paragraph("📂 Distribución por Tipo de Modalidad:", InstitutionalPdfHeader.SECTION_FONT);
         typeTitle.setSpacingAfter(10);
         document.add(typeTitle);
 
@@ -818,7 +613,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
                 .collect(java.util.stream.Collectors.toList());
 
         for (Map.Entry<String, Integer> entry : sortedByType) {
-            addEnhancedStatisticBar(document, entry.getKey(), entry.getValue(), totalTypes, INSTITUTIONAL_RED);
+            addEnhancedStatisticBar(document, entry.getKey(), entry.getValue(), totalTypes, InstitutionalPdfHeader.INST_RED);
         }
     }
 
@@ -830,7 +625,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         card.setPadding(15);
         card.setBorderColor(color);
         card.setBorderWidth(2f);
-        card.setBackgroundColor(WHITE);
+        card.setBackgroundColor(InstitutionalPdfHeader.WHITE);
 
         Paragraph valuePara = new Paragraph(value,
                 FontFactory.getFont(FontFactory.HELVETICA_BOLD, 26, color));
@@ -838,7 +633,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         card.addElement(valuePara);
 
         Paragraph labelPara = new Paragraph(label,
-                FontFactory.getFont(FontFactory.HELVETICA, 9, TEXT_GRAY));
+                FontFactory.getFont(FontFactory.HELVETICA, 9, InstitutionalPdfHeader.TEXT_GRAY));
         labelPara.setAlignment(Element.ALIGN_CENTER);
         labelPara.setSpacingBefore(5);
         card.addElement(labelPara);
@@ -902,7 +697,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         // Parte vacía con porcentaje
         PdfPCell emptyCell = new PdfPCell();
-        emptyCell.setBackgroundColor(LIGHT_GOLD);
+        emptyCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         emptyCell.setBorder(Rectangle.NO_BORDER);
         emptyCell.setPadding(5);
 
@@ -918,82 +713,17 @@ public class DirectorAssignedModalitiesPdfGenerator {
     }
 
     /**
-     * Agregar barra de estadística
-     */
-    private void addStatisticBar(Document document, String label, int count, int total, BaseColor color)
-            throws DocumentException {
-
-        PdfPTable barTable = new PdfPTable(3);
-        barTable.setWidthPercentage(100);
-        barTable.setWidths(new int[]{35, 50, 15});
-        barTable.setSpacingAfter(5);
-
-        // Etiqueta
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, SMALL_FONT));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        labelCell.setPadding(5);
-        barTable.addCell(labelCell);
-
-        // Barra
-        PdfPCell barCell = new PdfPCell();
-        barCell.setBorder(Rectangle.NO_BORDER);
-        barCell.setPadding(5);
-
-        PdfPTable innerTable = new PdfPTable(2);
-        float percentage = total > 0 ? ((float) count / total * 100) : 0;
-        float barWidth = Math.max(percentage, 0.1f);
-        float emptyWidth = 100 - barWidth;
-
-        try {
-            innerTable.setWidths(new float[]{barWidth, emptyWidth});
-        } catch (Exception e) {
-            try {
-                innerTable.setWidths(new float[]{50, 50});
-            } catch (Exception ex) {
-                // Ignorar
-            }
-        }
-
-        PdfPCell filledCell = new PdfPCell(new Phrase(String.valueOf(count),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, WHITE)));
-        filledCell.setBackgroundColor(color);  // Usar el color institucional pasado como parámetro
-        filledCell.setBorder(Rectangle.NO_BORDER);
-        filledCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        filledCell.setPadding(3);
-        innerTable.addCell(filledCell);
-
-        PdfPCell emptyCell = new PdfPCell();
-        emptyCell.setBackgroundColor(LIGHT_GOLD);
-        emptyCell.setBorder(Rectangle.NO_BORDER);
-        innerTable.addCell(emptyCell);
-
-        barCell.addElement(innerTable);
-        barTable.addCell(barCell);
-
-        // Porcentaje
-        PdfPCell percentCell = new PdfPCell(new Phrase(String.format("%.1f%%", percentage),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, color)));
-        percentCell.setBorder(Rectangle.NO_BORDER);
-        percentCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        percentCell.setPadding(5);
-        barTable.addCell(percentCell);
-
-        document.add(barTable);
-    }
-
-    /**
      * Recomendaciones
      */
     private void addRecommendations(Document document, DirectorAssignedModalitiesReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "5. RECOMENDACIONES");
+        InstitutionalPdfHeader.addSectionTitle(document, "5. RECOMENDACIONES");
 
         List<String> recommendations = generateRecommendations(report);
 
         for (int i = 0; i < recommendations.size(); i++) {
-            Paragraph recommendation = new Paragraph((i + 1) + ". " + recommendations.get(i), NORMAL_FONT);
+            Paragraph recommendation = new Paragraph((i + 1) + ". " + recommendations.get(i), InstitutionalPdfHeader.NORMAL_FONT);
             recommendation.setSpacingAfter(10);
             recommendation.setIndentationLeft(20);
             document.add(recommendation);
@@ -1005,20 +735,20 @@ public class DirectorAssignedModalitiesPdfGenerator {
         footerTable.setSpacingBefore(30);
 
         PdfPCell footerCell = new PdfPCell();
-        footerCell.setBackgroundColor(LIGHT_GOLD);
+        footerCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         footerCell.setPadding(10);
         footerCell.setBorder(Rectangle.BOX);
-        footerCell.setBorderColor(INSTITUTIONAL_RED);
+        footerCell.setBorderColor(InstitutionalPdfHeader.INST_RED);
 
         Paragraph footerText = new Paragraph();
         footerText.add(new Chunk("ℹ NOTA: ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, INSTITUTIONAL_RED)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, InstitutionalPdfHeader.INST_RED)));
         footerText.add(new Chunk(
                 "Este reporte fue generado automáticamente por el Sistema SIGMA. " +
                         "Los datos presentados corresponden al programa académico " +
                         report.getAcademicProgramName() + ". " +
                         "Para consultas o asignaciones de directores, contacte con la coordinación del programa.",
-                FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY)));
+                FontFactory.getFont(FontFactory.HELVETICA, 8, InstitutionalPdfHeader.TEXT_GRAY)));
         footerCell.addElement(footerText);
         footerTable.addCell(footerCell);
 
@@ -1090,7 +820,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
             return;
         }
 
-        Paragraph chartTitle = new Paragraph("🏆 Top 5 Directores con Más Modalidades", SUBHEADER_FONT);
+        Paragraph chartTitle = new Paragraph("🏆 Top 5 Directores con Más Modalidades", InstitutionalPdfHeader.SECTION_FONT);
         chartTitle.setSpacingBefore(15);
         chartTitle.setSpacingAfter(10);
         document.add(chartTitle);
@@ -1117,7 +847,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
             // Encabezado con posición y nombre
             PdfPCell headerCell = new PdfPCell();
-            headerCell.setBackgroundColor(i == 0 ? INSTITUTIONAL_RED : INSTITUTIONAL_GOLD);
+            headerCell.setBackgroundColor(i == 0 ? InstitutionalPdfHeader.INST_RED : InstitutionalPdfHeader.INST_GOLD);
             headerCell.setPadding(6);
             headerCell.setBorder(Rectangle.NO_BORDER);
 
@@ -1131,7 +861,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
             PdfPCell barCell = new PdfPCell();
             barCell.setPadding(0);
             barCell.setBorder(Rectangle.BOX);
-            barCell.setBorderColor(INSTITUTIONAL_GOLD);
+            barCell.setBorderColor(InstitutionalPdfHeader.INST_GOLD);
             barCell.setBorderWidth(0.5f);
 
             PdfPTable innerBar = new PdfPTable(2);
@@ -1151,7 +881,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
             // Parte llena de la barra
             PdfPCell filledCell = new PdfPCell();
-            filledCell.setBackgroundColor(i == 0 ? INSTITUTIONAL_RED : INSTITUTIONAL_GOLD);
+            filledCell.setBackgroundColor(i == 0 ? InstitutionalPdfHeader.INST_RED : InstitutionalPdfHeader.INST_GOLD);
             filledCell.setBorder(Rectangle.NO_BORDER);
             filledCell.setPadding(5);
 
@@ -1163,7 +893,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
             // Parte vacía
             PdfPCell emptyCell = new PdfPCell();
-            emptyCell.setBackgroundColor(LIGHT_GOLD);
+            emptyCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
             emptyCell.setBorder(Rectangle.NO_BORDER);
             innerBar.addCell(emptyCell);
 
@@ -1193,17 +923,17 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         PdfPCell ratioCell1 = new PdfPCell();
         ratioCell1.setPadding(15);
-        ratioCell1.setBorderColor(INSTITUTIONAL_GOLD);
+        ratioCell1.setBorderColor(InstitutionalPdfHeader.INST_GOLD);
         ratioCell1.setBorderWidth(2f);
-        ratioCell1.setBackgroundColor(WHITE);
+        ratioCell1.setBackgroundColor(InstitutionalPdfHeader.WHITE);
 
         Paragraph ratioLabel1 = new Paragraph("👥 Estudiantes por Director",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_GRAY));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, InstitutionalPdfHeader.TEXT_GRAY));
         ratioLabel1.setAlignment(Element.ALIGN_CENTER);
         ratioCell1.addElement(ratioLabel1);
 
         Paragraph ratioValue1 = new Paragraph(String.format("%.1f", studentsPerDirector),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 24, INSTITUTIONAL_GOLD));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 24, InstitutionalPdfHeader.INST_GOLD));
         ratioValue1.setAlignment(Element.ALIGN_CENTER);
         ratioValue1.setSpacingBefore(5);
         ratioCell1.addElement(ratioValue1);
@@ -1216,17 +946,17 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         PdfPCell ratioCell2 = new PdfPCell();
         ratioCell2.setPadding(15);
-        ratioCell2.setBorderColor(INSTITUTIONAL_RED);
+        ratioCell2.setBorderColor(InstitutionalPdfHeader.INST_RED);
         ratioCell2.setBorderWidth(2f);
-        ratioCell2.setBackgroundColor(WHITE);
+        ratioCell2.setBackgroundColor(InstitutionalPdfHeader.WHITE);
 
         Paragraph ratioLabel2 = new Paragraph("📑 Modalidades por Estudiante",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_GRAY));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, InstitutionalPdfHeader.TEXT_GRAY));
         ratioLabel2.setAlignment(Element.ALIGN_CENTER);
         ratioCell2.addElement(ratioLabel2);
 
         Paragraph ratioValue2 = new Paragraph(String.format("%.2f", modalitiesPerStudent),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 24, INSTITUTIONAL_RED));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 24, InstitutionalPdfHeader.INST_RED));
         ratioValue2.setAlignment(Element.ALIGN_CENTER);
         ratioValue2.setSpacingBefore(5);
         ratioCell2.addElement(ratioValue2);
@@ -1255,19 +985,19 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         // Baja
         addWorkloadCategoryBox(chartTable, "BAJA", lowCount, total,
-                "< 2 modalidades", INSTITUTIONAL_GOLD);
+                "< 2 modalidades", InstitutionalPdfHeader.INST_GOLD);
 
         // Normal
         addWorkloadCategoryBox(chartTable, "NORMAL", normalCount, total,
-                "2-4 modalidades", INSTITUTIONAL_GOLD);
+                "2-4 modalidades", InstitutionalPdfHeader.INST_GOLD);
 
         // Alta
         addWorkloadCategoryBox(chartTable, "ALTA", highCount, total,
-                "5-7 modalidades", INSTITUTIONAL_RED);
+                "5-7 modalidades", InstitutionalPdfHeader.INST_RED);
 
         // Sobrecarga
         addWorkloadCategoryBox(chartTable, "SOBRECARGA", overloadedCount, total,
-                "≥ 8 modalidades", INSTITUTIONAL_RED);
+                "≥ 8 modalidades", InstitutionalPdfHeader.INST_RED);
 
         document.add(chartTable);
 
@@ -1276,10 +1006,10 @@ public class DirectorAssignedModalitiesPdfGenerator {
         barsTable.setWidthPercentage(100);
         barsTable.setSpacingAfter(15);
 
-        addWorkloadBarRow(barsTable, "Carga Baja", lowCount, total, INSTITUTIONAL_GOLD);
-        addWorkloadBarRow(barsTable, "Carga Normal", normalCount, total, INSTITUTIONAL_GOLD);
-        addWorkloadBarRow(barsTable, "Carga Alta", highCount, total, INSTITUTIONAL_RED);
-        addWorkloadBarRow(barsTable, "Sobrecarga", overloadedCount, total, INSTITUTIONAL_RED);
+        addWorkloadBarRow(barsTable, "Carga Baja", lowCount, total, InstitutionalPdfHeader.INST_GOLD);
+        addWorkloadBarRow(barsTable, "Carga Normal", normalCount, total, InstitutionalPdfHeader.INST_GOLD);
+        addWorkloadBarRow(barsTable, "Carga Alta", highCount, total, InstitutionalPdfHeader.INST_RED);
+        addWorkloadBarRow(barsTable, "Sobrecarga", overloadedCount, total, InstitutionalPdfHeader.INST_RED);
 
         document.add(barsTable);
     }
@@ -1293,7 +1023,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         box.setPadding(12);
         box.setBorderColor(color);
         box.setBorderWidth(2f);
-        box.setBackgroundColor(WHITE);
+        box.setBackgroundColor(InstitutionalPdfHeader.WHITE);
 
         // Etiqueta
         Paragraph labelPara = new Paragraph(label,
@@ -1318,7 +1048,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         // Descripción
         Paragraph descPara = new Paragraph(description,
-                FontFactory.getFont(FontFactory.HELVETICA, 7, TEXT_GRAY));
+                FontFactory.getFont(FontFactory.HELVETICA, 7, InstitutionalPdfHeader.TEXT_GRAY));
         descPara.setAlignment(Element.ALIGN_CENTER);
         descPara.setSpacingBefore(3);
         box.addElement(descPara);
@@ -1333,7 +1063,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         PdfPCell barContainer = new PdfPCell();
         barContainer.setPadding(8);
         barContainer.setBorder(Rectangle.BOX);
-        barContainer.setBorderColor(INSTITUTIONAL_GOLD);
+        barContainer.setBorderColor(InstitutionalPdfHeader.INST_GOLD);
         barContainer.setBorderWidth(0.5f);
 
         // Tabla interna: label + barra + valor
@@ -1345,7 +1075,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         }
 
         // Label
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, SMALL_FONT));
+        PdfPCell labelCell = new PdfPCell(new Phrase(label, InstitutionalPdfHeader.SMALL_FONT));
         labelCell.setBorder(Rectangle.NO_BORDER);
         labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
         labelCell.setPadding(3);
@@ -1378,7 +1108,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         barTable.addCell(filledCell);
 
         PdfPCell emptyCell = new PdfPCell();
-        emptyCell.setBackgroundColor(LIGHT_GOLD);
+        emptyCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         emptyCell.setBorder(Rectangle.NO_BORDER);
         emptyCell.setPadding(4);
         barTable.addCell(emptyCell);
@@ -1399,60 +1129,8 @@ public class DirectorAssignedModalitiesPdfGenerator {
         table.addCell(barContainer);
     }
 
-    private void addSectionTitle(Document document, String title) throws DocumentException {
-        Paragraph titlePara = new Paragraph(title, HEADER_FONT);
-        titlePara.setSpacingBefore(10);
-        titlePara.setSpacingAfter(8);
-        document.add(titlePara);
-        InstitutionalPdfHeader.addGoldLine(document);
-        addSpacingParagraph(document, 6f);
-    }
 
-    /**
-     * Clase para manejar el pie de página institucional.
-     */
-    private static class PageEventHelper extends PdfPageEventHelper {
-        private final DirectorAssignedModalitiesReportDTO report;
 
-        private static final BaseColor INSTITUTIONAL_GOLD = new BaseColor(213, 203, 160);
-        private static final BaseColor INSTITUTIONAL_RED  = new BaseColor(143, 30, 30);
-        private static final BaseColor TEXT_GRAY          = new BaseColor(80, 80, 80);
 
-        public PageEventHelper(DirectorAssignedModalitiesReportDTO report) {
-            this.report = report;
-        }
-
-        @Override
-        public void onEndPage(PdfWriter writer, Document document) {
-            PdfContentByte cb = writer.getDirectContent();
-
-            float left   = document.leftMargin();
-            float right  = document.right();
-            float bottom = document.bottom() - 15f;
-
-            // Línea dorada encima del pie
-            cb.setLineWidth(1f);
-            cb.setColorStroke(INSTITUTIONAL_GOLD);
-            cb.moveTo(left, bottom + 10f);
-            cb.lineTo(right, bottom + 10f);
-            cb.stroke();
-
-            // Sistema — izquierda
-            Phrase systemPhrase = new Phrase("SIGMA — Universidad Surcolombiana",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, INSTITUTIONAL_RED));
-            ColumnText.showTextAligned(cb, Element.ALIGN_LEFT, systemPhrase, left, bottom, 0);
-
-            // Programa — centro
-            Phrase centerPhrase = new Phrase(report.getAcademicProgramName(),
-                    FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
-            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, centerPhrase,
-                    (left + right) / 2f, bottom, 0);
-
-            // Número de página — derecha
-            Phrase pagePhrase = new Phrase("Pág. " + writer.getPageNumber(),
-                    FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
-            ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT, pagePhrase, right, bottom, 0);
-        }
-    }
 }
 

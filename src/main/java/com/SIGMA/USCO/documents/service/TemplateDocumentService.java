@@ -2,6 +2,7 @@ package com.SIGMA.USCO.documents.service;
 
 import com.SIGMA.USCO.documents.entity.TemplateDocument;
 import com.SIGMA.USCO.documents.repository.TemplateDocumentRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
@@ -12,9 +13,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 @Service
+@RequiredArgsConstructor
 public class TemplateDocumentService {
-    @Autowired
-    private TemplateDocumentRepository templateDocumentRepository;
+
+    private final TemplateDocumentRepository templateDocumentRepository;
 
     public ResponseEntity<Resource> downloadTemplate(Long templateId) {
 

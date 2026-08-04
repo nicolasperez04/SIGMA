@@ -3,13 +3,11 @@ package com.SIGMA.USCO.notifications.service;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.Users.service.AuthService;
-import com.SIGMA.USCO.notifications.dto.NotificationDTO;
 import com.SIGMA.USCO.notifications.entity.Notification;
 import com.SIGMA.USCO.notifications.repository.NotificationRepository;
+import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.io.Serializable;
@@ -26,9 +24,7 @@ public class NotificationService {
     private final UserRepository userRepository;
 
     private User getCurrentUser() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        return userRepository.findByEmail(auth.getName())
-                .orElseThrow(() -> new RuntimeException("Usuario no autenticado"));
+        return SecurityUtils.getCurrentUser();
     }
 
     public ResponseEntity<?> getMyNotifications() {

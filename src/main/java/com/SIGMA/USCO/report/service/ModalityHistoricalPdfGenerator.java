@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.List;
 
@@ -18,27 +17,6 @@ import java.util.List;
 @Service
 public class ModalityHistoricalPdfGenerator {
 
-    // COLORES INSTITUCIONALES - USO EXCLUSIVO
-    private static final BaseColor INSTITUTIONAL_RED = new BaseColor(143, 30, 30); // #8F1E1E - Color primario
-    private static final BaseColor INSTITUTIONAL_GOLD = new BaseColor(213, 203, 160); // #D5CBA0 - Color secundario
-    private static final BaseColor WHITE = BaseColor.WHITE; // Color primario
-    private static final BaseColor LIGHT_GOLD = new BaseColor(245, 242, 235); // Tono muy claro de dorado para fondos sutiles
-    private static final BaseColor TEXT_BLACK = BaseColor.BLACK; // Texto principal
-    private static final BaseColor TEXT_GRAY = new BaseColor(80, 80, 80); // Texto secundario
-
-    // Fuentes con colores institucionales
-    private static final Font TITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22, INSTITUTIONAL_RED);
-    private static final Font SUBTITLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, INSTITUTIONAL_RED);
-    private static final Font HEADER_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 15, INSTITUTIONAL_RED);
-    private static final Font SUBHEADER_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, INSTITUTIONAL_RED);
-    private static final Font BOLD_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_BLACK);
-    private static final Font NORMAL_FONT = FontFactory.getFont(FontFactory.HELVETICA, 10, TEXT_BLACK);
-    private static final Font SMALL_FONT = FontFactory.getFont(FontFactory.HELVETICA, 9, TEXT_GRAY);
-    private static final Font TINY_FONT = FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY);
-    private static final Font HEADER_TABLE_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, WHITE);
-
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
-    private static final DateTimeFormatter SIMPLE_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     public ByteArrayOutputStream generatePDF(ModalityHistoricalReportDTO report)
             throws DocumentException, IOException {
@@ -48,8 +26,7 @@ public class ModalityHistoricalPdfGenerator {
         PdfWriter writer = PdfWriter.getInstance(document, outputStream);
 
         // Agregar eventos de página (encabezado y pie de página)
-        HistoricalPageEventHelper pageEvent = new HistoricalPageEventHelper(report);
-        writer.setPageEvent(pageEvent);
+        writer.setPageEvent(new InstitutionalPageEventHelper(report.getAcademicProgramName()));
 
         document.open();
 
@@ -58,131 +35,65 @@ public class ModalityHistoricalPdfGenerator {
 
         // 2. Información General de la Modalidad
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addModalityGeneralInfo(document, report);
 
         // 3. Estado Actual
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addCurrentState(document, report);
 
         // 4. Análisis Histórico por Periodos
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addHistoricalAnalysis(document, report);
 
         // 5. Análisis de Tendencias y Evolución
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addTrendsAnalysis(document, report);
 
         // 6. Análisis Comparativo
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addComparativeAnalysis(document, report);
 
         // 7. Estadísticas de Directores
         if (report.getDirectorStatistics() != null &&
             report.getDirectorStatistics().getTotalUniqueDirectors() > 0) {
             document.newPage();
-            addInternalHeader(document, report);
+            InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
             addDirectorStatistics(document, report);
         }
 
         // 8. Estadísticas de Estudiantes
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addStudentStatistics(document, report);
 
         // 9. Análisis de Desempeño
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addPerformanceAnalysis(document, report);
 
         // 10. Proyecciones y Recomendaciones
         document.newPage();
-        addInternalHeader(document, report);
+        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
         addProjectionsAndRecommendations(document, report);
 
         // 11. Pie institucional de cierre
-        addFooterSection(document);
+        InstitutionalPdfHeader.addFooterSection(document,
+                "Este análisis histórico ha sido generado automáticamente por el sistema SIGMA " +
+                "a partir de los datos académicos registrados. Las proyecciones son estimaciones " +
+                "basadas en tendencias históricas y deben complementarse con juicio profesional " +
+                "y el contexto actual del programa académico.",
+                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
+                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila");
 
         document.close();
         return outputStream;
     }
 
-    /**
-     * Encabezado compacto institucional para páginas internas.
-     */
-    private void addInternalHeader(Document document, ModalityHistoricalReportDTO report)
-            throws DocumentException {
-        PdfPTable strip = new PdfPTable(2);
-        strip.setWidthPercentage(100);
-        strip.setSpacingAfter(8f);
-        try { strip.setWidths(new float[]{65f, 35f}); } catch (DocumentException ignored) {}
-
-        PdfPCell leftCell = new PdfPCell(new Phrase(
-                "UNIVERSIDAD SURCOLOMBIANA — SIGMA",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, INSTITUTIONAL_RED)));
-        leftCell.setBorder(Rectangle.BOTTOM);
-        leftCell.setBorderColorBottom(INSTITUTIONAL_RED);
-        leftCell.setBorderWidthBottom(1.5f);
-        leftCell.setPadding(4f);
-        strip.addCell(leftCell);
-
-        String rightText = report.getModalityInfo() != null
-                ? report.getModalityInfo().getModalityName()
-                : "Análisis Histórico";
-        PdfPCell rightCell = new PdfPCell(new Phrase(
-                rightText,
-                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY)));
-        rightCell.setBorder(Rectangle.BOTTOM);
-        rightCell.setBorderColorBottom(INSTITUTIONAL_GOLD);
-        rightCell.setBorderWidthBottom(1.5f);
-        rightCell.setPadding(4f);
-        rightCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        strip.addCell(rightCell);
-
-        document.add(strip);
-    }
-
-    /**
-     * Pie institucional de cierre del reporte.
-     */
-    private void addFooterSection(Document document)
-            throws DocumentException {
-        addSpacingParagraph(document, 20f);
-        InstitutionalPdfHeader.addRedLine(document);
-        InstitutionalPdfHeader.addGoldLine(document);
-        addSpacingParagraph(document, 8f);
-
-        PdfPTable noteTable = new PdfPTable(1);
-        noteTable.setWidthPercentage(100);
-
-        PdfPCell noteCell = new PdfPCell();
-        noteCell.setBackgroundColor(LIGHT_GOLD);
-        noteCell.setPadding(12f);
-        noteCell.setBorder(Rectangle.NO_BORDER);
-
-        Paragraph note = new Paragraph(
-                "Este análisis histórico ha sido generado automáticamente por el sistema SIGMA " +
-                "a partir de los datos académicos registrados. Las proyecciones son estimaciones " +
-                "basadas en tendencias históricas y deben complementarse con juicio profesional " +
-                "y el contexto actual del programa académico.",
-                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
-        note.setAlignment(Element.ALIGN_JUSTIFIED);
-        noteCell.addElement(note);
-        noteTable.addCell(noteCell);
-        document.add(noteTable);
-
-        addSpacingParagraph(document, 10f);
-        Paragraph closing = new Paragraph(
-                "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
-                "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila",
-                FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
-        closing.setAlignment(Element.ALIGN_CENTER);
-        document.add(closing);
-    }
 
     /**
      * Portada institucional del reporte histórico.
@@ -190,118 +101,41 @@ public class ModalityHistoricalPdfGenerator {
     private void addCoverPage(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException, IOException {
 
-        // ── 1. Encabezado con logo ────────────────────────────────────────────
-        InstitutionalPdfHeader.addHeader(
+        List<String> boxLines = new ArrayList<>();
+        if (report.getModalityInfo() != null) {
+            boxLines.add(report.getModalityInfo().getModalityName().toUpperCase());
+        }
+
+        List<String[]> infoRows = new ArrayList<>();
+        infoRows.add(new String[]{"Tipo de Reporte:", "Análisis Histórico Temporal"});
+        infoRows.add(new String[]{"Fecha de generación:",
+                report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_FULL)});
+        infoRows.add(new String[]{"Generado por:", report.getGeneratedBy()});
+        if (report.getHistoricalAnalysis() != null) {
+            infoRows.add(new String[]{"Periodos analizados:",
+                    String.valueOf(report.getHistoricalAnalysis().size())});
+        }
+        if (report.getModalityInfo() != null) {
+            infoRows.add(new String[]{"Años en operación:",
+                    report.getModalityInfo().getYearsActive() + " años"});
+            infoRows.add(new String[]{"Total instancias históricas:",
+                    String.valueOf(report.getModalityInfo().getTotalHistoricalInstances())});
+        }
+
+        InstitutionalPdfHeader.addCoverPage(
                 document,
-                "Facultad de Ingeniería",
                 report.getAcademicProgramName()
                         + (report.getAcademicProgramCode() != null
                                 ? " — Cód. " + report.getAcademicProgramCode() : ""),
-                "Análisis Histórico de Modalidad de Grado"
-        );
-
-        addSpacingParagraph(document, 10f);
-
-        // ── 2. Caja de título roja ─────────────────────────────────────────────
-        PdfPTable titleBox = new PdfPTable(1);
-        titleBox.setWidthPercentage(90);
-        titleBox.setHorizontalAlignment(Element.ALIGN_CENTER);
-        titleBox.setSpacingAfter(18f);
-
-        PdfPCell titleCell = new PdfPCell();
-        titleCell.setBackgroundColor(INSTITUTIONAL_RED);
-        titleCell.setPadding(16f);
-        titleCell.setBorder(Rectangle.NO_BORDER);
-
-        Paragraph titlePara = new Paragraph("ANÁLISIS HISTÓRICO DE MODALIDAD DE GRADO",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, WHITE));
-        titlePara.setAlignment(Element.ALIGN_CENTER);
-        titleCell.addElement(titlePara);
-
-        if (report.getModalityInfo() != null) {
-            Paragraph modalityPara = new Paragraph(
-                    report.getModalityInfo().getModalityName().toUpperCase(),
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, INSTITUTIONAL_GOLD));
-            modalityPara.setAlignment(Element.ALIGN_CENTER);
-            modalityPara.setSpacingBefore(6f);
-            titleCell.addElement(modalityPara);
-        }
-
-        Paragraph programPara = new Paragraph(
-                report.getAcademicProgramName() != null ? report.getAcademicProgramName() : "",
-                FontFactory.getFont(FontFactory.HELVETICA, 10, new BaseColor(220, 220, 220)));
-        programPara.setAlignment(Element.ALIGN_CENTER);
-        programPara.setSpacingBefore(4f);
-        titleCell.addElement(programPara);
-
-        titleBox.addCell(titleCell);
-        document.add(titleBox);
-
-        // ── 3. Tabla de información de portada ────────────────────────────────
-        PdfPTable infoBox = new PdfPTable(2);
-        infoBox.setWidthPercentage(80);
-        infoBox.setHorizontalAlignment(Element.ALIGN_CENTER);
-        infoBox.setSpacingAfter(20f);
-        try { infoBox.setWidths(new float[]{40f, 60f}); } catch (DocumentException ignored) {}
-
-        addCoverInfoRow(infoBox, "Tipo de Reporte:", "Análisis Histórico Temporal");
-        addCoverInfoRow(infoBox, "Fecha de generación:", report.getGeneratedAt().format(DATE_FORMATTER));
-        addCoverInfoRow(infoBox, "Generado por:", report.getGeneratedBy());
-        if (report.getHistoricalAnalysis() != null) {
-            addCoverInfoRow(infoBox, "Periodos analizados:",
-                    String.valueOf(report.getHistoricalAnalysis().size()));
-        }
-        if (report.getModalityInfo() != null) {
-            addCoverInfoRow(infoBox, "Años en operación:",
-                    report.getModalityInfo().getYearsActive() + " años");
-            addCoverInfoRow(infoBox, "Total instancias históricas:",
-                    String.valueOf(report.getModalityInfo().getTotalHistoricalInstances()));
-        }
-
-        document.add(infoBox);
-
-        // ── 4. Líneas decorativas de cierre de portada ────────────────────────
-        InstitutionalPdfHeader.addRedLine(document);
-        InstitutionalPdfHeader.addGoldLine(document);
-
-        // ── 5. Nota al pie de portada ─────────────────────────────────────────
-        addSpacingParagraph(document, 16f);
-        Paragraph footer = new Paragraph(
-                "Este reporte presenta un análisis detallado de la evolución histórica de la modalidad,\n" +
-                "incluyendo tendencias, estadísticas comparativas, desempeño y proyecciones futuras.\n" +
-                "La información es generada automáticamente por el sistema SIGMA.",
-                FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, TEXT_GRAY));
-        footer.setAlignment(Element.ALIGN_CENTER);
-        document.add(footer);
+                "Análisis Histórico de Modalidad de Grado",
+                "ANÁLISIS HISTÓRICO DE MODALIDAD DE GRADO",
+                boxLines,
+                infoRows,
+                "Este reporte presenta un análisis detallado de la evolución histórica de la modalidad, " +
+                "incluyendo tendencias, estadísticas comparativas, desempeño y proyecciones futuras. " +
+                "La información es generada automáticamente por el sistema SIGMA.");
     }
 
-    /** Fila de portada con etiqueta en fondo dorado claro y valor en blanco. */
-    private void addCoverInfoRow(PdfPTable table, String label, String value) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label,
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, TEXT_GRAY)));
-        labelCell.setBackgroundColor(LIGHT_GOLD);
-        labelCell.setPadding(7f);
-        labelCell.setBorder(Rectangle.BOX);
-        labelCell.setBorderColor(INSTITUTIONAL_GOLD);
-        labelCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        table.addCell(labelCell);
-
-        PdfPCell valueCell = new PdfPCell(new Phrase(value != null ? value : "—",
-                FontFactory.getFont(FontFactory.HELVETICA, 9, TEXT_BLACK)));
-        valueCell.setBackgroundColor(WHITE);
-        valueCell.setPadding(7f);
-        valueCell.setBorder(Rectangle.BOX);
-        valueCell.setBorderColor(INSTITUTIONAL_GOLD);
-        table.addCell(valueCell);
-    }
-
-    /** Párrafo espaciador sin texto. */
-    private void addSpacingParagraph(Document document, float height) throws DocumentException {
-        Paragraph spacer = new Paragraph(" ");
-        spacer.setSpacingBefore(height / 2f);
-        spacer.setSpacingAfter(height / 2f);
-        document.add(spacer);
-    }
 
     /**
      * Información general de la modalidad
@@ -309,10 +143,10 @@ public class ModalityHistoricalPdfGenerator {
     private void addModalityGeneralInfo(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "1. INFORMACIÓN GENERAL DE LA MODALIDAD");
+        InstitutionalPdfHeader.addSectionTitle(document, "1. INFORMACIÓN GENERAL DE LA MODALIDAD");
 
         if (report.getModalityInfo() == null) {
-            document.add(new Paragraph("No hay información disponible.", NORMAL_FONT));
+            document.add(new Paragraph("No hay información disponible.", InstitutionalPdfHeader.NORMAL_FONT));
             return;
         }
 
@@ -325,19 +159,19 @@ public class ModalityHistoricalPdfGenerator {
         table.setSpacingBefore(10);
         table.setSpacingAfter(20);
 
-        addDetailRow(table, "Nombre de la Modalidad:", info.getModalityName());
-        addDetailRow(table, "Descripción:", info.getDescription() != null ?
+        InstitutionalPdfHeader.addDetailRow(table, "Nombre de la Modalidad:", info.getModalityName());
+        InstitutionalPdfHeader.addDetailRow(table, "Descripción:", info.getDescription() != null ?
             info.getDescription() : "No disponible");
-        addDetailRow(table, "Requiere Director:",
+        InstitutionalPdfHeader.addDetailRow(table, "Requiere Director:",
             info.getRequiresDirector() ? "Sí" : "No");
-        addDetailRow(table, "Tipo de Modalidad:",
+        InstitutionalPdfHeader.addDetailRow(table, "Tipo de Modalidad:",
             info.getModalityType() != null ? info.getModalityType() : "MIXTA");
-        addDetailRow(table, "Estado Actual:",
+        InstitutionalPdfHeader.addDetailRow(table, "Estado Actual:",
             info.getIsActive() ? "ACTIVA" : "INACTIVA");
-        addDetailRow(table, "Fecha de Creación:",
-            info.getCreatedAt() != null ? info.getCreatedAt().format(SIMPLE_DATE_FORMATTER) : "N/D");
-        addDetailRow(table, "Años en Operación:", info.getYearsActive() + " años");
-        addDetailRow(table, "Total de Instancias Históricas:",
+        InstitutionalPdfHeader.addDetailRow(table, "Fecha de Creación:",
+            info.getCreatedAt() != null ? info.getCreatedAt().format(InstitutionalPdfHeader.DATE_SHORT) : "N/D");
+        InstitutionalPdfHeader.addDetailRow(table, "Años en Operación:", info.getYearsActive() + " años");
+        InstitutionalPdfHeader.addDetailRow(table, "Total de Instancias Históricas:",
             String.valueOf(info.getTotalHistoricalInstances()));
 
         document.add(table);
@@ -352,10 +186,10 @@ public class ModalityHistoricalPdfGenerator {
     private void addCurrentState(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "2. ESTADO ACTUAL");
+        InstitutionalPdfHeader.addSectionTitle(document, "2. ESTADO ACTUAL");
 
         if (report.getCurrentState() == null) {
-            document.add(new Paragraph("No hay información del estado actual.", NORMAL_FONT));
+            document.add(new Paragraph("No hay información del estado actual.", InstitutionalPdfHeader.NORMAL_FONT));
             return;
         }
 
@@ -365,7 +199,7 @@ public class ModalityHistoricalPdfGenerator {
         Paragraph periodInfo = new Paragraph(
             "Periodo Actual: " + current.getCurrentPeriodYear() + "-" +
             current.getCurrentPeriodSemester(),
-            SUBHEADER_FONT
+            InstitutionalPdfHeader.SECTION_FONT
         );
         periodInfo.setSpacingAfter(15);
         document.add(periodInfo);
@@ -374,11 +208,11 @@ public class ModalityHistoricalPdfGenerator {
         PdfPTable metricsTable = createMetricsTable();
 
         addMetricCell(metricsTable, "Instancias Activas",
-            String.valueOf(current.getActiveInstances()), INSTITUTIONAL_GOLD);
+            String.valueOf(current.getActiveInstances()), InstitutionalPdfHeader.INST_GOLD);
         addMetricCell(metricsTable, "Estudiantes Inscritos",
-            String.valueOf(current.getTotalStudentsEnrolled()), INSTITUTIONAL_GOLD);
+            String.valueOf(current.getTotalStudentsEnrolled()), InstitutionalPdfHeader.INST_GOLD);
         addMetricCell(metricsTable, "Directores Asignados",
-            String.valueOf(current.getAssignedDirectors()), INSTITUTIONAL_GOLD);
+            String.valueOf(current.getAssignedDirectors()), InstitutionalPdfHeader.INST_GOLD);
         addMetricCell(metricsTable, "Popularidad Actual",
             translatePopularity(current.getCurrentPopularity()),
             getPopularityColor(current.getCurrentPopularity()));
@@ -387,7 +221,7 @@ public class ModalityHistoricalPdfGenerator {
 
         // Distribución por estado
         document.add(new Paragraph("\n"));
-        addSubsectionTitle(document, "Distribución por Estado");
+        InstitutionalPdfHeader.addSubsectionTitle(document, "Distribución por Estado");
 
         PdfPTable statusTable = new PdfPTable(2);
         statusTable.setWidthPercentage(80);
@@ -396,9 +230,9 @@ public class ModalityHistoricalPdfGenerator {
         statusTable.setSpacingAfter(15);
         statusTable.setHorizontalAlignment(Element.ALIGN_CENTER);
 
-        addStatusRow(statusTable, "Completadas:", current.getCompletedInstances(), INSTITUTIONAL_GOLD);
-        addStatusRow(statusTable, "En Progreso:", current.getInProgressInstances(), INSTITUTIONAL_GOLD);
-        addStatusRow(statusTable, "En Revisión:", current.getInReviewInstances(), INSTITUTIONAL_RED);
+        addStatusRow(statusTable, "Completadas:", current.getCompletedInstances(), InstitutionalPdfHeader.INST_GOLD);
+        addStatusRow(statusTable, "En Progreso:", current.getInProgressInstances(), InstitutionalPdfHeader.INST_GOLD);
+        addStatusRow(statusTable, "En Revisión:", current.getInReviewInstances(), InstitutionalPdfHeader.INST_RED);
 
         document.add(statusTable);
 
@@ -407,14 +241,14 @@ public class ModalityHistoricalPdfGenerator {
             addHighlightBox(document,
                 "Tiempo Promedio de Completitud",
                 Math.round(current.getAverageCompletionDays()) + " días",
-                LIGHT_GOLD);
+                InstitutionalPdfHeader.LIGHT_GOLD);
         }
 
         if (current.getPositionInRanking() != null) {
             addHighlightBox(document,
                 "Posición en Ranking del Programa",
                 "#" + current.getPositionInRanking(),
-                LIGHT_GOLD);
+                InstitutionalPdfHeader.LIGHT_GOLD);
         }
     }
 
@@ -424,10 +258,10 @@ public class ModalityHistoricalPdfGenerator {
     private void addHistoricalAnalysis(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "3. ANÁLISIS HISTÓRICO POR PERIODOS ACADÉMICOS");
+        InstitutionalPdfHeader.addSectionTitle(document, "3. ANÁLISIS HISTÓRICO POR PERIODOS ACADÉMICOS");
 
         if (report.getHistoricalAnalysis() == null || report.getHistoricalAnalysis().isEmpty()) {
-            document.add(new Paragraph("No hay datos históricos disponibles.", NORMAL_FONT));
+            document.add(new Paragraph("No hay datos históricos disponibles.", InstitutionalPdfHeader.NORMAL_FONT));
             return;
         }
 
@@ -442,7 +276,7 @@ public class ModalityHistoricalPdfGenerator {
 
         // Tabla detallada por periodo
         document.add(new Paragraph("\n"));
-        addSubsectionTitle(document, "Detalle por Periodo");
+        InstitutionalPdfHeader.addSubsectionTitle(document, "Detalle por Periodo");
 
         for (ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO period : periods) {
             addPeriodDetail(document, period);
@@ -463,14 +297,14 @@ public class ModalityHistoricalPdfGenerator {
         periodHeader.setSpacingBefore(5);
 
         PdfPCell headerCell = new PdfPCell();
-        headerCell.setBackgroundColor(LIGHT_GOLD);
+        headerCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         headerCell.setPadding(8);
         headerCell.setBorder(Rectangle.NO_BORDER);
 
         Paragraph headerText = new Paragraph(
             "Periodo " + period.getPeriodLabel() +
             " (" + period.getTotalInstances() + " instancias)",
-            BOLD_FONT
+            InstitutionalPdfHeader.BOLD_FONT
         );
         headerCell.addElement(headerText);
         periodHeader.addCell(headerCell);
@@ -507,7 +341,7 @@ public class ModalityHistoricalPdfGenerator {
         if (period.getObservations() != null && !period.getObservations().isEmpty()) {
             Paragraph obs = new Paragraph(
                 "Observaciones: " + period.getObservations(),
-                SMALL_FONT
+                InstitutionalPdfHeader.SMALL_FONT
             );
             obs.setIndentationLeft(10);
             obs.setSpacingAfter(5);
@@ -516,116 +350,15 @@ public class ModalityHistoricalPdfGenerator {
     }
 
     /**
-     * Gráfico visual de evolución
-     */
-    private void addEvolutionChart(Document document,
-                                   List<ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO> periods)
-            throws DocumentException {
-
-        addSubsectionTitle(document, "Evolución Temporal");
-
-        // Crear tabla para gráfico visual
-        PdfPTable chartTable = new PdfPTable(1);
-        chartTable.setWidthPercentage(100);
-        chartTable.setSpacingBefore(10);
-        chartTable.setSpacingAfter(15);
-
-        // Encontrar valor máximo para escalar
-        int maxValue = periods.stream()
-            .mapToInt(ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO::getTotalInstances)
-            .max()
-            .orElse(1);
-
-        // Crear barra para cada periodo
-        for (ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO period : periods) {
-            PdfPCell cell = new PdfPCell();
-            cell.setPadding(5);
-            cell.setBorder(Rectangle.NO_BORDER);
-
-            // Tabla interna para la barra
-            PdfPTable barTable = new PdfPTable(2);
-            barTable.setWidthPercentage(100);
-
-            try {
-                barTable.setWidths(new float[]{0.8f, 4f});
-            } catch (DocumentException e) {
-                // Continuar sin ajustar widths
-            }
-
-            // Etiqueta del periodo
-            PdfPCell labelCell = new PdfPCell(new Phrase(period.getPeriodLabel(), SMALL_FONT));
-            labelCell.setBorder(Rectangle.NO_BORDER);
-            labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-            labelCell.setPadding(3);
-            barTable.addCell(labelCell);
-
-            // Barra visual
-            float percentage = maxValue > 0 ? (float) period.getTotalInstances() / maxValue : 0;
-            PdfPCell barCell = createBarCell(period.getTotalInstances(), percentage);
-            barTable.addCell(barCell);
-
-            cell.addElement(barTable);
-            chartTable.addCell(cell);
-        }
-
-        document.add(chartTable);
-    }
-
-    /**
-     * Crear celda de barra visual
-     */
-    private PdfPCell createBarCell(int value, float percentage) {
-        PdfPTable barContainer = new PdfPTable(2);
-
-        // Asegurar que los widths sean válidos (entre 0.1 y 99.9)
-        float filledWidth = Math.max(Math.min(percentage * 100, 99.9f), 0.1f);
-        float emptyWidth = Math.max(100 - filledWidth, 0.1f);
-
-        try {
-            barContainer.setWidths(new float[]{filledWidth, emptyWidth});
-        } catch (DocumentException e) {
-            // Si hay error, usar valores por defecto
-            try {
-                barContainer.setWidths(new float[]{50, 50});
-            } catch (DocumentException ex) {
-                // Continuar sin ajustar widths
-            }
-        }
-        barContainer.setWidthPercentage(100);
-
-        // Parte coloreada
-        PdfPCell filledCell = new PdfPCell(new Phrase(String.valueOf(value),
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, WHITE)));
-        filledCell.setBackgroundColor(INSTITUTIONAL_RED);  // Barra con color institucional rojo
-        filledCell.setBorder(Rectangle.NO_BORDER);
-        filledCell.setPadding(3);
-        filledCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        barContainer.addCell(filledCell);
-
-        // Parte vacía
-        PdfPCell emptyCell = new PdfPCell();
-        emptyCell.setBackgroundColor(LIGHT_GOLD);
-        emptyCell.setBorder(Rectangle.NO_BORDER);
-        barContainer.addCell(emptyCell);
-
-        PdfPCell containerCell = new PdfPCell();
-        containerCell.addElement(barContainer);
-        containerCell.setBorder(Rectangle.NO_BORDER);
-        containerCell.setPadding(0);
-
-        return containerCell;
-    }
-
-    /**
      * Análisis de tendencias
      */
     private void addTrendsAnalysis(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "4. ANÁLISIS DE TENDENCIAS Y EVOLUCIÓN");
+        InstitutionalPdfHeader.addSectionTitle(document, "4. ANÁLISIS DE TENDENCIAS Y EVOLUCIÓN");
 
         if (report.getTrendsEvolution() == null) {
-            document.add(new Paragraph("No hay datos de tendencias disponibles.", NORMAL_FONT));
+            document.add(new Paragraph("No hay datos de tendencias disponibles.", InstitutionalPdfHeader.NORMAL_FONT));
             return;
         }
 
@@ -649,9 +382,9 @@ public class ModalityHistoricalPdfGenerator {
         String trendIcon = getTrendIcon(trends.getOverallTrend());
         Paragraph trendText = new Paragraph();
         trendText.add(new Chunk(trendIcon + " TENDENCIA GENERAL: ",
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, WHITE)));
+            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, InstitutionalPdfHeader.WHITE)));
         trendText.add(new Chunk(translateTrend(trends.getOverallTrend()),
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, WHITE)));
+            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, InstitutionalPdfHeader.WHITE)));
 
         trendText.setAlignment(Element.ALIGN_CENTER);
         trendCell.addElement(trendText);
@@ -660,7 +393,7 @@ public class ModalityHistoricalPdfGenerator {
 
         // Picos y valles mejorados
         document.add(new Paragraph("\n"));
-        addSubsectionTitle(document, "📊 Picos y Valles Históricos");
+        InstitutionalPdfHeader.addSubsectionTitle(document, "📊 Picos y Valles Históricos");
 
         addEnhancedPeaksAndValleys(document, trends);
     }
@@ -671,10 +404,10 @@ public class ModalityHistoricalPdfGenerator {
     private void addComparativeAnalysis(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "5. ANÁLISIS COMPARATIVO ENTRE PERIODOS");
+        InstitutionalPdfHeader.addSectionTitle(document, "5. ANÁLISIS COMPARATIVO ENTRE PERIODOS");
 
         if (report.getComparativeAnalysis() == null) {
-            document.add(new Paragraph("No hay datos comparativos disponibles.", NORMAL_FONT));
+            document.add(new Paragraph("No hay datos comparativos disponibles.", InstitutionalPdfHeader.NORMAL_FONT));
             return;
         }
 
@@ -701,13 +434,13 @@ public class ModalityHistoricalPdfGenerator {
         // Hallazgos clave
         if (comparative.getKeyFindings() != null && !comparative.getKeyFindings().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Hallazgos Clave");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Hallazgos Clave");
 
             com.itextpdf.text.List findingsList = new com.itextpdf.text.List(com.itextpdf.text.List.ORDERED);
             findingsList.setIndentationLeft(20);
 
             for (String finding : comparative.getKeyFindings()) {
-                ListItem item = new ListItem(finding, NORMAL_FONT);
+                ListItem item = new ListItem(finding, InstitutionalPdfHeader.NORMAL_FONT);
                 item.setSpacingAfter(5);
                 findingsList.add(item);
             }
@@ -723,7 +456,7 @@ public class ModalityHistoricalPdfGenerator {
                                   ModalityHistoricalReportDTO.PeriodComparisonDTO comparison)
             throws DocumentException {
 
-        addSubsectionTitle(document, title);
+        InstitutionalPdfHeader.addSubsectionTitle(document, title);
 
         PdfPTable compTable = new PdfPTable(3);
         compTable.setWidthPercentage(100);
@@ -750,7 +483,7 @@ public class ModalityHistoricalPdfGenerator {
         addCompDataCell(compTable, "Cambio Instancias", false);
         PdfPCell changeCell = new PdfPCell(new Phrase(
             String.format("%+.1f%%", comparison.getInstancesChange()),
-            BOLD_FONT
+            InstitutionalPdfHeader.BOLD_FONT
         ));
         changeCell.setColspan(2);
         changeCell.setPadding(8);
@@ -763,7 +496,7 @@ public class ModalityHistoricalPdfGenerator {
         addCompDataCell(compTable, "Cambio Estudiantes", true);
         PdfPCell changeStudCell = new PdfPCell(new Phrase(
             String.format("%+.1f%%", comparison.getStudentsChange()),
-            BOLD_FONT
+            InstitutionalPdfHeader.BOLD_FONT
         ));
         changeStudCell.setColspan(2);
         changeStudCell.setPadding(8);
@@ -793,10 +526,10 @@ public class ModalityHistoricalPdfGenerator {
     private void addDirectorStatistics(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "6. ESTADÍSTICAS DE DIRECTORES");
+        InstitutionalPdfHeader.addSectionTitle(document, "6. ESTADÍSTICAS DE DIRECTORES");
 
         if (report.getDirectorStatistics() == null) {
-            document.add(new Paragraph("Esta modalidad no requiere directores.", NORMAL_FONT));
+            document.add(new Paragraph("Esta modalidad no requiere directores.", InstitutionalPdfHeader.NORMAL_FONT));
             return;
         }
 
@@ -806,22 +539,22 @@ public class ModalityHistoricalPdfGenerator {
         PdfPTable summaryTable = createMetricsTable();
 
         addMetricCell(summaryTable, "Total Directores Únicos",
-            String.valueOf(dirStats.getTotalUniqueDirectors()), INSTITUTIONAL_RED);
+            String.valueOf(dirStats.getTotalUniqueDirectors()), InstitutionalPdfHeader.INST_RED);
         addMetricCell(summaryTable, "Directores Actuales",
-            String.valueOf(dirStats.getCurrentActiveDirectors()), INSTITUTIONAL_GOLD);
+            String.valueOf(dirStats.getCurrentActiveDirectors()), InstitutionalPdfHeader.INST_GOLD);
         addMetricCell(summaryTable, "Promedio Instancias/Director",
-            String.format("%.1f", dirStats.getAverageInstancesPerDirector()), INSTITUTIONAL_GOLD);
+            String.format("%.1f", dirStats.getAverageInstancesPerDirector()), InstitutionalPdfHeader.INST_GOLD);
         addMetricCell(summaryTable, "Director Más Experimentado",
             dirStats.getMostExperiencedDirector() != null ?
                 dirStats.getMostExperiencedDirector() : "N/D",
-            INSTITUTIONAL_GOLD);
+            InstitutionalPdfHeader.INST_GOLD);
 
         document.add(summaryTable);
 
         // Top directores históricos
         if (dirStats.getTopDirectorsAllTime() != null && !dirStats.getTopDirectorsAllTime().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Top Directores de Todos los Tiempos");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Top Directores de Todos los Tiempos");
 
             addTopDirectorsTable(document, dirStats.getTopDirectorsAllTime());
         }
@@ -830,7 +563,7 @@ public class ModalityHistoricalPdfGenerator {
         if (dirStats.getTopDirectorsCurrentPeriod() != null &&
             !dirStats.getTopDirectorsCurrentPeriod().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Top Directores del Periodo Actual");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Top Directores del Periodo Actual");
 
             addTopDirectorsTable(document, dirStats.getTopDirectorsCurrentPeriod());
         }
@@ -875,10 +608,10 @@ public class ModalityHistoricalPdfGenerator {
     private void addStudentStatistics(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "7. ESTADÍSTICAS DE ESTUDIANTES");
+        InstitutionalPdfHeader.addSectionTitle(document, "7. ESTADÍSTICAS DE ESTUDIANTES");
 
         if (report.getStudentStatistics() == null) {
-            document.add(new Paragraph("No hay datos de estudiantes disponibles.", NORMAL_FONT));
+            document.add(new Paragraph("No hay datos de estudiantes disponibles.", InstitutionalPdfHeader.NORMAL_FONT));
             return;
         }
 
@@ -888,21 +621,21 @@ public class ModalityHistoricalPdfGenerator {
         PdfPTable metricsTable = createMetricsTable();
 
         addMetricCell(metricsTable, "Total Estudiantes Históricos",
-            String.valueOf(studStats.getTotalHistoricalStudents()), INSTITUTIONAL_RED);
+            String.valueOf(studStats.getTotalHistoricalStudents()), InstitutionalPdfHeader.INST_RED);
         addMetricCell(metricsTable, "Estudiantes Actuales",
-            String.valueOf(studStats.getCurrentStudents()), INSTITUTIONAL_GOLD);
+            String.valueOf(studStats.getCurrentStudents()), InstitutionalPdfHeader.INST_GOLD);
         addMetricCell(metricsTable, "Promedio Est./Instancia",
-            String.format("%.1f", studStats.getAverageStudentsPerInstance()), INSTITUTIONAL_GOLD);
+            String.format("%.1f", studStats.getAverageStudentsPerInstance()), InstitutionalPdfHeader.INST_GOLD);
         addMetricCell(metricsTable, "Tipo Preferido",
             studStats.getPreferredType() != null ? studStats.getPreferredType() : "MIXTO",
-            INSTITUTIONAL_GOLD);
+            InstitutionalPdfHeader.INST_GOLD);
 
         document.add(metricsTable);
 
         // Estadísticas de grupos
         if (studStats.getMaxStudentsInGroup() != null && studStats.getMaxStudentsInGroup() > 1) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Estadísticas de Grupos");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Estadísticas de Grupos");
 
             PdfPTable groupTable = new PdfPTable(2);
             groupTable.setWidthPercentage(70);
@@ -910,11 +643,11 @@ public class ModalityHistoricalPdfGenerator {
             groupTable.setSpacingBefore(10);
             groupTable.setSpacingAfter(15);
 
-            addDetailRow(groupTable, "Máximo Estudiantes por Grupo:",
+            InstitutionalPdfHeader.addDetailRow(groupTable, "Máximo Estudiantes por Grupo:",
                 String.valueOf(studStats.getMaxStudentsInGroup()));
-            addDetailRow(groupTable, "Mínimo Estudiantes por Grupo:",
+            InstitutionalPdfHeader.addDetailRow(groupTable, "Mínimo Estudiantes por Grupo:",
                 String.valueOf(studStats.getMinStudentsInGroup()));
-            addDetailRow(groupTable, "Relación Individual/Grupal:",
+            InstitutionalPdfHeader.addDetailRow(groupTable, "Relación Individual/Grupal:",
                 studStats.getIndividualVsGroupRatio() != null ?
                     String.format("%.2f", studStats.getIndividualVsGroupRatio()) : "N/D");
 
@@ -924,7 +657,7 @@ public class ModalityHistoricalPdfGenerator {
         // Distribución por semestre (si está disponible)
         if (studStats.getStudentsBySemester() != null && !studStats.getStudentsBySemester().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Distribución de Estudiantes por Semestre");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Distribución de Estudiantes por Semestre");
 
             // Mostrar top 5 semestres con más estudiantes
             studStats.getStudentsBySemester().entrySet().stream()
@@ -934,7 +667,7 @@ public class ModalityHistoricalPdfGenerator {
                     try {
                         Paragraph p = new Paragraph(
                             entry.getKey() + ": " + entry.getValue() + " estudiantes",
-                            NORMAL_FONT
+                            InstitutionalPdfHeader.NORMAL_FONT
                         );
                         p.setIndentationLeft(20);
                         p.setSpacingAfter(3);
@@ -952,10 +685,10 @@ public class ModalityHistoricalPdfGenerator {
     private void addPerformanceAnalysis(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "8. ANÁLISIS DE DESEMPEÑO");
+        InstitutionalPdfHeader.addSectionTitle(document, "8. ANÁLISIS DE DESEMPEÑO");
 
         if (report.getPerformanceAnalysis() == null) {
-            document.add(new Paragraph("No hay datos de desempeño disponibles.", NORMAL_FONT));
+            document.add(new Paragraph("No hay datos de desempeño disponibles.", InstitutionalPdfHeader.NORMAL_FONT));
             return;
         }
 
@@ -968,15 +701,15 @@ public class ModalityHistoricalPdfGenerator {
         verdictTable.setSpacingAfter(20);
 
         PdfPCell verdictCell = new PdfPCell();
-        verdictCell.setBackgroundColor(getPerformanceColor(perf.getPerformanceVerdict()));
+        verdictCell.setBackgroundColor(ReportUtils.getPerformanceColor(perf.getPerformanceVerdict()));
         verdictCell.setPadding(15);
         verdictCell.setBorder(Rectangle.NO_BORDER);
 
         Paragraph verdictText = new Paragraph();
         verdictText.add(new Chunk("CALIFICACIÓN DE DESEMPEÑO: ",
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, WHITE)));
-        verdictText.add(new Chunk(translatePerformanceVerdict(perf.getPerformanceVerdict()),
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 15, WHITE)));
+            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, InstitutionalPdfHeader.WHITE)));
+        verdictText.add(new Chunk(ReportUtils.translatePerformanceVerdict(perf.getPerformanceVerdict()),
+            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 15, InstitutionalPdfHeader.WHITE)));
         verdictText.setAlignment(Element.ALIGN_CENTER);
 
         verdictCell.addElement(verdictText);
@@ -1015,15 +748,15 @@ public class ModalityHistoricalPdfGenerator {
         // Fortalezas
         if (perf.getStrengthPoints() != null && !perf.getStrengthPoints().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Fortalezas Identificadas");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Fortalezas Identificadas");
 
             com.itextpdf.text.List strengthList = new com.itextpdf.text.List(com.itextpdf.text.List.UNORDERED);
             strengthList.setIndentationLeft(20);
             strengthList.setListSymbol(new Chunk("✓ ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, INSTITUTIONAL_GOLD)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, InstitutionalPdfHeader.INST_GOLD)));
 
             for (String strength : perf.getStrengthPoints()) {
-                ListItem item = new ListItem(strength, NORMAL_FONT);
+                ListItem item = new ListItem(strength, InstitutionalPdfHeader.NORMAL_FONT);
                 item.setSpacingAfter(5);
                 strengthList.add(item);
             }
@@ -1034,15 +767,15 @@ public class ModalityHistoricalPdfGenerator {
         // Áreas de mejora
         if (perf.getImprovementAreas() != null && !perf.getImprovementAreas().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Áreas de Mejora");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Áreas de Mejora");
 
             com.itextpdf.text.List improvementList = new com.itextpdf.text.List(com.itextpdf.text.List.UNORDERED);
             improvementList.setIndentationLeft(20);
             improvementList.setListSymbol(new Chunk("! ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, INSTITUTIONAL_RED)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, InstitutionalPdfHeader.INST_RED)));
 
             for (String improvement : perf.getImprovementAreas()) {
-                ListItem item = new ListItem(improvement, NORMAL_FONT);
+                ListItem item = new ListItem(improvement, InstitutionalPdfHeader.NORMAL_FONT);
                 item.setSpacingAfter(5);
                 improvementList.add(item);
             }
@@ -1057,17 +790,17 @@ public class ModalityHistoricalPdfGenerator {
     private void addProjectionsAndRecommendations(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSectionTitle(document, "9. PROYECCIONES Y RECOMENDACIONES");
+        InstitutionalPdfHeader.addSectionTitle(document, "9. PROYECCIONES Y RECOMENDACIONES");
 
         if (report.getProjections() == null) {
-            document.add(new Paragraph("No hay proyecciones disponibles.", NORMAL_FONT));
+            document.add(new Paragraph("No hay proyecciones disponibles.", InstitutionalPdfHeader.NORMAL_FONT));
             return;
         }
 
         ModalityHistoricalReportDTO.ProjectionsDTO proj = report.getProjections();
 
         // Proyecciones numéricas
-        addSubsectionTitle(document, "Proyecciones de Demanda");
+        InstitutionalPdfHeader.addSubsectionTitle(document, "Proyecciones de Demanda");
 
         PdfPTable projTable = new PdfPTable(2);
         projTable.setWidthPercentage(80);
@@ -1093,9 +826,9 @@ public class ModalityHistoricalPdfGenerator {
         // Acciones recomendadas
         if (proj.getRecommendedActions() != null && !proj.getRecommendedActions().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Acciones Recomendadas");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Acciones Recomendadas");
 
-            Paragraph actions = new Paragraph(proj.getRecommendedActions(), NORMAL_FONT);
+            Paragraph actions = new Paragraph(proj.getRecommendedActions(), InstitutionalPdfHeader.NORMAL_FONT);
             actions.setAlignment(Element.ALIGN_JUSTIFIED);
             actions.setIndentationLeft(20);
             actions.setIndentationRight(20);
@@ -1106,15 +839,15 @@ public class ModalityHistoricalPdfGenerator {
         // Oportunidades
         if (proj.getOpportunities() != null && !proj.getOpportunities().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Oportunidades Identificadas");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Oportunidades Identificadas");
 
             com.itextpdf.text.List oppList = new com.itextpdf.text.List(com.itextpdf.text.List.UNORDERED);
             oppList.setIndentationLeft(20);
             oppList.setListSymbol(new Chunk("⚈ ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, INSTITUTIONAL_GOLD)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, InstitutionalPdfHeader.INST_GOLD)));
 
             for (String opportunity : proj.getOpportunities()) {
-                ListItem item = new ListItem(opportunity, NORMAL_FONT);
+                ListItem item = new ListItem(opportunity, InstitutionalPdfHeader.NORMAL_FONT);
                 item.setSpacingAfter(5);
                 oppList.add(item);
             }
@@ -1125,15 +858,15 @@ public class ModalityHistoricalPdfGenerator {
         // Riesgos
         if (proj.getRisks() != null && !proj.getRisks().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "Riesgos a Considerar");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "Riesgos a Considerar");
 
             com.itextpdf.text.List riskList = new com.itextpdf.text.List(com.itextpdf.text.List.UNORDERED);
             riskList.setIndentationLeft(20);
             riskList.setListSymbol(new Chunk("⚠ ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, INSTITUTIONAL_RED)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, InstitutionalPdfHeader.INST_RED)));
 
             for (String risk : proj.getRisks()) {
-                ListItem item = new ListItem(risk, NORMAL_FONT);
+                ListItem item = new ListItem(risk, InstitutionalPdfHeader.NORMAL_FONT);
                 item.setSpacingAfter(5);
                 riskList.add(item);
             }
@@ -1150,7 +883,7 @@ public class ModalityHistoricalPdfGenerator {
     private void addStatisticsHighlight(Document document, ModalityHistoricalReportDTO report)
             throws DocumentException {
 
-        addSubsectionTitle(document, "Estadísticas Clave");
+        InstitutionalPdfHeader.addSubsectionTitle(document, "Estadísticas Clave");
 
         PdfPTable statsTable = new PdfPTable(3);
         statsTable.setWidthPercentage(100);
@@ -1160,19 +893,19 @@ public class ModalityHistoricalPdfGenerator {
         if (report.getModalityInfo() != null) {
             addStatCell(statsTable, "Total Histórico",
                 String.valueOf(report.getModalityInfo().getTotalHistoricalInstances()),
-                "instancias", INSTITUTIONAL_RED);
+                "instancias", InstitutionalPdfHeader.INST_RED);
         }
 
         if (report.getStudentStatistics() != null) {
             addStatCell(statsTable, "Total Estudiantes",
                 String.valueOf(report.getStudentStatistics().getTotalHistoricalStudents()),
-                "estudiantes", INSTITUTIONAL_GOLD);
+                "estudiantes", InstitutionalPdfHeader.INST_GOLD);
         }
 
         if (report.getPerformanceAnalysis() != null) {
             addStatCell(statsTable, "Tasa de Éxito",
                 String.format("%.1f%%", report.getPerformanceAnalysis().getSuccessRate()),
-                "", INSTITUTIONAL_GOLD);  // Tasa de éxito: dorado (positivo)
+                "", InstitutionalPdfHeader.INST_GOLD);  // Tasa de éxito: dorado (positivo)
         }
 
         document.add(statsTable);
@@ -1189,11 +922,11 @@ public class ModalityHistoricalPdfGenerator {
 
         Paragraph content = new Paragraph();
         content.add(new Chunk(value + "\n",
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, WHITE)));
+            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, InstitutionalPdfHeader.WHITE)));
         content.add(new Chunk(unit + "\n",
             FontFactory.getFont(FontFactory.HELVETICA, 9, new BaseColor(230, 230, 230))));
         content.add(new Chunk(label,
-            FontFactory.getFont(FontFactory.HELVETICA, 10, WHITE)));
+            FontFactory.getFont(FontFactory.HELVETICA, 10, InstitutionalPdfHeader.WHITE)));
         content.setAlignment(Element.ALIGN_CENTER);
 
         cell.addElement(content);
@@ -1222,7 +955,7 @@ public class ModalityHistoricalPdfGenerator {
 
         Paragraph content = new Paragraph();
         content.add(new Chunk(value + "\n",
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, WHITE)));
+            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, InstitutionalPdfHeader.WHITE)));
         content.add(new Chunk(label,
             FontFactory.getFont(FontFactory.HELVETICA, 9, new BaseColor(240, 240, 240))));
         content.setAlignment(Element.ALIGN_CENTER);
@@ -1232,51 +965,15 @@ public class ModalityHistoricalPdfGenerator {
     }
 
     /**
-     * Agregar fila de información
-     */
-    private void addInfoRow(PdfPTable table, String label, String value) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, BOLD_FONT));
-        labelCell.setPadding(8);
-        labelCell.setBackgroundColor(LIGHT_GOLD);
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        table.addCell(labelCell);
-
-        PdfPCell valueCell = new PdfPCell(new Phrase(value, NORMAL_FONT));
-        valueCell.setPadding(8);
-        valueCell.setBackgroundColor(WHITE);
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        table.addCell(valueCell);
-    }
-
-    /**
-     * Agregar fila de detalle
-     */
-    private void addDetailRow(PdfPTable table, String label, String value) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, BOLD_FONT));
-        labelCell.setPadding(8);
-        labelCell.setBorder(Rectangle.BOTTOM);
-        labelCell.setBorderColor(LIGHT_GOLD);
-        labelCell.setBorderWidth(0.5f);
-        table.addCell(labelCell);
-
-        PdfPCell valueCell = new PdfPCell(new Phrase(value, NORMAL_FONT));
-        valueCell.setPadding(8);
-        valueCell.setBorder(Rectangle.BOTTOM);
-        valueCell.setBorderColor(LIGHT_GOLD);
-        valueCell.setBorderWidth(0.5f);
-        table.addCell(valueCell);
-    }
-
-    /**
      * Agregar fila de estado
      */
     private void addStatusRow(PdfPTable table, String label, Integer value, BaseColor color) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, NORMAL_FONT));
+        PdfPCell labelCell = new PdfPCell(new Phrase(label, InstitutionalPdfHeader.NORMAL_FONT));
         labelCell.setPadding(8);
         labelCell.setBorder(Rectangle.NO_BORDER);
         table.addCell(labelCell);
 
-        PdfPCell valueCell = new PdfPCell(new Phrase(String.valueOf(value), BOLD_FONT));
+        PdfPCell valueCell = new PdfPCell(new Phrase(String.valueOf(value), InstitutionalPdfHeader.BOLD_FONT));
         valueCell.setPadding(8);
         valueCell.setBackgroundColor(color);
         valueCell.setHorizontalAlignment(Element.ALIGN_CENTER);
@@ -1302,9 +999,9 @@ public class ModalityHistoricalPdfGenerator {
         cell.setBorder(Rectangle.NO_BORDER);
 
         Paragraph content = new Paragraph();
-        content.add(new Chunk(title + "\n", SUBHEADER_FONT));
+        content.add(new Chunk(title + "\n", InstitutionalPdfHeader.SECTION_FONT));
         content.add(new Chunk(value,
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, INSTITUTIONAL_RED)));
+            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, InstitutionalPdfHeader.INST_RED)));
         content.setAlignment(Element.ALIGN_CENTER);
 
         cell.addElement(content);
@@ -1312,41 +1009,20 @@ public class ModalityHistoricalPdfGenerator {
         document.add(table);
     }
 
-    /**
-     * Agregar título de sección con línea dorada institucional
-     */
-    private void addSectionTitle(Document document, String title) throws DocumentException {
-        Paragraph section = new Paragraph(title, HEADER_FONT);
-        section.setSpacingBefore(15);
-        section.setSpacingAfter(6);
-        document.add(section);
-        InstitutionalPdfHeader.addGoldLine(document);
-        document.add(new Paragraph(" "));
-    }
-
-    /**
-     * Agregar título de subsección
-     */
-    private void addSubsectionTitle(Document document, String title) throws DocumentException {
-        Paragraph subsection = new Paragraph(title, SUBHEADER_FONT);
-        subsection.setSpacingBefore(10);
-        subsection.setSpacingAfter(8);
-        document.add(subsection);
-    }
 
     /**
      * Agregar celda de datos
      */
     private void addDataCell(PdfPTable table, String label, String value) {
         // Label
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, SMALL_FONT));
+        PdfPCell labelCell = new PdfPCell(new Phrase(label, InstitutionalPdfHeader.SMALL_FONT));
         labelCell.setPadding(5);
         labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setBackgroundColor(LIGHT_GOLD);
+        labelCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         table.addCell(labelCell);
 
         // Value
-        PdfPCell valueCell = new PdfPCell(new Phrase(value, BOLD_FONT));
+        PdfPCell valueCell = new PdfPCell(new Phrase(value, InstitutionalPdfHeader.BOLD_FONT));
         valueCell.setPadding(5);
         valueCell.setBorder(Rectangle.NO_BORDER);
         valueCell.setHorizontalAlignment(Element.ALIGN_CENTER);
@@ -1357,14 +1033,14 @@ public class ModalityHistoricalPdfGenerator {
      * Agregar encabezado de comparación
      */
     private void addCompHeaderCell(PdfPTable table, String text) {
-        PdfPCell cell = new PdfPCell(new Phrase(text, BOLD_FONT));
+        PdfPCell cell = new PdfPCell(new Phrase(text, InstitutionalPdfHeader.BOLD_FONT));
         cell.setPadding(10);
-        cell.setBackgroundColor(INSTITUTIONAL_RED);
+        cell.setBackgroundColor(InstitutionalPdfHeader.INST_RED);
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setBorder(Rectangle.NO_BORDER);
 
         Paragraph p = new Paragraph(text,
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, WHITE));
+            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, InstitutionalPdfHeader.WHITE));
         p.setAlignment(Element.ALIGN_CENTER);
         cell.setPhrase(new Phrase(p));
 
@@ -1375,9 +1051,9 @@ public class ModalityHistoricalPdfGenerator {
      * Agregar celda de datos de comparación
      */
     private void addCompDataCell(PdfPTable table, String text, boolean alternate) {
-        PdfPCell cell = new PdfPCell(new Phrase(text, NORMAL_FONT));
+        PdfPCell cell = new PdfPCell(new Phrase(text, InstitutionalPdfHeader.NORMAL_FONT));
         cell.setPadding(8);
-        cell.setBackgroundColor(alternate ? LIGHT_GOLD : WHITE);
+        cell.setBackgroundColor(alternate ? InstitutionalPdfHeader.LIGHT_GOLD : InstitutionalPdfHeader.WHITE);
         cell.setBorder(Rectangle.NO_BORDER);
         table.addCell(cell);
     }
@@ -1387,9 +1063,9 @@ public class ModalityHistoricalPdfGenerator {
      */
     private void addTableHeaderCell(PdfPTable table, String text) {
         PdfPCell cell = new PdfPCell(new Phrase(text,
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, WHITE)));
+            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, InstitutionalPdfHeader.WHITE)));
         cell.setPadding(8);
-        cell.setBackgroundColor(INSTITUTIONAL_GOLD);
+        cell.setBackgroundColor(InstitutionalPdfHeader.INST_GOLD);
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setBorder(Rectangle.NO_BORDER);
         table.addCell(cell);
@@ -1399,11 +1075,11 @@ public class ModalityHistoricalPdfGenerator {
      * Agregar celda de datos de tabla
      */
     private void addTableDataCell(PdfPTable table, String text, boolean alternate) {
-        PdfPCell cell = new PdfPCell(new Phrase(text, SMALL_FONT));
+        PdfPCell cell = new PdfPCell(new Phrase(text, InstitutionalPdfHeader.SMALL_FONT));
         cell.setPadding(6);
-        cell.setBackgroundColor(alternate ? LIGHT_GOLD : WHITE);
+        cell.setBackgroundColor(alternate ? InstitutionalPdfHeader.LIGHT_GOLD : InstitutionalPdfHeader.WHITE);
         cell.setBorder(Rectangle.BOTTOM);
-        cell.setBorderColor(LIGHT_GOLD);
+        cell.setBorderColor(InstitutionalPdfHeader.LIGHT_GOLD);
         cell.setBorderWidth(0.5f);
         table.addCell(cell);
     }
@@ -1412,18 +1088,18 @@ public class ModalityHistoricalPdfGenerator {
      * Agregar fila de métrica de desempeño
      */
     private void addPerformanceMetricRow(PdfPTable table, String label, String value) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, NORMAL_FONT));
+        PdfPCell labelCell = new PdfPCell(new Phrase(label, InstitutionalPdfHeader.NORMAL_FONT));
         labelCell.setPadding(8);
         labelCell.setBorder(Rectangle.BOTTOM);
-        labelCell.setBorderColor(LIGHT_GOLD);
+        labelCell.setBorderColor(InstitutionalPdfHeader.LIGHT_GOLD);
         labelCell.setBorderWidth(0.5f);
         table.addCell(labelCell);
 
-        PdfPCell valueCell = new PdfPCell(new Phrase(value, BOLD_FONT));
+        PdfPCell valueCell = new PdfPCell(new Phrase(value, InstitutionalPdfHeader.BOLD_FONT));
         valueCell.setPadding(8);
         valueCell.setHorizontalAlignment(Element.ALIGN_CENTER);
         valueCell.setBorder(Rectangle.BOTTOM);
-        valueCell.setBorderColor(LIGHT_GOLD);
+        valueCell.setBorderColor(InstitutionalPdfHeader.LIGHT_GOLD);
         valueCell.setBorderWidth(0.5f);
         table.addCell(valueCell);
     }
@@ -1432,16 +1108,16 @@ public class ModalityHistoricalPdfGenerator {
      * Agregar fila de proyección
      */
     private void addProjectionRow(PdfPTable table, String label, String value) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, BOLD_FONT));
+        PdfPCell labelCell = new PdfPCell(new Phrase(label, InstitutionalPdfHeader.BOLD_FONT));
         labelCell.setPadding(10);
-        labelCell.setBackgroundColor(LIGHT_GOLD);
+        labelCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         labelCell.setBorder(Rectangle.NO_BORDER);
         table.addCell(labelCell);
 
-        PdfPCell valueCell = new PdfPCell(new Phrase(value, NORMAL_FONT));
+        PdfPCell valueCell = new PdfPCell(new Phrase(value, InstitutionalPdfHeader.NORMAL_FONT));
         valueCell.setPadding(10);
         valueCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        valueCell.setBackgroundColor(WHITE);
+        valueCell.setBackgroundColor(InstitutionalPdfHeader.WHITE);
         valueCell.setBorder(Rectangle.NO_BORDER);
         table.addCell(valueCell);
     }
@@ -1467,10 +1143,10 @@ public class ModalityHistoricalPdfGenerator {
         cardsTable.setSpacingBefore(10);
         cardsTable.setSpacingAfter(20);
 
-        addSummaryCard(cardsTable, "Periodos Analizados", String.valueOf(totalPeriods), "📅", INSTITUTIONAL_GOLD);
-        addSummaryCard(cardsTable, "Total Instancias", String.valueOf(totalInstances), "📊", INSTITUTIONAL_RED);
-        addSummaryCard(cardsTable, "Total Estudiantes", String.valueOf(totalStudents), "👥", INSTITUTIONAL_GOLD);
-        addSummaryCard(cardsTable, "Promedio/Periodo", String.format("%.1f", avgInstancesPerPeriod), "📈", INSTITUTIONAL_RED);
+        addSummaryCard(cardsTable, "Periodos Analizados", String.valueOf(totalPeriods), "📅", InstitutionalPdfHeader.INST_GOLD);
+        addSummaryCard(cardsTable, "Total Instancias", String.valueOf(totalInstances), "📊", InstitutionalPdfHeader.INST_RED);
+        addSummaryCard(cardsTable, "Total Estudiantes", String.valueOf(totalStudents), "👥", InstitutionalPdfHeader.INST_GOLD);
+        addSummaryCard(cardsTable, "Promedio/Periodo", String.format("%.1f", avgInstancesPerPeriod), "📈", InstitutionalPdfHeader.INST_RED);
 
         document.add(cardsTable);
     }
@@ -1483,7 +1159,7 @@ public class ModalityHistoricalPdfGenerator {
         card.setPadding(12);
         card.setBorderColor(color);
         card.setBorderWidth(2f);
-        card.setBackgroundColor(WHITE);
+        card.setBackgroundColor(InstitutionalPdfHeader.WHITE);
 
         // Icono
         Paragraph iconPara = new Paragraph(icon,
@@ -1500,7 +1176,7 @@ public class ModalityHistoricalPdfGenerator {
 
         // Etiqueta
         Paragraph labelPara = new Paragraph(label,
-                FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY));
+                FontFactory.getFont(FontFactory.HELVETICA, 8, InstitutionalPdfHeader.TEXT_GRAY));
         labelPara.setAlignment(Element.ALIGN_CENTER);
         labelPara.setSpacingBefore(3);
         card.addElement(labelPara);
@@ -1515,7 +1191,7 @@ public class ModalityHistoricalPdfGenerator {
                                            List<ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO> periods)
             throws DocumentException {
 
-        addSubsectionTitle(document, "📈 Evolución Temporal de Instancias");
+        InstitutionalPdfHeader.addSubsectionTitle(document, "📈 Evolución Temporal de Instancias");
 
         // Encontrar valores máximo y mínimo para escalar
         int maxValue = periods.stream()
@@ -1541,9 +1217,9 @@ public class ModalityHistoricalPdfGenerator {
         legendTable.setSpacingAfter(5);
         legendTable.setHorizontalAlignment(Element.ALIGN_CENTER);
 
-        addLegendItem(legendTable, "📊 Máximo:", String.valueOf(maxValue), INSTITUTIONAL_GOLD);
-        addLegendItem(legendTable, "📉 Mínimo:", String.valueOf(minValue), INSTITUTIONAL_RED);
-        addLegendItem(legendTable, "📈 Promedio:", String.format("%.1f", avgValue), INSTITUTIONAL_GOLD);
+        addLegendItem(legendTable, "📊 Máximo:", String.valueOf(maxValue), InstitutionalPdfHeader.INST_GOLD);
+        addLegendItem(legendTable, "📉 Mínimo:", String.valueOf(minValue), InstitutionalPdfHeader.INST_RED);
+        addLegendItem(legendTable, "📈 Promedio:", String.format("%.1f", avgValue), InstitutionalPdfHeader.INST_GOLD);
 
         document.add(legendTable);
 
@@ -1570,11 +1246,11 @@ public class ModalityHistoricalPdfGenerator {
         PdfPCell cell = new PdfPCell();
         cell.setPadding(5);
         cell.setBorder(Rectangle.NO_BORDER);
-        cell.setBackgroundColor(LIGHT_GOLD);
+        cell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
 
         Paragraph content = new Paragraph();
         content.add(new Chunk(label + " ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, TEXT_BLACK)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, InstitutionalPdfHeader.TEXT_BLACK)));
         content.add(new Chunk(value,
                 FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, color)));
         content.setAlignment(Element.ALIGN_CENTER);
@@ -1604,7 +1280,7 @@ public class ModalityHistoricalPdfGenerator {
 
         // Etiqueta del periodo
         PdfPCell labelCell = new PdfPCell(new Phrase(period.getPeriodLabel(),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, TEXT_BLACK)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, InstitutionalPdfHeader.TEXT_BLACK)));
         labelCell.setBorder(Rectangle.NO_BORDER);
         labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
         labelCell.setPadding(3);
@@ -1612,9 +1288,9 @@ public class ModalityHistoricalPdfGenerator {
 
         // Barra de progreso con color según relación con promedio
         float percentage = maxValue > 0 ? (float) period.getTotalInstances() / maxValue : 0;
-        BaseColor barColor = period.getTotalInstances() >= avgValue ? INSTITUTIONAL_GOLD : INSTITUTIONAL_RED;
+        BaseColor barColor = period.getTotalInstances() >= avgValue ? InstitutionalPdfHeader.INST_GOLD : InstitutionalPdfHeader.INST_RED;
 
-        PdfPCell barCell = createEnhancedBarCell(period.getTotalInstances(), percentage, barColor);
+        PdfPCell barCell = InstitutionalPdfHeader.createValueBar(String.valueOf(period.getTotalInstances()), percentage, barColor);
         innerTable.addCell(barCell);
 
         // Valor y comparación con promedio
@@ -1638,55 +1314,6 @@ public class ModalityHistoricalPdfGenerator {
 
         containerCell.addElement(innerTable);
         table.addCell(containerCell);
-    }
-
-    /**
-     * Crear celda de barra mejorada con gradiente visual
-     */
-    private PdfPCell createEnhancedBarCell(int value, float percentage, BaseColor color) {
-        PdfPTable barContainer = new PdfPTable(2);
-
-        // Asegurar que el ancho de la barra sea al menos 5% para visibilidad
-        // pero nunca mayor a 100%
-        float barWidth = Math.max(Math.min(percentage * 100, 100), 5);
-        float emptyWidth = Math.max(100 - barWidth, 0.1f); // Evitar valores negativos o cero
-
-        try {
-            barContainer.setWidths(new float[]{barWidth, emptyWidth});
-        } catch (DocumentException e) {
-            // Si hay error en los widths, usar valores por defecto
-            try {
-                barContainer.setWidths(new float[]{50, 50});
-            } catch (DocumentException ex) {
-                // Ignorar si falla el fallback
-            }
-        }
-        barContainer.setWidthPercentage(100);
-
-        // Parte coloreada con valor
-        PdfPCell filledCell = new PdfPCell(new Phrase(String.valueOf(value),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, WHITE)));
-        filledCell.setBackgroundColor(color);
-        filledCell.setBorder(Rectangle.NO_BORDER);
-        filledCell.setPadding(4);
-        filledCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        filledCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        barContainer.addCell(filledCell);
-
-        // Parte vacía
-        PdfPCell emptyCell = new PdfPCell();
-        emptyCell.setBackgroundColor(LIGHT_GOLD);
-        emptyCell.setBorder(Rectangle.NO_BORDER);
-        barContainer.addCell(emptyCell);
-
-        PdfPCell containerCell = new PdfPCell();
-        containerCell.addElement(barContainer);
-        containerCell.setBorder(Rectangle.BOX);
-        containerCell.setBorderColor(color);
-        containerCell.setBorderWidth(0.5f);
-        containerCell.setPadding(0);
-
-        return containerCell;
     }
 
     /**
@@ -1727,7 +1354,7 @@ public class ModalityHistoricalPdfGenerator {
         trendTable.setHorizontalAlignment(Element.ALIGN_CENTER);
 
         PdfPCell trendCell = new PdfPCell();
-        BaseColor trendColor = change > 0 ? INSTITUTIONAL_GOLD : change < 0 ? INSTITUTIONAL_RED : INSTITUTIONAL_GOLD;
+        BaseColor trendColor = change > 0 ? InstitutionalPdfHeader.INST_GOLD : change < 0 ? InstitutionalPdfHeader.INST_RED : InstitutionalPdfHeader.INST_GOLD;
         trendCell.setBackgroundColor(trendColor);
         trendCell.setPadding(8);
         trendCell.setBorder(Rectangle.NO_BORDER);
@@ -1737,11 +1364,11 @@ public class ModalityHistoricalPdfGenerator {
 
         Paragraph trendPara = new Paragraph();
         trendPara.add(new Chunk(trendIcon + " " + trendText + ": ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, WHITE)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, InstitutionalPdfHeader.WHITE)));
         trendPara.add(new Chunk(changeText,
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, WHITE)));
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, InstitutionalPdfHeader.WHITE)));
         trendPara.add(new Chunk(" (de " + firstValue + " a " + lastValue + " instancias)",
-                FontFactory.getFont(FontFactory.HELVETICA, 9, WHITE)));
+                FontFactory.getFont(FontFactory.HELVETICA, 9, InstitutionalPdfHeader.WHITE)));
         trendPara.setAlignment(Element.ALIGN_CENTER);
 
         trendCell.addElement(trendPara);
@@ -1763,27 +1390,27 @@ public class ModalityHistoricalPdfGenerator {
 
         // Tasa de crecimiento
         if (trends.getGrowthRate() != null) {
-            BaseColor growthColor = trends.getGrowthRate() >= 0 ? INSTITUTIONAL_GOLD : INSTITUTIONAL_RED;
+            BaseColor growthColor = trends.getGrowthRate() >= 0 ? InstitutionalPdfHeader.INST_GOLD : InstitutionalPdfHeader.INST_RED;
             addSummaryCard(cardsTable, "Tasa de Crecimiento",
                     String.format("%+.1f%%", trends.getGrowthRate()), "📈", growthColor);
         } else {
-            addSummaryCard(cardsTable, "Tasa de Crecimiento", "N/D", "📈", INSTITUTIONAL_GOLD);
+            addSummaryCard(cardsTable, "Tasa de Crecimiento", "N/D", "📈", InstitutionalPdfHeader.INST_GOLD);
         }
 
         // Pico máximo
         if (trends.getPeakInstances() != null) {
             addSummaryCard(cardsTable, "Pico Máximo",
-                    String.valueOf(trends.getPeakInstances()), "🔝", INSTITUTIONAL_GOLD);
+                    String.valueOf(trends.getPeakInstances()), "🔝", InstitutionalPdfHeader.INST_GOLD);
         } else {
-            addSummaryCard(cardsTable, "Pico Máximo", "N/D", "🔝", INSTITUTIONAL_GOLD);
+            addSummaryCard(cardsTable, "Pico Máximo", "N/D", "🔝", InstitutionalPdfHeader.INST_GOLD);
         }
 
         // Valle mínimo
         if (trends.getLowestInstances() != null) {
             addSummaryCard(cardsTable, "Valle Mínimo",
-                    String.valueOf(trends.getLowestInstances()), "📉", INSTITUTIONAL_RED);
+                    String.valueOf(trends.getLowestInstances()), "📉", InstitutionalPdfHeader.INST_RED);
         } else {
-            addSummaryCard(cardsTable, "Valle Mínimo", "N/D", "📉", INSTITUTIONAL_RED);
+            addSummaryCard(cardsTable, "Valle Mínimo", "N/D", "📉", InstitutionalPdfHeader.INST_RED);
         }
 
         document.add(cardsTable);
@@ -1804,18 +1431,18 @@ public class ModalityHistoricalPdfGenerator {
         // Pico mejorado
         if (trends.getPeakYear() != null && trends.getPeakSemester() != null) {
             PdfPCell peakCell = new PdfPCell();
-            peakCell.setBackgroundColor(INSTITUTIONAL_GOLD);
+            peakCell.setBackgroundColor(InstitutionalPdfHeader.INST_GOLD);
             peakCell.setPadding(15);
             peakCell.setBorder(Rectangle.NO_BORDER);
 
             Paragraph peakContent = new Paragraph();
             peakContent.add(new Chunk("🏆 PICO MÁXIMO\n",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, WHITE)));
-            peakContent.add(new Chunk("\n", FontFactory.getFont(FontFactory.HELVETICA, 8, WHITE)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, InstitutionalPdfHeader.WHITE)));
+            peakContent.add(new Chunk("\n", FontFactory.getFont(FontFactory.HELVETICA, 8, InstitutionalPdfHeader.WHITE)));
             peakContent.add(new Chunk(trends.getPeakYear() + "-" + trends.getPeakSemester() + "\n",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, WHITE)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, InstitutionalPdfHeader.WHITE)));
             peakContent.add(new Chunk(trends.getPeakInstances() + " instancias",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, WHITE)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, InstitutionalPdfHeader.WHITE)));
             peakContent.setAlignment(Element.ALIGN_CENTER);
 
             peakCell.addElement(peakContent);
@@ -1825,18 +1452,18 @@ public class ModalityHistoricalPdfGenerator {
         // Valle mejorado
         if (trends.getLowestYear() != null && trends.getLowestSemester() != null) {
             PdfPCell valleyCell = new PdfPCell();
-            valleyCell.setBackgroundColor(INSTITUTIONAL_RED);
+            valleyCell.setBackgroundColor(InstitutionalPdfHeader.INST_RED);
             valleyCell.setPadding(15);
             valleyCell.setBorder(Rectangle.NO_BORDER);
 
             Paragraph valleyContent = new Paragraph();
             valleyContent.add(new Chunk("⚠ VALLE MÍNIMO\n",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, WHITE)));
-            valleyContent.add(new Chunk("\n", FontFactory.getFont(FontFactory.HELVETICA, 8, WHITE)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, InstitutionalPdfHeader.WHITE)));
+            valleyContent.add(new Chunk("\n", FontFactory.getFont(FontFactory.HELVETICA, 8, InstitutionalPdfHeader.WHITE)));
             valleyContent.add(new Chunk(trends.getLowestYear() + "-" + trends.getLowestSemester() + "\n",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, WHITE)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, InstitutionalPdfHeader.WHITE)));
             valleyContent.add(new Chunk(trends.getLowestInstances() + " instancias",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, WHITE)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, InstitutionalPdfHeader.WHITE)));
             valleyContent.setAlignment(Element.ALIGN_CENTER);
 
             valleyCell.addElement(valleyContent);
@@ -1865,25 +1492,25 @@ public class ModalityHistoricalPdfGenerator {
             diffTable.setHorizontalAlignment(Element.ALIGN_CENTER);
 
             PdfPCell diffCell = new PdfPCell();
-            diffCell.setBackgroundColor(LIGHT_GOLD);
+            diffCell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
             diffCell.setPadding(10);
             diffCell.setBorder(Rectangle.BOX);
-            diffCell.setBorderColor(INSTITUTIONAL_GOLD);
+            diffCell.setBorderColor(InstitutionalPdfHeader.INST_GOLD);
             diffCell.setBorderWidth(2f);
 
             Paragraph diffText = new Paragraph();
             diffText.add(new Chunk("📊 Variabilidad Histórica: ",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, TEXT_BLACK)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, InstitutionalPdfHeader.TEXT_BLACK)));
             diffText.add(new Chunk(difference + " instancias de diferencia ",
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, INSTITUTIONAL_RED)));
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12, InstitutionalPdfHeader.INST_RED)));
 
             // Mostrar incremento desde el valle si es significativo
             if (trends.getLowestInstances() > 0 && increaseFromLowest > 0) {
                 diffText.add(new Chunk("(" + String.format("+%.1f%%", increaseFromLowest) + " desde el valle)",
-                        FontFactory.getFont(FontFactory.HELVETICA, 10, TEXT_GRAY)));
+                        FontFactory.getFont(FontFactory.HELVETICA, 10, InstitutionalPdfHeader.TEXT_GRAY)));
             } else if (trends.getLowestInstances() == 0) {
                 diffText.add(new Chunk("(crecimiento desde 0)",
-                        FontFactory.getFont(FontFactory.HELVETICA, 10, TEXT_GRAY)));
+                        FontFactory.getFont(FontFactory.HELVETICA, 10, InstitutionalPdfHeader.TEXT_GRAY)));
             }
 
             diffText.setAlignment(Element.ALIGN_CENTER);
@@ -1897,14 +1524,14 @@ public class ModalityHistoricalPdfGenerator {
         // Patrones identificados
         if (trends.getIdentifiedPatterns() != null && !trends.getIdentifiedPatterns().isEmpty()) {
             document.add(new Paragraph("\n"));
-            addSubsectionTitle(document, "🔍 Patrones Identificados");
+            InstitutionalPdfHeader.addSubsectionTitle(document, "🔍 Patrones Identificados");
 
             com.itextpdf.text.List patternList = new com.itextpdf.text.List(com.itextpdf.text.List.UNORDERED);
             patternList.setIndentationLeft(20);
 
             for (String pattern : trends.getIdentifiedPatterns()) {
                 ListItem item = new ListItem(pattern,
-                        FontFactory.getFont(FontFactory.HELVETICA, 10, TEXT_BLACK));
+                        FontFactory.getFont(FontFactory.HELVETICA, 10, InstitutionalPdfHeader.TEXT_BLACK));
                 item.setSpacingAfter(5);
                 patternList.add(item);
             }
@@ -1941,12 +1568,12 @@ public class ModalityHistoricalPdfGenerator {
     }
 
     private BaseColor getPopularityColor(String popularity) {
-        if (popularity == null) return LIGHT_GOLD;
+        if (popularity == null) return InstitutionalPdfHeader.LIGHT_GOLD;
         switch (popularity) {
-            case "HIGH": return INSTITUTIONAL_GOLD;      // Alta popularidad: dorado
-            case "MEDIUM": return INSTITUTIONAL_GOLD;    // Media popularidad: dorado
-            case "LOW": return INSTITUTIONAL_RED;        // Baja popularidad: rojo
-            default: return LIGHT_GOLD;
+            case "HIGH": return InstitutionalPdfHeader.INST_GOLD;      // Alta popularidad: dorado
+            case "MEDIUM": return InstitutionalPdfHeader.INST_GOLD;    // Media popularidad: dorado
+            case "LOW": return InstitutionalPdfHeader.INST_RED;        // Baja popularidad: rojo
+            default: return InstitutionalPdfHeader.LIGHT_GOLD;
         }
     }
 
@@ -1962,12 +1589,12 @@ public class ModalityHistoricalPdfGenerator {
     }
 
     private BaseColor getTrendColor(String trend) {
-        if (trend == null) return LIGHT_GOLD;
+        if (trend == null) return InstitutionalPdfHeader.LIGHT_GOLD;
         switch (trend) {
-            case "GROWING": return INSTITUTIONAL_GOLD;    // Crecimiento: dorado (positivo)
-            case "STABLE": return INSTITUTIONAL_GOLD;     // Estable: dorado (neutro positivo)
-            case "DECLINING": return INSTITUTIONAL_RED;   // Declive: rojo (alerta)
-            default: return LIGHT_GOLD;
+            case "GROWING": return InstitutionalPdfHeader.INST_GOLD;    // Crecimiento: dorado (positivo)
+            case "STABLE": return InstitutionalPdfHeader.INST_GOLD;     // Estable: dorado (neutro positivo)
+            case "DECLINING": return InstitutionalPdfHeader.INST_RED;   // Declive: rojo (alerta)
+            default: return InstitutionalPdfHeader.LIGHT_GOLD;
         }
     }
 
@@ -1982,34 +1609,12 @@ public class ModalityHistoricalPdfGenerator {
     }
 
     private BaseColor getVerdictColor(String verdict) {
-        if (verdict == null) return TEXT_GRAY;
+        if (verdict == null) return InstitutionalPdfHeader.TEXT_GRAY;
         switch (verdict) {
-            case "IMPROVED": return INSTITUTIONAL_GOLD;   // Mejorado: dorado (positivo)
-            case "DECLINED": return INSTITUTIONAL_RED;    // Disminuido: rojo (alerta)
-            case "STABLE": return INSTITUTIONAL_GOLD;     // Estable: dorado (neutro)
-            default: return TEXT_GRAY;
-        }
-    }
-
-    private String translatePerformanceVerdict(String verdict) {
-        if (verdict == null) return "Sin Evaluar";
-        switch (verdict) {
-            case "EXCELLENT": return "EXCELENTE";
-            case "GOOD": return "BUENO";
-            case "REGULAR": return "REGULAR";
-            case "NEEDS_IMPROVEMENT": return "NECESITA MEJORA";
-            default: return verdict;
-        }
-    }
-
-    private BaseColor getPerformanceColor(String verdict) {
-        if (verdict == null) return LIGHT_GOLD;
-        switch (verdict) {
-            case "EXCELLENT": return INSTITUTIONAL_GOLD;         // Excelente: dorado
-            case "GOOD": return INSTITUTIONAL_GOLD;              // Bueno: dorado
-            case "REGULAR": return INSTITUTIONAL_RED;            // Regular: rojo (atención)
-            case "NEEDS_IMPROVEMENT": return INSTITUTIONAL_RED;  // Necesita mejora: rojo (alerta)
-            default: return LIGHT_GOLD;
+            case "IMPROVED": return InstitutionalPdfHeader.INST_GOLD;   // Mejorado: dorado (positivo)
+            case "DECLINED": return InstitutionalPdfHeader.INST_RED;    // Disminuido: rojo (alerta)
+            case "STABLE": return InstitutionalPdfHeader.INST_GOLD;     // Estable: dorado (neutro)
+            default: return InstitutionalPdfHeader.TEXT_GRAY;
         }
     }
 
@@ -2023,53 +1628,6 @@ public class ModalityHistoricalPdfGenerator {
         }
     }
 
-    // ==================== CLASE INTERNA: PAGE EVENT HELPER ====================
 
-    /**
-     * Helper para eventos de página (pie de página institucional)
-     */
-    private static class HistoricalPageEventHelper extends PdfPageEventHelper {
-
-        private final ModalityHistoricalReportDTO report;
-        private final Font footerFont    = FontFactory.getFont(FontFactory.HELVETICA, 8, TEXT_GRAY);
-        private final Font footerBold    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, new BaseColor(143, 30, 30));
-        private static final BaseColor GOLD_LINE = new BaseColor(213, 203, 160);
-
-        public HistoricalPageEventHelper(ModalityHistoricalReportDTO report) {
-            this.report = report;
-        }
-
-        @Override
-        public void onEndPage(PdfWriter writer, Document document) {
-            PdfContentByte cb = writer.getDirectContent();
-            float pageNum = writer.getPageNumber();
-
-            // Línea dorada superior del pie
-            cb.saveState();
-            cb.setColorStroke(GOLD_LINE);
-            cb.setLineWidth(1.5f);
-            cb.moveTo(document.left(), document.bottom() - 8f);
-            cb.lineTo(document.right(), document.bottom() - 8f);
-            cb.stroke();
-            cb.restoreState();
-
-            // Nombre del sistema – izquierda
-            Phrase systemPhrase = new Phrase("SIGMA — Universidad Surcolombiana", footerBold);
-            ColumnText.showTextAligned(cb, Element.ALIGN_LEFT, systemPhrase,
-                    document.left(), document.bottom() - 20f, 0);
-
-            // Número de página – centro
-            String modalityName = report.getModalityInfo() != null
-                    ? report.getModalityInfo().getModalityName() : "Análisis Histórico";
-            Phrase centerPhrase = new Phrase(modalityName, footerFont);
-            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, centerPhrase,
-                    (document.right() + document.left()) / 2f, document.bottom() - 20f, 0);
-
-            // Número de página – derecha
-            Phrase pagePhrase = new Phrase("Pág. " + (int) pageNum, footerFont);
-            ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT, pagePhrase,
-                    document.right(), document.bottom() - 20f, 0);
-        }
-    }
 }
 

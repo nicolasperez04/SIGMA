@@ -10,12 +10,11 @@ import com.SIGMA.USCO.documents.entity.ProposalEvaluation;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.ProposalEvaluationRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
+import com.SIGMA.USCO.security.SecurityUtils;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -37,11 +36,7 @@ public class ProposalEvaluationService {
     @Transactional
     public ResponseEntity<?> submitProposalEvaluation(Long studentDocumentId, ProposalEvaluationRequest request) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User examiner = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User examiner = SecurityUtils.getCurrentUser();
 
         StudentDocument studentDocument = studentDocumentRepository.findById(studentDocumentId)
                 .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
@@ -119,11 +114,7 @@ public class ProposalEvaluationService {
      */
     public ResponseEntity<?> getMyEvaluationForDocument(Long studentDocumentId) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User examiner = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User examiner = SecurityUtils.getCurrentUser();
 
         ProposalEvaluation evaluation = proposalEvaluationRepository
                 .findByStudentDocumentIdAndExaminerId(studentDocumentId, examiner.getId())

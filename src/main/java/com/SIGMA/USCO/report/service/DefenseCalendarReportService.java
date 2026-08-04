@@ -6,6 +6,7 @@ import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
 import com.SIGMA.USCO.Modalities.Repository.DefenseEvaluationCriteriaRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.service.ModalityServiceUtils;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
@@ -15,9 +16,8 @@ import com.SIGMA.USCO.academic.repository.AcademicProgramRepository;
 import com.SIGMA.USCO.report.dto.DefenseCalendarReportDTO;
 import com.SIGMA.USCO.report.dto.DefenseCalendarReportDTO.*;
 import com.SIGMA.USCO.report.dto.ReportMetadataDTO;
+import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,10 +50,7 @@ public class DefenseCalendarReportService {
             LocalDateTime endDate,
             Boolean includeCompleted
     ) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String email = authentication.getName();
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado"));
+        User user = SecurityUtils.getCurrentUser();
 
         // Obtener el programa académico del usuario autenticado
         Long programId = programAuthorityRepository
@@ -215,7 +212,7 @@ public class DefenseCalendarReportService {
 
         return UpcomingDefenseDTO.builder()
                 .modalityId(modality.getId())
-                .modalityType(translateSessionType(modality.getModalityType()))
+                .modalityType(ReportUtils.translateSessionType(modality.getModalityType()))
                 .modalityTypeName(modality.getProgramDegreeModality().getDegreeModality().getName())
                 .defenseDate(modality.getDefenseDate())
                 .defenseTime(modality.getDefenseDate().toLocalTime().toString())
@@ -358,7 +355,7 @@ public class DefenseCalendarReportService {
                         : "Sin asignar")
                 .result(result)
                 .finalGrade(modality.getFinalGrade())
-                .academicDistinction(modality.getAcademicDistinction() != null ? translateDistinction(modality.getAcademicDistinction()) : null)
+                .academicDistinction(modality.getAcademicDistinction() != null ? ModalityServiceUtils.translateAcademicDistinction(modality.getAcademicDistinction()) : null)
                 .examiners(examiners.stream().map(this::mapToExaminerInfo).collect(Collectors.toList()))
                 .defenseLocation(modality.getDefenseLocation())
                 .daysAgo((int) daysAgo)
@@ -758,35 +755,6 @@ public class DefenseCalendarReportService {
         String[] months = {"", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"};
         return months[month];
-    }
-
-    private String translateSessionType(com.SIGMA.USCO.Modalities.Entity.enums.ModalityType type) {
-        if (type == null) return "Individual";
-        return switch (type) {
-            case INDIVIDUAL -> "Individual";
-            case GROUP -> "Grupal";
-        };
-    }
-
-    private String translateDistinction(com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction distinction) {
-        if (distinction == null) return null;
-        return switch (distinction) {
-            case NO_DISTINCTION -> "Sin distinción";
-            case AGREED_APPROVED -> "Aprobado por consenso";
-            case AGREED_MERITORIOUS -> "Mención Meritoria";
-            case AGREED_LAUREATE -> "Mención Laureada";
-            case AGREED_REJECTED -> "Reprobado por consenso";
-            case DISAGREEMENT_PENDING_TIEBREAKER -> "Desacuerdo – Pendiente de desempate";
-            case TIEBREAKER_APPROVED -> "Aprobado por desempate";
-            case TIEBREAKER_MERITORIOUS -> "Mención Meritoria (desempate)";
-            case TIEBREAKER_LAUREATE -> "Mención Laureada (desempate)";
-            case TIEBREAKER_REJECTED -> "Reprobado por desempate";
-            case REJECTED_BY_COMMITTEE -> "Rechazado por el comité";
-            case PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria propuesta (pendiente del comité)";
-            case PENDING_COMMITTEE_LAUREATE -> "Mención Laureada propuesta (pendiente del comité)";
-            case TIEBREAKER_PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria por desempate (pendiente del comité)";
-            case TIEBREAKER_PENDING_COMMITTEE_LAUREATE -> "Mención Laureada por desempate (pendiente del comité)";
-        };
     }
 }
 

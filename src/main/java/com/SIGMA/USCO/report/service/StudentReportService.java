@@ -5,8 +5,6 @@ import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
 import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.report.dto.*;
@@ -28,7 +26,6 @@ public class StudentReportService {
     private final StudentModalityRepository studentModalityRepository;
     private final StudentModalityMemberRepository studentModalityMemberRepository;
     private final StudentProfileRepository studentProfileRepository;
-    private final UserRepository userRepository;
 
 
     @Transactional(readOnly = true)
@@ -44,26 +41,9 @@ public class StudentReportService {
 
         // Obtener todos los estudiantes de estas modalidades
         List<StudentInfoDTO> students = modalities.stream()
-                .flatMap(modality -> {
-                    List<StudentModalityMember> members = studentModalityMemberRepository
-                            .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-
-                    return members.stream().map(member -> {
-                        User student = member.getStudent();
-                        StudentProfile profile = studentProfileRepository
-                                .findByUserId(student.getId()).orElse(null);
-
-                        return StudentInfoDTO.builder()
-                                .studentId(student.getId())
-                                .fullName(student.getName() + " " + student.getLastName())
-                                .studentCode(profile != null ? profile.getStudentCode() : "N/A")
-                                .email(student.getEmail())
-                                .semester(profile != null ? profile.getSemester() : null)
-                                .gpa(profile != null ? profile.getGpa() : null)
-                                .isLeader(member.getIsLeader())
-                                .build();
-                    });
-                })
+                .flatMap(modality -> ReportUtils.buildStudentInfos(
+                        studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE),
+                        studentProfileRepository).stream())
                 .distinct()
                 .collect(Collectors.toList());
 
@@ -92,26 +72,9 @@ public class StudentReportService {
 
         // Obtener estudiantes
         List<StudentInfoDTO> students = modalities.stream()
-                .flatMap(modality -> {
-                    List<StudentModalityMember> members = studentModalityMemberRepository
-                            .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-
-                    return members.stream().map(member -> {
-                        User student = member.getStudent();
-                        StudentProfile profile = studentProfileRepository
-                                .findByUserId(student.getId()).orElse(null);
-
-                        return StudentInfoDTO.builder()
-                                .studentId(student.getId())
-                                .fullName(student.getName() + " " + student.getLastName())
-                                .studentCode(profile != null ? profile.getStudentCode() : "N/A")
-                                .email(student.getEmail())
-                                .semester(profile != null ? profile.getSemester() : null)
-                                .gpa(profile != null ? profile.getGpa() : null)
-                                .isLeader(member.getIsLeader())
-                                .build();
-                    });
-                })
+                .flatMap(modality -> ReportUtils.buildStudentInfos(
+                        studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE),
+                        studentProfileRepository).stream())
                 .distinct()
                 .collect(Collectors.toList());
 

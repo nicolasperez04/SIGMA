@@ -21,6 +21,7 @@ import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.academic.entity.AcademicHistoryPdf;
 import com.SIGMA.USCO.academic.repository.AcademicHistoryPdfRepository;
+import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
@@ -31,8 +32,6 @@ import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -71,11 +70,8 @@ public class StudentService {
 
     public ResponseEntity<?> updateStudentProfile(StudentProfileRequest request) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User user = SecurityUtils.getCurrentUser();
+        String email = user.getEmail();
 
         StudentProfile studentProfile = studentProfileRepository
                 .findByUserId(user.getId())
@@ -176,11 +172,8 @@ public class StudentService {
 
     public ResponseEntity<?> updateStudentProfileFromAcademicHistory(MultipartFile file) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User user = SecurityUtils.getCurrentUser();
+        String email = user.getEmail();
 
         String studentCode = extractStudentCodeFromEmail(email);
         if (studentCode == null) {
@@ -422,13 +415,7 @@ public class StudentService {
 
     public ResponseEntity<?> getStudentProfile() {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-        Optional<User> userOpt = userRepository.findByEmail(email);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(404).body("Usuario no encontrado");
-        }
-        User user = userOpt.get();
+        User user = SecurityUtils.getCurrentUser();
         Optional<StudentProfile> profileOpt = studentProfileRepository.findByUserId(user.getId());
 
         StudentResponse response = StudentResponse.builder()
@@ -450,14 +437,7 @@ public class StudentService {
 
     public ResponseEntity<?> getMyDocuments(){
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        Optional<User> user = userRepository.findByEmail(email);
-        if (user.isEmpty()) {
-            return ResponseEntity.status(404).body("Usuario no encontrado");
-        }
-        User currentUser = user.get();
+        User currentUser = SecurityUtils.getCurrentUser();
 
         // Buscar la modalidad activa donde el usuario es miembro
         List<StudentModality> activeModalities =
@@ -499,11 +479,7 @@ public class StudentService {
 
     public ResponseEntity<?> viewMyDocument(Long studentDocumentId) {
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        User currentUser = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        User currentUser = SecurityUtils.getCurrentUser();
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
                 .orElseThrow(() -> new RuntimeException("Documento no encontrado"));

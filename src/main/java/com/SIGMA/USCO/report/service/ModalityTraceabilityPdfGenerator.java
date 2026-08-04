@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -17,45 +16,29 @@ import java.util.List;
 @Service
 public class ModalityTraceabilityPdfGenerator {
 
-    // ── Paleta institucional ──────────────────────────────────────────────────
-    private static final BaseColor INST_RED       = new BaseColor(143, 30, 30);
-    private static final BaseColor INST_GOLD      = new BaseColor(213, 203, 160);
-    private static final BaseColor LIGHT_GOLD     = new BaseColor(245, 242, 235);
+    // ── Paleta específica (colores no compartidos con InstitutionalPdfHeader) ──
     private static final BaseColor ROW_ALT        = new BaseColor(238, 235, 228);
-    private static final BaseColor WHITE          = BaseColor.WHITE;
-    private static final BaseColor TEXT_BLACK     = BaseColor.BLACK;
-    private static final BaseColor TEXT_GRAY      = new BaseColor(80, 80, 80);
     private static final BaseColor TEXT_GRAY_LIGHT = new BaseColor(130, 130, 130);
     private static final BaseColor GREEN_DARK     = new BaseColor(30, 100, 30);
     private static final BaseColor RED_SOFT       = new BaseColor(180, 40, 40);
     private static final BaseColor AMBER          = new BaseColor(180, 120, 20);
     private static final BaseColor BLUE_DARK      = new BaseColor(30, 60, 130);
 
-    // ── Fuentes ───────────────────────────────────────────────────────────────
-    private static final Font FONT_REPORT_TITLE = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16f, INST_RED);
-    private static final Font FONT_SECTION      = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10f, WHITE);
-    private static final Font FONT_SUBSECTION   = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9f, INST_RED);
-    private static final Font FONT_LABEL        = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8f, TEXT_GRAY);
-    private static final Font FONT_VALUE        = FontFactory.getFont(FontFactory.HELVETICA, 8f, TEXT_BLACK);
+    // ── Fuentes propias ───────────────────────────────────────────────────────
+    private static final Font FONT_REPORT_TITLE = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16f, InstitutionalPdfHeader.INST_RED);
+    private static final Font FONT_SUBSECTION   = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9f, InstitutionalPdfHeader.INST_RED);
+    private static final Font FONT_LABEL        = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8f, InstitutionalPdfHeader.TEXT_GRAY);
+    private static final Font FONT_VALUE        = FontFactory.getFont(FontFactory.HELVETICA, 8f, InstitutionalPdfHeader.TEXT_BLACK);
     private static final Font FONT_VALUE_GREEN  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8f, GREEN_DARK);
     private static final Font FONT_VALUE_RED    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8f, RED_SOFT);
     private static final Font FONT_VALUE_AMBER  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8f, AMBER);
-    private static final Font FONT_TABLE_HDR    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8f, WHITE);
-    private static final Font FONT_TABLE_CELL   = FontFactory.getFont(FontFactory.HELVETICA, 8f, TEXT_BLACK);
+    private static final Font FONT_TABLE_HDR    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8f, InstitutionalPdfHeader.WHITE);
+    private static final Font FONT_TABLE_CELL   = FontFactory.getFont(FontFactory.HELVETICA, 8f, InstitutionalPdfHeader.TEXT_BLACK);
     private static final Font FONT_FOOTER       = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 7f, TEXT_GRAY_LIGHT);
-    private static final Font FONT_COVER_TITLE  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22f, INST_RED);
-    private static final Font FONT_COVER_SUB    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13f, TEXT_GRAY);
+    private static final Font FONT_COVER_TITLE  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22f, InstitutionalPdfHeader.INST_RED);
+    private static final Font FONT_COVER_SUB    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13f, InstitutionalPdfHeader.TEXT_GRAY);
     private static final Font FONT_COVER_SMALL  = FontFactory.getFont(FontFactory.HELVETICA, 9f, TEXT_GRAY_LIGHT);
-    private static final Font FONT_UNIV         = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13f, INST_RED);
-    private static final Font FONT_FAC          = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11f, TEXT_GRAY);
-    private static final Font FONT_PROG         = FontFactory.getFont(FontFactory.HELVETICA, 10f, TEXT_GRAY);
-    private static final Font FONT_SLOGAN       = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8f, TEXT_GRAY_LIGHT);
-    private static final Font FONT_BADGE        = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7f, WHITE);
-
-    private static final DateTimeFormatter DATE_FMT =
-            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
-    private static final DateTimeFormatter DATE_SHORT =
-            DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    private static final Font FONT_BADGE        = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7f, InstitutionalPdfHeader.WHITE);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Punto de entrada principal
@@ -78,16 +61,16 @@ public class ModalityTraceabilityPdfGenerator {
 
         // ── 2. Resumen ejecutivo ───────────────────────────────────────────
         doc.newPage();
-        addInstitutionalHeader(doc, report);
+        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
         addSummarySection(doc, report);
 
         // ── 3. Información general de la modalidad ─────────────────────────
         doc.newPage();
-        addInstitutionalHeader(doc, report);
+        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
         addGeneralInfoSection(doc, report);
 
         // ── 4. Integrantes ─────────────────────────────────────────────────
-        addInstitutionalHeader(doc, report);
+        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
         addMembersSection(doc, report);
 
         // ── 5. Director y Jurados ──────────────────────────────────────────
@@ -95,12 +78,12 @@ public class ModalityTraceabilityPdfGenerator {
 
         // ── 6. Documentos ─────────────────────────────────────────────────
         doc.newPage();
-        addInstitutionalHeader(doc, report);
+        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
         addDocumentsSection(doc, report);
 
         // ── 7. Historial de trazabilidad ───────────────────────────────────
         doc.newPage();
-        addInstitutionalHeader(doc, report);
+        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
         addStatusHistorySection(doc, report);
 
         // ── 8. Sustentación y resultado final ──────────────────────────────
@@ -121,19 +104,19 @@ public class ModalityTraceabilityPdfGenerator {
         PdfPTable topBand = new PdfPTable(1);
         topBand.setWidthPercentage(100);
         PdfPCell topCell = new PdfPCell();
-        topCell.setBackgroundColor(INST_RED);
+        topCell.setBackgroundColor(InstitutionalPdfHeader.INST_RED);
         topCell.setFixedHeight(12f);
         topCell.setBorder(Rectangle.NO_BORDER);
         topBand.addCell(topCell);
         doc.add(topBand);
-        addSpacing(doc, 30f);
+        InstitutionalPdfHeader.addSpacing(doc, 30f);
 
         // Encabezado institucional en portada
-        addInstitutionalHeader(doc, r);
+        InstitutionalPdfHeader.addHeader(doc, r.getFacultyName(), r.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + r.getStudentModalityId());
 
-        addSpacing(doc, 30f);
-        addGoldLine(doc);
-        addSpacing(doc, 20f);
+        InstitutionalPdfHeader.addSpacing(doc, 30f);
+        InstitutionalPdfHeader.addGoldLine(doc);
+        InstitutionalPdfHeader.addSpacing(doc, 20f);
 
         // Título principal
         Paragraph title = new Paragraph("REPORTE DE LA MODALIDAD DEL ESTUDIANTE", FONT_COVER_TITLE);
@@ -145,9 +128,9 @@ public class ModalityTraceabilityPdfGenerator {
         sub.setSpacingBefore(6f);
         doc.add(sub);
 
-        addSpacing(doc, 20f);
-        addGoldLine(doc);
-        addSpacing(doc, 20f);
+        InstitutionalPdfHeader.addSpacing(doc, 20f);
+        InstitutionalPdfHeader.addGoldLine(doc);
+        InstitutionalPdfHeader.addSpacing(doc, 20f);
 
         // Tarjeta de datos de la modalidad en portada
         PdfPTable card = new PdfPTable(new float[]{2f, 4f});
@@ -163,15 +146,15 @@ public class ModalityTraceabilityPdfGenerator {
         addCardRow(card, "Facultad:", r.getFacultyName(), false);
         addCardRow(card, "Estado Actual:", r.getCurrentStatusLabel(), true);
         if (r.getSelectionDate() != null)
-            addCardRow(card, "Fecha de Inicio:", r.getSelectionDate().format(DATE_SHORT), false);
+            addCardRow(card, "Fecha de Inicio:", r.getSelectionDate().format(InstitutionalPdfHeader.DATE_SHORT), false);
         addCardRow(card, "Días en Proceso:", r.getTotalDaysInProcess() + " días", true);
         doc.add(card);
 
-        addSpacing(doc, 30f);
+        InstitutionalPdfHeader.addSpacing(doc, 30f);
 
         // Fecha de generación
         Paragraph gen = new Paragraph(
-                "Reporte generado el " + (r.getGeneratedAt() != null ? r.getGeneratedAt().format(DATE_FMT) : ""),
+                "Reporte generado el " + (r.getGeneratedAt() != null ? r.getGeneratedAt().format(InstitutionalPdfHeader.DATE_FULL) : ""),
                 FONT_COVER_SMALL);
         gen.setAlignment(Element.ALIGN_CENTER);
         doc.add(gen);
@@ -182,70 +165,8 @@ public class ModalityTraceabilityPdfGenerator {
         doc.add(genBy);
 
         // Banda roja inferior
-        addSpacing(doc, 20f);
-        addRedLine(doc);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // 2. ENCABEZADO INSTITUCIONAL (en cada página interior)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private void addInstitutionalHeader(Document doc, ModalityTraceabilityReportDTO r)
-            throws DocumentException, IOException {
-
-        PdfPTable headerTable = new PdfPTable(new float[]{1.5f, 5f});
-        headerTable.setWidthPercentage(100);
-        headerTable.setSpacingAfter(2f);
-
-        // Logo
-        PdfPCell logoCell = new PdfPCell();
-        logoCell.setBorder(Rectangle.NO_BORDER);
-        logoCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        logoCell.setPadding(2f);
-        try {
-            org.springframework.core.io.ClassPathResource logoRes =
-                    new org.springframework.core.io.ClassPathResource("templates/logo ingenieria.png");
-            try (java.io.InputStream is = logoRes.getInputStream()) {
-                byte[] bytes = is.readAllBytes();
-                Image logo = Image.getInstance(bytes);
-                logo.scaleToFit(80f, 60f);
-                logo.setAlignment(Element.ALIGN_CENTER);
-                logoCell.addElement(logo);
-            }
-        } catch (Exception e) {
-            logoCell.addElement(new Paragraph(" ", FONT_PROG));
-        }
-        headerTable.addCell(logoCell);
-
-        // Texto institucional
-        PdfPCell textCell = new PdfPCell();
-        textCell.setBorder(Rectangle.NO_BORDER);
-        textCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        textCell.setPaddingLeft(10f);
-
-        Paragraph univ = new Paragraph("UNIVERSIDAD SURCOLOMBIANA", FONT_UNIV);
-        univ.setSpacingAfter(2f);
-        textCell.addElement(univ);
-
-        Paragraph fac = new Paragraph(r.getFacultyName() != null ? r.getFacultyName().toUpperCase() : "", FONT_FAC);
-        fac.setSpacingAfter(2f);
-        textCell.addElement(fac);
-
-        Paragraph prog = new Paragraph(r.getAcademicProgramName() != null ? r.getAcademicProgramName() : "", FONT_PROG);
-        prog.setSpacingAfter(2f);
-        textCell.addElement(prog);
-
-        textCell.addElement(new Paragraph(
-                "Reporte de Trazabilidad — Modalidad #" + r.getStudentModalityId(), FONT_SLOGAN));
-        textCell.addElement(new Paragraph(
-                "Sistema de Información y Gestión Académica — SIGMA", FONT_SLOGAN));
-
-        headerTable.addCell(textCell);
-        doc.add(headerTable);
-
-        addRedLine(doc);
-        addGoldLine(doc);
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 20f);
+        InstitutionalPdfHeader.addRedLine(doc);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -256,7 +177,7 @@ public class ModalityTraceabilityPdfGenerator {
             throws DocumentException {
 
         addSectionHeader(doc, "I. RESUMEN EJECUTIVO");
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
 
         ModalityTraceabilityReportDTO.TraceabilitySummaryDTO s = r.getSummary();
         if (s == null) return;
@@ -267,9 +188,9 @@ public class ModalityTraceabilityPdfGenerator {
         metrics.setSpacingBefore(4f);
         metrics.setSpacingAfter(10f);
 
-        addMetricCard(metrics, "Días en Proceso", String.valueOf(s.getTotalDaysInProcess()), INST_RED);
+        addMetricCard(metrics, "Días en Proceso", String.valueOf(s.getTotalDaysInProcess()), InstitutionalPdfHeader.INST_RED);
         addMetricCard(metrics, "Cambios de Estado", String.valueOf(s.getTotalStatusChanges()), BLUE_DARK);
-        addMetricCard(metrics, "Documentos Subidos", String.valueOf(s.getTotalDocumentsUploaded()), TEXT_GRAY);
+        addMetricCard(metrics, "Documentos Subidos", String.valueOf(s.getTotalDocumentsUploaded()), InstitutionalPdfHeader.TEXT_GRAY);
         addMetricCard(metrics, "Docs. Aprobados", String.valueOf(s.getApprovedDocuments()), GREEN_DARK);
 
         doc.add(metrics);
@@ -317,7 +238,7 @@ public class ModalityTraceabilityPdfGenerator {
             throws DocumentException {
 
         addSectionHeader(doc, "II. INFORMACIÓN GENERAL DE LA MODALIDAD");
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
 
         PdfPTable table = new PdfPTable(new float[]{2.5f, 4f, 2.5f, 4f});
         table.setWidthPercentage(100);
@@ -332,11 +253,11 @@ public class ModalityTraceabilityPdfGenerator {
         addDoubleRow(table, "Facultad:", r.getFacultyName(),
                 "Estado Actual:", r.getCurrentStatusLabel(), alt = !alt);
         addDoubleRow(table, "Fecha de Inicio:",
-                r.getSelectionDate() != null ? r.getSelectionDate().format(DATE_SHORT) : "—",
+                r.getSelectionDate() != null ? r.getSelectionDate().format(InstitutionalPdfHeader.DATE_SHORT) : "—",
                 "Última Actualización:",
-                r.getLastUpdated() != null ? r.getLastUpdated().format(DATE_FMT) : "—", alt = !alt);
+                r.getLastUpdated() != null ? r.getLastUpdated().format(InstitutionalPdfHeader.DATE_FULL) : "—", alt = !alt);
         addDoubleRow(table, "Total Días en Proceso:", r.getTotalDaysInProcess() + " días",
-                "Reporte Generado:", r.getGeneratedAt() != null ? r.getGeneratedAt().format(DATE_FMT) : "—",
+                "Reporte Generado:", r.getGeneratedAt() != null ? r.getGeneratedAt().format(InstitutionalPdfHeader.DATE_FULL) : "—",
                 alt = !alt);
 
         doc.add(table);
@@ -349,9 +270,9 @@ public class ModalityTraceabilityPdfGenerator {
     private void addMembersSection(Document doc, ModalityTraceabilityReportDTO r)
             throws DocumentException {
 
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
         addSectionHeader(doc, "III. INTEGRANTES DE LA MODALIDAD");
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
 
         List<ModalityTraceabilityReportDTO.MemberDetailDTO> members = r.getMembers();
         if (members == null || members.isEmpty()) {
@@ -368,7 +289,7 @@ public class ModalityTraceabilityPdfGenerator {
         String[] headers = {"Nombre Completo", "Código", "Correo", "Semestre", "Promedio", "Rol", "Estado"};
         for (String h : headers) {
             PdfPCell hCell = new PdfPCell(new Phrase(h, FONT_TABLE_HDR));
-            hCell.setBackgroundColor(INST_RED);
+            hCell.setBackgroundColor(InstitutionalPdfHeader.INST_RED);
             hCell.setBorder(Rectangle.NO_BORDER);
             hCell.setPadding(6f);
             hCell.setHorizontalAlignment(Element.ALIGN_CENTER);
@@ -377,7 +298,7 @@ public class ModalityTraceabilityPdfGenerator {
 
         boolean alt = false;
         for (ModalityTraceabilityReportDTO.MemberDetailDTO m : members) {
-            BaseColor bg = alt ? ROW_ALT : LIGHT_GOLD;
+            BaseColor bg = alt ? ROW_ALT : InstitutionalPdfHeader.LIGHT_GOLD;
             alt = !alt;
             addTableCell(table, m.getFullName(), bg, false);
             addTableCell(table, nvl(m.getStudentCode()), bg, true);
@@ -393,7 +314,7 @@ public class ModalityTraceabilityPdfGenerator {
             roleCell.setHorizontalAlignment(Element.ALIGN_CENTER);
             roleCell.addElement(buildBadge(
                     Boolean.TRUE.equals(m.getIsLeader()) ? "LÍDER" : "Miembro",
-                    Boolean.TRUE.equals(m.getIsLeader()) ? INST_RED : BLUE_DARK));
+                    Boolean.TRUE.equals(m.getIsLeader()) ? InstitutionalPdfHeader.INST_RED : BLUE_DARK));
             table.addCell(roleCell);
 
             addTableCell(table, nvl(m.getMemberStatus()), bg, true);
@@ -408,9 +329,9 @@ public class ModalityTraceabilityPdfGenerator {
     private void addDirectorAndExaminersSection(Document doc, ModalityTraceabilityReportDTO r)
             throws DocumentException {
 
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
         addSectionHeader(doc, "IV. DIRECTOR Y JURADOS");
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
 
         // Director
         addSubSectionHeader(doc, "Director del Proyecto");
@@ -427,12 +348,12 @@ public class ModalityTraceabilityPdfGenerator {
         }
 
         // Jurados
-        addSpacing(doc, 4f);
+        InstitutionalPdfHeader.addSpacing(doc, 4f);
         addSubSectionHeader(doc, "Jurados Evaluadores");
         List<ModalityTraceabilityReportDTO.ExaminerDetailDTO> examiners = r.getExaminers();
         if (examiners == null || examiners.isEmpty()) {
             doc.add(infoNote("⚠  Jurados no asignados aún."));
-            addSpacing(doc, 6f);
+            InstitutionalPdfHeader.addSpacing(doc, 6f);
             return;
         }
 
@@ -444,7 +365,7 @@ public class ModalityTraceabilityPdfGenerator {
         String[] eHeaders = {"Nombre", "Tipo de Jurado", "Correo", "Fecha Asignación"};
         for (String h : eHeaders) {
             PdfPCell hc = new PdfPCell(new Phrase(h, FONT_TABLE_HDR));
-            hc.setBackgroundColor(INST_RED);
+            hc.setBackgroundColor(InstitutionalPdfHeader.INST_RED);
             hc.setBorder(Rectangle.NO_BORDER);
             hc.setPadding(6f);
             hc.setHorizontalAlignment(Element.ALIGN_CENTER);
@@ -453,12 +374,12 @@ public class ModalityTraceabilityPdfGenerator {
 
         boolean alt = false;
         for (ModalityTraceabilityReportDTO.ExaminerDetailDTO e : examiners) {
-            BaseColor bg = alt ? ROW_ALT : LIGHT_GOLD;
+            BaseColor bg = alt ? ROW_ALT : InstitutionalPdfHeader.LIGHT_GOLD;
             alt = !alt;
             addTableCell(et, nvl(e.getFullName()), bg, false);
             addTableCell(et, nvl(e.getExaminerTypeLabel()), bg, true);
             addTableCell(et, nvl(e.getEmail()), bg, false);
-            addTableCell(et, e.getAssignmentDate() != null ? e.getAssignmentDate().format(DATE_SHORT) : "—", bg, true);
+            addTableCell(et, e.getAssignmentDate() != null ? e.getAssignmentDate().format(InstitutionalPdfHeader.DATE_SHORT) : "—", bg, true);
         }
         doc.add(et);
     }
@@ -471,7 +392,7 @@ public class ModalityTraceabilityPdfGenerator {
             throws DocumentException {
 
         addSectionHeader(doc, "V. DOCUMENTOS SUBIDOS");
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
 
         List<ModalityTraceabilityReportDTO.DocumentDetailDTO> docs = r.getDocuments();
         if (docs == null || docs.isEmpty()) {
@@ -489,13 +410,13 @@ public class ModalityTraceabilityPdfGenerator {
 
         if (!mandatory.isEmpty()) {
             addSubSectionHeader(doc, "Documentos Iniciales");
-            addSpacing(doc, 4f);
+            InstitutionalPdfHeader.addSpacing(doc, 4f);
             addDocumentTable(doc, mandatory);
         }
         if (!secondary.isEmpty()) {
-            addSpacing(doc, 6f);
+            InstitutionalPdfHeader.addSpacing(doc, 6f);
             addSubSectionHeader(doc, "Documentos Secundarios");
-            addSpacing(doc, 4f);
+            InstitutionalPdfHeader.addSpacing(doc, 4f);
             addDocumentTable(doc, secondary);
         }
     }
@@ -512,7 +433,7 @@ public class ModalityTraceabilityPdfGenerator {
         String[] headers = {"Nombre del Documento", "Tipo", "Estado", "Fecha Subida", "Notas"};
         for (String h : headers) {
             PdfPCell hc = new PdfPCell(new Phrase(h, FONT_TABLE_HDR));
-            hc.setBackgroundColor(INST_RED);
+            hc.setBackgroundColor(InstitutionalPdfHeader.INST_RED);
             hc.setBorder(Rectangle.NO_BORDER);
             hc.setPadding(6f);
             hc.setHorizontalAlignment(Element.ALIGN_CENTER);
@@ -521,7 +442,7 @@ public class ModalityTraceabilityPdfGenerator {
 
         boolean alt = false;
         for (ModalityTraceabilityReportDTO.DocumentDetailDTO d : docs) {
-            BaseColor bg = alt ? ROW_ALT : LIGHT_GOLD;
+            BaseColor bg = alt ? ROW_ALT : InstitutionalPdfHeader.LIGHT_GOLD;
             alt = !alt;
 
             addTableCell(table, nvl(d.getDocumentName()), bg, false);
@@ -537,7 +458,7 @@ public class ModalityTraceabilityPdfGenerator {
             statusCell.addElement(new Phrase(nvl(d.getCurrentStatusLabel()), statusFont));
             table.addCell(statusCell);
 
-            addTableCell(table, d.getUploadDate() != null ? d.getUploadDate().format(DATE_SHORT) : "—", bg, false);
+            addTableCell(table, d.getUploadDate() != null ? d.getUploadDate().format(InstitutionalPdfHeader.DATE_SHORT) : "—", bg, false);
             addTableCell(table, d.getNotes() != null ? truncate(d.getNotes(), 60) : "—", bg, true);
         }
         doc.add(table);
@@ -551,7 +472,7 @@ public class ModalityTraceabilityPdfGenerator {
             throws DocumentException {
 
         addSectionHeader(doc, "VI. HISTORIAL COMPLETO DE TRAZABILIDAD");
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
 
         List<ModalityTraceabilityReportDTO.StatusHistoryEntryDTO> history = r.getStatusHistory();
         if (history == null || history.isEmpty()) {
@@ -576,7 +497,7 @@ public class ModalityTraceabilityPdfGenerator {
         String[] headers = {"#", "Fecha", "Estado", "Responsable", "Días", "Observaciones"};
         for (String h : headers) {
             PdfPCell hc = new PdfPCell(new Phrase(h, FONT_TABLE_HDR));
-            hc.setBackgroundColor(INST_RED);
+            hc.setBackgroundColor(InstitutionalPdfHeader.INST_RED);
             hc.setBorder(Rectangle.NO_BORDER);
             hc.setPadding(6f);
             hc.setHorizontalAlignment(Element.ALIGN_CENTER);
@@ -586,12 +507,12 @@ public class ModalityTraceabilityPdfGenerator {
         boolean alt = false;
         int idx = 1;
         for (ModalityTraceabilityReportDTO.StatusHistoryEntryDTO entry : history) {
-            BaseColor bg = alt ? ROW_ALT : LIGHT_GOLD;
+            BaseColor bg = alt ? ROW_ALT : InstitutionalPdfHeader.LIGHT_GOLD;
             alt = !alt;
 
             addTableCell(table, String.valueOf(idx++), bg, true);
             addTableCell(table,
-                    entry.getChangeDate() != null ? entry.getChangeDate().format(DATE_FMT) : "—", bg, false);
+                    entry.getChangeDate() != null ? entry.getChangeDate().format(InstitutionalPdfHeader.DATE_FULL) : "—", bg, false);
             addTableCell(table, nvl(entry.getStatusLabel()), bg, false);
             addTableCell(table, nvl(entry.getResponsibleName()), bg, false);
             addTableCell(table, entry.getDaysInThisStatus() != null
@@ -609,9 +530,9 @@ public class ModalityTraceabilityPdfGenerator {
     private void addDefenseAndResultSection(Document doc, ModalityTraceabilityReportDTO r)
             throws DocumentException {
 
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
         addSectionHeader(doc, "VII. SUSTENTACIÓN Y RESULTADO FINAL");
-        addSpacing(doc, 6f);
+        InstitutionalPdfHeader.addSpacing(doc, 6f);
 
         // Sustentación
         addSubSectionHeader(doc, "Información de Sustentación");
@@ -623,7 +544,7 @@ public class ModalityTraceabilityPdfGenerator {
         defTable.setSpacingAfter(8f);
 
         addDoubleRow(defTable, "Fecha de Sustentación:",
-                def != null && def.getDefenseDate() != null ? def.getDefenseDate().format(DATE_FMT) : "No programada",
+                def != null && def.getDefenseDate() != null ? def.getDefenseDate().format(InstitutionalPdfHeader.DATE_FULL) : "No programada",
                 "Lugar de Sustentación:",
                 def != null && def.getDefenseLocation() != null ? def.getDefenseLocation() : "No especificado",
                 false);
@@ -635,13 +556,13 @@ public class ModalityTraceabilityPdfGenerator {
         doc.add(defTable);
 
         // Resultado final
-        addSpacing(doc, 4f);
+        InstitutionalPdfHeader.addSpacing(doc, 4f);
         addSubSectionHeader(doc, "Resultado Final de la Evaluación");
         ModalityTraceabilityReportDTO.FinalResultDTO res = r.getFinalResult();
 
         if (res == null || !Boolean.TRUE.equals(res.getHasResult())) {
             doc.add(infoNote("⏳  El resultado final aún no está disponible. La modalidad continúa en proceso."));
-            addSpacing(doc, 6f);
+            InstitutionalPdfHeader.addSpacing(doc, 6f);
             return;
         }
 
@@ -670,11 +591,11 @@ public class ModalityTraceabilityPdfGenerator {
         highlight.setSpacingAfter(10f);
         PdfPCell hCell = new PdfPCell();
         // Usar colores institucionales: rojo para aprobado, dorado para no aprobado
-        hCell.setBackgroundColor(approved ? INST_RED : INST_GOLD);
+        hCell.setBackgroundColor(approved ? InstitutionalPdfHeader.INST_RED : InstitutionalPdfHeader.INST_GOLD);
         hCell.setBorder(Rectangle.NO_BORDER);
         hCell.setPadding(12f);
         hCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        Font bigResultFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14f, WHITE);
+        Font bigResultFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14f, InstitutionalPdfHeader.WHITE);
         hCell.addElement(new Phrase(approved
                 ? "MODALIDAD APROBADA — " + nvl(res.getAcademicDistinctionLabel())
                 : "MODALIDAD NO APROBADA", bigResultFont));
@@ -691,8 +612,8 @@ public class ModalityTraceabilityPdfGenerator {
         t.setWidthPercentage(100);
         t.setSpacingBefore(4f);
         t.setSpacingAfter(0f);
-        PdfPCell cell = new PdfPCell(new Phrase(title, FONT_SECTION));
-        cell.setBackgroundColor(INST_RED);
+        PdfPCell cell = new PdfPCell(new Phrase(title, InstitutionalPdfHeader.TABLE_HEADER_FONT));
+        cell.setBackgroundColor(InstitutionalPdfHeader.INST_RED);
         cell.setBorder(Rectangle.NO_BORDER);
         cell.setPadding(8f);
         t.addCell(cell);
@@ -706,9 +627,9 @@ public class ModalityTraceabilityPdfGenerator {
         t.setSpacingAfter(0f);
         PdfPCell cell = new PdfPCell(new Phrase(title, FONT_SUBSECTION));
         cell.setBorder(Rectangle.LEFT);
-        cell.setBorderColorLeft(INST_RED);
+        cell.setBorderColorLeft(InstitutionalPdfHeader.INST_RED);
         cell.setBorderWidthLeft(3f);
-        cell.setBackgroundColor(LIGHT_GOLD);
+        cell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         cell.setPadding(6f);
         t.addCell(cell);
         doc.add(t);
@@ -716,7 +637,7 @@ public class ModalityTraceabilityPdfGenerator {
 
     private void addDoubleRow(PdfPTable table, String lbl1, String val1,
                               String lbl2, String val2, boolean alt) {
-        BaseColor bg = alt ? ROW_ALT : LIGHT_GOLD;
+        BaseColor bg = alt ? ROW_ALT : InstitutionalPdfHeader.LIGHT_GOLD;
         PdfPCell l1 = new PdfPCell(new Phrase(lbl1, FONT_LABEL));
         l1.setBorder(Rectangle.NO_BORDER);
         l1.setBackgroundColor(bg);
@@ -740,7 +661,7 @@ public class ModalityTraceabilityPdfGenerator {
     }
 
     private void addCardRow(PdfPTable table, String label, String value, boolean alt) {
-        BaseColor bg = alt ? ROW_ALT : LIGHT_GOLD;
+        BaseColor bg = alt ? ROW_ALT : InstitutionalPdfHeader.LIGHT_GOLD;
         PdfPCell lbl = new PdfPCell(new Phrase(label, FONT_LABEL));
         lbl.setBorder(Rectangle.NO_BORDER);
         lbl.setBackgroundColor(bg);
@@ -758,12 +679,12 @@ public class ModalityTraceabilityPdfGenerator {
         cell.setBorder(Rectangle.BOX);
         cell.setBorderColor(color);
         cell.setBorderWidth(2f);
-        cell.setBackgroundColor(LIGHT_GOLD);
+        cell.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         cell.setPadding(8f);
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
 
         Font valueFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16f, color);
-        Font labelFont = FontFactory.getFont(FontFactory.HELVETICA, 7f, TEXT_GRAY);
+        Font labelFont = FontFactory.getFont(FontFactory.HELVETICA, 7f, InstitutionalPdfHeader.TEXT_GRAY);
 
         Paragraph valPara = new Paragraph(value, valueFont);
         valPara.setAlignment(Element.ALIGN_CENTER);
@@ -781,13 +702,13 @@ public class ModalityTraceabilityPdfGenerator {
                                   boolean ok1, boolean ok2) {
         PdfPCell l1 = new PdfPCell(new Phrase(lbl1, FONT_LABEL));
         l1.setBorder(Rectangle.NO_BORDER);
-        l1.setBackgroundColor(LIGHT_GOLD);
+        l1.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         l1.setPadding(5f);
         table.addCell(l1);
         Font f1 = ok1 ? FONT_VALUE_GREEN : FONT_VALUE_AMBER;
         PdfPCell v1 = new PdfPCell(new Phrase(val1, f1));
         v1.setBorder(Rectangle.NO_BORDER);
-        v1.setBackgroundColor(LIGHT_GOLD);
+        v1.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GOLD);
         v1.setPadding(5f);
         table.addCell(v1);
         PdfPCell l2 = new PdfPCell(new Phrase(lbl2, FONT_LABEL));
@@ -838,35 +759,6 @@ public class ModalityTraceabilityPdfGenerator {
         if (status.contains("REJECTED")) return FONT_VALUE_RED;
         if (status.contains("CORRECTION") || status.contains("PENDING")) return FONT_VALUE_AMBER;
         return FONT_TABLE_CELL;
-    }
-
-    private void addRedLine(Document doc) throws DocumentException {
-        PdfPTable t = new PdfPTable(1);
-        t.setWidthPercentage(100);
-        PdfPCell c = new PdfPCell();
-        c.setBackgroundColor(INST_RED);
-        c.setFixedHeight(3f);
-        c.setBorder(Rectangle.NO_BORDER);
-        t.addCell(c);
-        doc.add(t);
-    }
-
-    private void addGoldLine(Document doc) throws DocumentException {
-        PdfPTable t = new PdfPTable(1);
-        t.setWidthPercentage(100);
-        PdfPCell c = new PdfPCell();
-        c.setBackgroundColor(INST_GOLD);
-        c.setFixedHeight(2f);
-        c.setBorder(Rectangle.NO_BORDER);
-        t.addCell(c);
-        doc.add(t);
-    }
-
-    private void addSpacing(Document doc, float height) throws DocumentException {
-        Paragraph sp = new Paragraph(" ");
-        sp.setSpacingBefore(height / 2f);
-        sp.setSpacingAfter(height / 2f);
-        doc.add(sp);
     }
 
     private String nvl(String s) {

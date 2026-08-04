@@ -8,29 +8,23 @@ import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.notifications.entity.Notification;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.DefenseReadyByDirectorEvent;
-import com.SIGMA.USCO.notifications.event.DefenseScheduledEvent;
+import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.notifications.service.NotificationBuilderHelper;
 import com.SIGMA.USCO.notifications.service.NotificationDispatcherService;
-import com.SIGMA.USCO.notifications.repository.NotificationRepository;
+import com.SIGMA.USCO.notifications.service.NotificationFactory;
 import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
 import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
-import com.SIGMA.USCO.notifications.event.DocumentEditRequestedEvent;
-import com.SIGMA.USCO.notifications.event.DocumentEditResolvedEvent;
-import com.SIGMA.USCO.notifications.event.DefenseReadyByDirectorEvent;
-import com.SIGMA.USCO.notifications.event.DefenseScheduledEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
 import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.notifications.event.FinalDefenseResultEvent;
 import com.SIGMA.USCO.notifications.service.ExaminerCertificatePdfService;
 import com.SIGMA.USCO.Modalities.Entity.ExaminerCertificate;
 import com.SIGMA.USCO.Modalities.Entity.enums.CertificateStatus;
@@ -43,13 +37,25 @@ import java.nio.file.Path;
 public class ExaminerNotificationListener {
 
     private final DefenseExaminerRepository defenseExaminerRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationFactory notificationFactory;
     private final NotificationDispatcherService dispatcher;
     private final UserRepository userRepository;
     private final StudentModalityRepository studentModalityRepository;
     private final StudentModalityMemberRepository studentModalityMemberRepository;
     private final ExaminerCertificatePdfService examinerCertificatePdfService;
     private final ExaminerCertificateRepository examinerCertificateRepository;
+
+    @EventListener
+    public void handleEvent(ModalityEvent event) {
+        switch (event.getType()) {
+            case READY_FOR_DEFENSE_REQUESTED -> handleDefenseReadyByDirectorEvent(event);
+            case EXAMINER_FINAL_REVIEW_COMPLETED -> handleExaminerFinalReviewCompletedEvent(event);
+            case DEFENSE_SCHEDULED -> handleDefenseScheduled(event);
+            case DOCUMENT_EDIT_REQUESTED -> onDocumentEditRequested(event);
+            case DEFENSE_COMPLETED -> onFinalDefenseApproved(event);
+            default -> log.warn("Unhandled ModalityEvent type: {}", event.getType());
+        }
+    }
 
     @Async("notificationTaskExecutor")
     public void notifyExaminersAssignment(Long studentModalityId) {
@@ -81,12 +87,7 @@ public class ExaminerNotificationListener {
                 ? modality.getProgramDegreeModality().getAcademicProgram().getFaculty().getName()
                 : "";
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
         for (DefenseExaminer examinerAssignment : examiners) {
             User examiner = examinerAssignment.getExaminer();
@@ -136,18 +137,9 @@ public class ExaminerNotificationListener {
                     LocalDateTime.now().toLocalDate().toString()
             );
 
-            Notification notification = Notification.builder()
-                    .type(NotificationType.EXAMINER_ASSIGNED)
-                    .recipientType(NotificationRecipientType.EXAMINER)
-                    .recipient(examiner)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            notificationFactory.buildAndDispatch(NotificationType.EXAMINER_ASSIGNED,
+                    NotificationRecipientType.EXAMINER,
+                    examiner, modality, subject, message);
         }
 
         // ── Construir resumen de jurados asignados para el mensaje de estudiantes y director ──
@@ -169,11 +161,7 @@ public class ExaminerNotificationListener {
 
         for (User student : studentsToNotify) {
             String studentSubject = "Jurados asignados a tu modalidad de grado – SIGMA";
-            String studentMessage = """
-        Estimado(a) %s:
-
-        Reciba un cordial saludo.
-
+            String body = """
         Nos permitimos informarle que el Comité de Currículo del programa académico ha designado oficialmente los jurados evaluadores para su modalidad de grado, conforme a la normativa institucional vigente.
 
         A continuación, se relaciona la información pertinente:
@@ -190,13 +178,7 @@ public class ExaminerNotificationListener {
         Se recomienda verificar que la documentación requerida se encuentre debidamente registrada en la plataforma institucional y mantenerse atento(a) a las comunicaciones emitidas durante el proceso.
 
         Este mensaje constituye una notificación automática generada como constancia de la asignación realizada y para efectos de control y trazabilidad institucional.
-
-        Atentamente,
-
-        Sistema de Gestión Académica
-        Universidad Surcolombiana
         """.formatted(
-                    student.getName(),
                     modalidadInfo,
                     programName,
                     facultyName,
@@ -206,19 +188,11 @@ public class ExaminerNotificationListener {
                             : "Pendiente de asignación",
                     LocalDateTime.now().toLocalDate().toString()
             );
+            String studentMessage = NotificationMessageTemplates.greeting(student.getName()) + body + NotificationMessageTemplates.universityClosing();
 
-            Notification studentNotification = Notification.builder()
-                    .type(NotificationType.EXAMINER_ASSIGNED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(studentSubject)
-                    .message(studentMessage)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(studentNotification);
-            dispatcher.dispatch(studentNotification);
+            notificationFactory.buildAndDispatch(NotificationType.EXAMINER_ASSIGNED,
+                    NotificationRecipientType.STUDENT,
+                    student, modality, studentSubject, studentMessage);
         }
 
         // ── Notificar al director de proyecto si está asignado ──
@@ -265,41 +239,25 @@ public class ExaminerNotificationListener {
                     LocalDateTime.now().toLocalDate().toString()
             );
 
-            Notification directorNotification = Notification.builder()
-                    .type(NotificationType.EXAMINER_ASSIGNED)
-                    .recipientType(NotificationRecipientType.PROJECT_DIRECTOR)
-                    .recipient(director)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(directorSubject)
-                    .message(directorMessage)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(directorNotification);
-            dispatcher.dispatch(directorNotification);
+            notificationFactory.buildAndDispatch(NotificationType.EXAMINER_ASSIGNED,
+                    NotificationRecipientType.PROJECT_DIRECTOR,
+                    director, modality, directorSubject, directorMessage);
         }
     }
 
-    @EventListener
-    public void handleDefenseReadyByDirectorEvent(DefenseReadyByDirectorEvent event) {
+    private void handleDefenseReadyByDirectorEvent(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        User examiner = userRepository.findById(event.getExaminerId())
+        User examiner = userRepository.findById(event.get(ModalityEvent.KEY_EXAMINER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Jurado no encontrado"));
-
 
         List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
         String miembros = members.stream()
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
         String subject = "Notificación de modalidad lista para sustentación";
 
@@ -331,43 +289,26 @@ public class ExaminerNotificationListener {
                 miembros,
                 modalidadInfo
         );
-        Notification notification = Notification.builder()
-                .type(NotificationType.READY_FOR_DEFENSE_REQUESTED)
-                .recipientType(NotificationRecipientType.EXAMINER)
-                .recipient(examiner)
-                .triggeredBy(null)
-                .studentModality(modality)
-                .subject(subject)
-                .message(message)
-                .createdAt(LocalDateTime.now())
-                .build();
 
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
+        notificationFactory.buildAndDispatch(
+                NotificationType.READY_FOR_DEFENSE_REQUESTED,
+                NotificationRecipientType.EXAMINER,
+                examiner, modality, subject, message);
     }
 
-    @EventListener
-    public void handleExaminerFinalReviewCompletedEvent(
-            com.SIGMA.USCO.notifications.event.ExaminerFinalReviewCompletedEvent event) {
-
+    private void handleExaminerFinalReviewCompletedEvent(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        User director = userRepository.findById(event.getProjectDirectorId())
+        User director = userRepository.findById(event.get(ModalityEvent.KEY_PROJECT_DIRECTOR_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Director de proyecto no encontrado"));
 
-        // Obtener todos los miembros ACTIVOS de la modalidad
         List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
         String miembros = members.stream()
             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
             .collect(Collectors.joining(", "));
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
         String subject = "Aprobación final de documentos – Puede programar la sustentación";
 
@@ -402,33 +343,20 @@ public class ExaminerNotificationListener {
                 modalidadInfo
         );
 
-        Notification notification = Notification.builder()
-                .type(NotificationType.FINAL_APPROVED)
-                .recipientType(NotificationRecipientType.PROJECT_DIRECTOR)
-                .recipient(director)
-                .triggeredBy(null)
-                .studentModality(modality)
-                .subject(subject)
-                .message(message)
-                .createdAt(LocalDateTime.now())
-                .build();
-
-        notificationRepository.save(notification);
-        dispatcher.dispatch(notification);
+        notificationFactory.buildAndDispatch(
+                NotificationType.FINAL_APPROVED,
+                NotificationRecipientType.PROJECT_DIRECTOR,
+                director, modality, subject, message);
     }
 
-
-    @EventListener
-    public void handleDefenseScheduled(DefenseScheduledEvent event) {
+    private void handleDefenseScheduled(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        LocalDateTime defenseDate = event.get(ModalityEvent.KEY_DEFENSE_DATE, LocalDateTime.class);
+        String defenseLocation = event.get(ModalityEvent.KEY_DEFENSE_LOCATION, String.class);
+
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
         List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(event.getStudentModalityId());
         for (DefenseExaminer examinerAssignment : examiners) {
@@ -464,8 +392,8 @@ public class ExaminerNotificationListener {
                     examiner.getName(),
                     examiner.getLastName(),
                     modalidadInfo,
-                    event.getDefenseDate(),
-                    event.getDefenseLocation(),
+                    defenseDate,
+                    defenseLocation,
                     modality.getProjectDirector() != null
                             ? modality.getProjectDirector().getName() + " " + modality.getProjectDirector().getLastName()
                             : "Pendiente de asignación",
@@ -477,18 +405,10 @@ public class ExaminerNotificationListener {
                             : modality.getLeader().getName() + " " + modality.getLeader().getLastName()
             );
 
-            Notification notification = Notification.builder()
-                    .type(NotificationType.DEFENSE_SCHEDULED)
-                    .recipientType(NotificationRecipientType.EXAMINER)
-                    .recipient(examiner)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            notificationFactory.buildAndDispatch(
+                    NotificationType.DEFENSE_SCHEDULED,
+                    NotificationRecipientType.EXAMINER,
+                    examiner, modality, subject, message);
         }
 
         // Notificar a todos los estudiantes asociados
@@ -528,25 +448,17 @@ public class ExaminerNotificationListener {
                     """,
                     student.getName(),
                     modalidadInfo,
-                    event.getDefenseDate(),
-                    event.getDefenseLocation(),
+                    defenseDate,
+                    defenseLocation,
                     modality.getProjectDirector() != null
                             ? modality.getProjectDirector().getName() + " " + modality.getProjectDirector().getLastName()
                             : "Pendiente de asignación"
             );
 
-            Notification notification = Notification.builder()
-                    .type(NotificationType.DEFENSE_SCHEDULED)
-                    .recipientType(NotificationRecipientType.STUDENT)
-                    .recipient(student)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            notificationFactory.buildAndDispatch(
+                    NotificationType.DEFENSE_SCHEDULED,
+                    NotificationRecipientType.STUDENT,
+                    student, modality, subject, message);
         }
     }
 
@@ -554,8 +466,7 @@ public class ExaminerNotificationListener {
      * Notifica a los jurados asignados a la modalidad cuando un estudiante solicita
      * editar un documento previamente aprobado.
      */
-    @EventListener
-    public void onDocumentEditRequested(DocumentEditRequestedEvent event) {
+    private void onDocumentEditRequested(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
 
@@ -567,12 +478,11 @@ public class ExaminerNotificationListener {
                 .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName())
                 .collect(Collectors.joining(", "));
 
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+
+        String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
+        Long editRequestId = event.get(ModalityEvent.KEY_EDIT_REQUEST_ID, Long.class);
+        String reason = event.get(ModalityEvent.KEY_REASON, String.class);
 
         String subject = "Solicitud de edición de documento aprobado – Modalidad de grado";
 
@@ -610,25 +520,17 @@ public class ExaminerNotificationListener {
                     modalidadInfo,
                     modality.getProgramDegreeModality().getAcademicProgram().getName(),
                     (studentNames != null && !studentNames.isBlank()) ? studentNames : "No registrado",
-                    event.getDocumentName(),
-                    event.getEditRequestId(),
-                    event.getReason() != null && !event.getReason().isBlank()
-                            ? event.getReason()
+                    documentName,
+                    editRequestId,
+                    reason != null && !reason.isBlank()
+                            ? reason
                             : "No se registra motivo"
             );
 
-            Notification notification = Notification.builder()
-                    .type(NotificationType.DOCUMENT_EDIT_REQUESTED)
-                    .recipientType(NotificationRecipientType.EXAMINER)
-                    .recipient(examiner)
-                    .triggeredBy(null)
-                    .studentModality(modality)
-                    .subject(subject)
-                    .message(message)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            notificationRepository.save(notification);
-            dispatcher.dispatch(notification);
+            notificationFactory.buildAndDispatch(
+                    NotificationType.DOCUMENT_EDIT_REQUESTED,
+                    NotificationRecipientType.EXAMINER,
+                    examiner, modality, subject, message);
         }
     }
 
@@ -636,16 +538,16 @@ public class ExaminerNotificationListener {
      * Genera y envía actas de participación a todos los jurados
      * cuando la sustentación es aprobada y completada.
      */
-    @EventListener
-    @Transactional
-    public void onFinalDefenseApproved(FinalDefenseResultEvent event) {
+    private void onFinalDefenseApproved(ModalityEvent event) {
         Long modalityId = event.getStudentModalityId();
         StudentModality modality = studentModalityRepository.findById(modalityId)
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
-        
+
+        ModalityProcessStatus finalStatus = event.get(ModalityEvent.KEY_FINAL_STATUS, ModalityProcessStatus.class);
+
         // Solo procesar si fue aprobada
-        if (event.getFinalStatus() == null || 
-            !event.getFinalStatus().name().contains("APPROVED")) {
+        if (finalStatus == null ||
+            !finalStatus.name().contains("APPROVED")) {
             log.debug("Evento de defensa no es aprobatorio, se omite generación de actas para jurados");
             return;
         }
@@ -662,37 +564,29 @@ public class ExaminerNotificationListener {
         // Generar y enviar acta a cada jurado
         for (DefenseExaminer examiner : examiners) {
             try {
-                log.info("Generando acta para jurado {} en modalidad ID: {}", 
+                log.info("Generando acta para jurado {} en modalidad ID: {}",
                     examiner.getExaminer().getId(), modalityId);
 
                 // Generar el PDF del acta
                 ExaminerCertificate certificate = examinerCertificatePdfService.generateExaminerCertificate(
                     modality, examiner
                 );
-                
+
                 Path pdfPath = examinerCertificatePdfService.getCertificatePath(
-                    modalityId, 
+                    modalityId,
                     examiner.getExaminer().getId()
                 );
 
                 // Crear notificación para el jurado
                 User examinerUser = examiner.getExaminer();
                 String subject = "Acta de Participación – Modalidad de Grado Completada";
-                
-                String message = buildExaminerParticipationMessage(examinerUser, modality, examiner);
-                
-                Notification notification = Notification.builder()
-                        .type(NotificationType.DEFENSE_COMPLETED)
-                        .recipientType(NotificationRecipientType.EXAMINER)
-                        .recipient(examinerUser)
-                        .triggeredBy(null)
-                        .studentModality(modality)
-                        .subject(subject)
-                        .message(message)
-                        .createdAt(LocalDateTime.now())
-                        .build();
 
-                notificationRepository.save(notification);
+                String message = buildExaminerParticipationMessage(examinerUser, modality, examiner);
+
+                Notification notification = notificationFactory.buildAndSave(
+                        NotificationType.DEFENSE_COMPLETED,
+                        NotificationRecipientType.EXAMINER,
+                        examinerUser, null, modality, subject, message);
 
                 // Enviar notificación con el acta adjunta
                 try {
@@ -701,29 +595,29 @@ public class ExaminerNotificationListener {
                         pdfPath,
                         "ACTA_JURADO_" + certificate.getCertificateNumber() + ".pdf"
                     );
-                    
+
                     // Actualizar estado del certificado
                     examinerCertificatePdfService.updateCertificateStatus(
-                        certificate.getId(), 
+                        certificate.getId(),
                         CertificateStatus.SENT
                     );
-                    
-                    log.info("Acta enviada al jurado {} (modalidad ID {})", 
+
+                    log.info("Acta enviada al jurado {} (modalidad ID {})",
                         examinerUser.getId(), modalityId);
                 } catch (Exception e) {
-                    log.error("Error enviando acta al jurado {}: {}", 
+                    log.error("Error enviando acta al jurado {}: {}",
                         examinerUser.getId(), e.getMessage());
                     // Intentar enviar sin adjunto como fallback
                     dispatcher.dispatch(notification);
                 }
 
             } catch (Exception e) {
-                log.error("Error generando acta para jurado {} en modalidad ID {}: {}", 
+                log.error("Error generando acta para jurado {} en modalidad ID {}: {}",
                     examiner.getExaminer().getId(), modalityId, e.getMessage(), e);
             }
         }
 
-        log.info("Proceso de generación de actas para jurados completado para modalidad ID: {}", 
+        log.info("Proceso de generación de actas para jurados completado para modalidad ID: {}",
             modalityId);
     }
 
@@ -735,14 +629,9 @@ public class ExaminerNotificationListener {
             case PRIMARY_EXAMINER_1, PRIMARY_EXAMINER_2 -> "Jurado Principal";
             case TIEBREAKER_EXAMINER -> "Jurado de Desempate";
         };
-        
-        String degreeModalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
-        String projectTitle = modality.getModalityTitle();
-        String modalidadInfo = degreeModalityName;
-        if (projectTitle != null && !projectTitle.isBlank()) {
-            modalidadInfo += " – " + projectTitle;
-        }
-        
+
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+
         List<StudentModalityMember> members = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
         String studentNames;
@@ -751,7 +640,7 @@ public class ExaminerNotificationListener {
                     .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName())
                     .collect(Collectors.joining(", "));
         } else {
-            studentNames = modality.getLeader() != null 
+            studentNames = modality.getLeader() != null
                     ? modality.getLeader().getName() + " " + modality.getLeader().getLastName()
                     : "No registrado";
         }

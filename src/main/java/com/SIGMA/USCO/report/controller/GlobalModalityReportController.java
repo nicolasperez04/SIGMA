@@ -19,17 +19,22 @@ import com.SIGMA.USCO.report.dto.StudentsByModalityReportDTO;
 import com.SIGMA.USCO.report.dto.StudentsBySemesterReportDTO;
 import com.SIGMA.USCO.report.enums.ReportType;
 import com.SIGMA.USCO.report.service.CompletedModalitiesPdfGenerator;
+import com.SIGMA.USCO.report.service.CompletedModalitiesReportService;
+import com.SIGMA.USCO.report.service.ComparisonReportService;
 import com.SIGMA.USCO.report.service.DefenseCalendarPdfGenerator;
 import com.SIGMA.USCO.report.service.DefenseCalendarReportService;
 import com.SIGMA.USCO.report.service.DirectorAssignedModalitiesPdfGenerator;
+import com.SIGMA.USCO.report.service.DirectorAssignedModalitiesReportService;
 import com.SIGMA.USCO.report.service.DirectorReportService;
+import com.SIGMA.USCO.report.service.GlobalReportService;
+import com.SIGMA.USCO.report.service.HistoricalReportService;
 import com.SIGMA.USCO.report.service.ModalityComparisonPdfGenerator;
 import com.SIGMA.USCO.report.service.ModalityHistoricalPdfGenerator;
 import com.SIGMA.USCO.report.service.ModalityTraceabilityPdfGenerator;
 import com.SIGMA.USCO.report.service.ModalityTraceabilityReportService;
 import com.SIGMA.USCO.report.service.PdfReport;
-import com.SIGMA.USCO.report.service.ReportService;
 import com.SIGMA.USCO.report.service.StudentListingPdfGenerator;
+import com.SIGMA.USCO.report.service.StudentListingReportService;
 import com.SIGMA.USCO.report.service.StudentReportService;
 import com.itextpdf.text.DocumentException;
 import lombok.RequiredArgsConstructor;
@@ -62,9 +67,14 @@ import java.util.Map;
 @SecurityRequirement(name = "bearer-jwt")
 public class GlobalModalityReportController {
 
-    private final ReportService reportService;
+    private final CompletedModalitiesReportService completedModalitiesReportService;
+    private final StudentListingReportService studentListingReportService;
+    private final HistoricalReportService historicalReportService;
+    private final GlobalReportService globalReportService;
+    private final ComparisonReportService comparisonReportService;
     private final StudentReportService studentReportService;
     private final DirectorReportService directorReportService;
+    private final DirectorAssignedModalitiesReportService directorAssignedModalitiesReportService;
     private final ModalityTraceabilityReportService modalityTraceabilityReportService;
     private final DefenseCalendarReportService defenseCalendarReportService;
     private final PdfReport pdfGeneratorService;
@@ -82,7 +92,7 @@ public class GlobalModalityReportController {
     @ApiResponse(responseCode = "200", description = "Reporte global generado exitosamente")
     public ResponseEntity<?> getGlobalModalitiesReport() {
         try {
-            GlobalModalityReportDTO report = reportService.generateGlobalReport();
+            GlobalModalityReportDTO report = globalReportService.generateGlobalReport();
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -95,12 +105,7 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
     }
 
@@ -115,7 +120,7 @@ public class GlobalModalityReportController {
     })
     public ResponseEntity<Resource> exportGlobalModalityReportToPDF() {
         try {
-            GlobalModalityReportDTO report = reportService.generateGlobalReport();
+            GlobalModalityReportDTO report = globalReportService.generateGlobalReport();
             ByteArrayOutputStream pdfStream = pdfGeneratorService.generatePDF(report);
             ByteArrayResource resource = new ByteArrayResource(pdfStream.toByteArray());
 
@@ -156,12 +161,7 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
     }
 
@@ -184,12 +184,7 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
     }
 
@@ -215,12 +210,7 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
     }
 
@@ -236,7 +226,7 @@ public class GlobalModalityReportController {
             @RequestBody(required = false) DirectorReportFilterDTO filters
     ) {
         try {
-            DirectorAssignedModalitiesReportDTO report = reportService.generateDirectorAssignedModalitiesReport(filters);
+            DirectorAssignedModalitiesReportDTO report = directorAssignedModalitiesReportService.generateDirectorAssignedModalitiesReport(filters);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -249,19 +239,9 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "success", false,
-                            "error", e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte de directores: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte de directores: " + e.getMessage());
         }
     }
 
@@ -273,7 +253,7 @@ public class GlobalModalityReportController {
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<Resource> exportDirectorAssignedModalitiesReportToPDF(@RequestBody(required = false) DirectorReportFilterDTO filters) {
         try {
-            DirectorAssignedModalitiesReportDTO report = reportService.generateDirectorAssignedModalitiesReport(filters);
+            DirectorAssignedModalitiesReportDTO report = directorAssignedModalitiesReportService.generateDirectorAssignedModalitiesReport(filters);
             ByteArrayOutputStream pdfStream = directorPdfGenerator.generatePDF(report);
             ByteArrayResource resource = new ByteArrayResource(pdfStream.toByteArray());
 
@@ -303,7 +283,7 @@ public class GlobalModalityReportController {
                     .includeWorkloadAnalysis(false)
                     .build();
 
-            DirectorAssignedModalitiesReportDTO report = reportService.generateDirectorAssignedModalitiesReport(filters);
+            DirectorAssignedModalitiesReportDTO report = directorAssignedModalitiesReportService.generateDirectorAssignedModalitiesReport(filters);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -316,19 +296,9 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "success", false,
-                            "error", e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte del director: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte del director: " + e.getMessage());
         }
     }
 
@@ -345,7 +315,7 @@ public class GlobalModalityReportController {
                     .includeWorkloadAnalysis(false)
                     .build();
 
-            DirectorAssignedModalitiesReportDTO report = reportService.generateDirectorAssignedModalitiesReport(filters);
+            DirectorAssignedModalitiesReportDTO report = directorAssignedModalitiesReportService.generateDirectorAssignedModalitiesReport(filters);
             ByteArrayOutputStream pdfStream = directorPdfGenerator.generatePDF(report);
             ByteArrayResource resource = new ByteArrayResource(pdfStream.toByteArray());
 
@@ -427,7 +397,7 @@ public class GlobalModalityReportController {
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<?> getAvailableModalityTypes() {
         try {
-            AvailableModalityTypesDTO types = reportService.getAvailableModalityTypes();
+            AvailableModalityTypesDTO types = globalReportService.getAvailableModalityTypes();
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -439,19 +409,9 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "success", false,
-                            "error", e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al obtener tipos de modalidad: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al obtener tipos de modalidad: " + e.getMessage());
         }
     }
 
@@ -460,7 +420,7 @@ public class GlobalModalityReportController {
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<?> getFilteredModalityReport(@RequestBody ModalityReportFilterDTO filters) {
         try {
-            GlobalModalityReportDTO report = reportService.generateFilteredReport(filters);
+            GlobalModalityReportDTO report = globalReportService.generateFilteredReport(filters);
 
             // Construir información de filtros aplicados
             Map<String, Object> filterInfo = new java.util.HashMap<>();
@@ -486,19 +446,9 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "success", false,
-                            "error", e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte filtrado: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte filtrado: " + e.getMessage());
         }
     }
 
@@ -510,7 +460,7 @@ public class GlobalModalityReportController {
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<Resource> exportFilteredModalityReportToPDF(@RequestBody ModalityReportFilterDTO filters) {
         try {
-            GlobalModalityReportDTO report = reportService.generateFilteredReport(filters);
+            GlobalModalityReportDTO report = globalReportService.generateFilteredReport(filters);
             ByteArrayOutputStream pdfStream = pdfGeneratorService.generatePDF(report);
             ByteArrayResource resource = new ByteArrayResource(pdfStream.toByteArray());
 
@@ -537,7 +487,7 @@ public class GlobalModalityReportController {
             @RequestBody(required = false) ModalityComparisonFilterDTO filters
     ) {
         try {
-            ModalityTypeComparisonReportDTO report = reportService.generateModalityTypeComparison(filters);
+            ModalityTypeComparisonReportDTO report = comparisonReportService.generateModalityTypeComparison(filters);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -550,19 +500,9 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "success", false,
-                            "error", e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte comparativo: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte comparativo: " + e.getMessage());
         }
     }
 
@@ -574,7 +514,7 @@ public class GlobalModalityReportController {
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<Resource> exportModalityTypeComparisonToPDF(@RequestBody(required = false) ModalityComparisonFilterDTO filters) {
         try {
-            ModalityTypeComparisonReportDTO report = reportService.generateModalityTypeComparison(filters);
+            ModalityTypeComparisonReportDTO report = comparisonReportService.generateModalityTypeComparison(filters);
             ByteArrayOutputStream pdfStream = comparisonPdfGenerator.generatePDF(report);
             ByteArrayResource resource = new ByteArrayResource(pdfStream.toByteArray());
 
@@ -602,7 +542,7 @@ public class GlobalModalityReportController {
             @RequestParam(required = false, defaultValue = "8") Integer periods
     ) {
         try {
-            ModalityHistoricalReportDTO report = reportService.generateModalityHistoricalReport(modalityTypeId, periods);
+            ModalityHistoricalReportDTO report = historicalReportService.generateModalityHistoricalReport(modalityTypeId, periods);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -615,19 +555,9 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "success", false,
-                            "error", e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte histórico: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte histórico: " + e.getMessage());
         }
     }
 
@@ -639,7 +569,7 @@ public class GlobalModalityReportController {
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<Resource> exportModalityHistoricalReportToPDF(@PathVariable Long modalityTypeId, @RequestParam(required = false, defaultValue = "8") Integer periods) {
         try {
-            ModalityHistoricalReportDTO report = reportService.generateModalityHistoricalReport(modalityTypeId, periods);
+            ModalityHistoricalReportDTO report = historicalReportService.generateModalityHistoricalReport(modalityTypeId, periods);
             ByteArrayOutputStream pdfStream = modalityHistoricalPdfGenerator.generatePDF(report);
             ByteArrayResource resource = new ByteArrayResource(pdfStream.toByteArray());
 
@@ -672,7 +602,7 @@ public class GlobalModalityReportController {
             @RequestBody(required = false) StudentListingFilterDTO filters
     ) {
         try {
-            StudentListingReportDTO report = reportService.generateStudentListingReport(filters);
+            StudentListingReportDTO report = studentListingReportService.generateStudentListingReport(filters);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -685,19 +615,9 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "success", false,
-                            "error", e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
     }
 
@@ -709,7 +629,7 @@ public class GlobalModalityReportController {
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<Resource> exportStudentListingReportToPDF(@RequestBody(required = false) StudentListingFilterDTO filters) {
         try {
-            StudentListingReportDTO report = reportService.generateStudentListingReport(filters);
+            StudentListingReportDTO report = studentListingReportService.generateStudentListingReport(filters);
             ByteArrayOutputStream pdfStream = studentListingPdfGenerator.generatePDF(report);
             ByteArrayResource resource = new ByteArrayResource(pdfStream.toByteArray());
 
@@ -739,7 +659,7 @@ public class GlobalModalityReportController {
             @RequestBody(required = false) CompletedModalitiesFilterDTO filters
     ) {
         try {
-            CompletedModalitiesReportDTO report = reportService.generateCompletedModalitiesReport(filters);
+            CompletedModalitiesReportDTO report = completedModalitiesReportService.generateCompletedModalitiesReport(filters);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -752,19 +672,9 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "success", false,
-                            "error", e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
     }
 
@@ -776,7 +686,7 @@ public class GlobalModalityReportController {
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<Resource> exportCompletedModalitiesReportToPDF(@RequestBody(required = false) CompletedModalitiesFilterDTO filters) {
         try {
-            CompletedModalitiesReportDTO report = reportService.generateCompletedModalitiesReport(filters);
+            CompletedModalitiesReportDTO report = completedModalitiesReportService.generateCompletedModalitiesReport(filters);
             ByteArrayOutputStream pdfStream = completedModalitiesPdfGenerator.generatePDF(report);
             ByteArrayResource resource = new ByteArrayResource(pdfStream.toByteArray());
 
@@ -851,17 +761,9 @@ public class GlobalModalityReportController {
                     "timestamp", LocalDateTime.now()
             ));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "error", e.getMessage(),
-                    "timestamp", LocalDateTime.now()
-            ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "error", "Error al generar el reporte: " + e.getMessage(),
-                    "timestamp", LocalDateTime.now()
-            ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
     }
 
@@ -886,17 +788,9 @@ public class GlobalModalityReportController {
                     "timestamp", LocalDateTime.now()
             ));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "error", e.getMessage(),
-                    "timestamp", LocalDateTime.now()
-            ));
+            return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "error", "Error al generar el reporte: " + e.getMessage(),
-                    "timestamp", LocalDateTime.now()
-            ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
     }
 
@@ -1006,6 +900,14 @@ public class GlobalModalityReportController {
                 ));
     }
 
+    private ResponseEntity<Map<String, Object>> jsonError(HttpStatus status, String errorMessage) {
+        return ResponseEntity.status(status).body(Map.of(
+                "success", false,
+                "error", errorMessage,
+                "timestamp", LocalDateTime.now()
+        ));
+    }
+
     // ==================== REPORTE DE CALENDARIO DE SUSTENTACIONES ====================
 
     /**
@@ -1041,19 +943,9 @@ public class GlobalModalityReportController {
                     ));
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Parámetros inválidos: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.BAD_REQUEST, "Parámetros inválidos: " + e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "error", "Error al generar el reporte: " + e.getMessage(),
-                            "timestamp", LocalDateTime.now()
-                    ));
+            return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
     }
 

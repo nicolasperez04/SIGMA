@@ -5,9 +5,9 @@ import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.ModalityProcessStatusHistoryRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.notifications.event.CorrectionDeadlineExpiredEvent;
-import com.SIGMA.USCO.notifications.event.CorrectionDeadlineReminderEvent;
-import com.SIGMA.USCO.notifications.publisher.NotificationEventPublisher;
+import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
+import org.springframework.context.ApplicationEventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.List;
 
 @Service
@@ -25,7 +26,7 @@ public class CorrectionDeadlineSchedulerService {
 
     private final StudentModalityRepository studentModalityRepository;
     private final ModalityProcessStatusHistoryRepository historyRepository;
-    private final NotificationEventPublisher notificationEventPublisher;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     /**
      * ========================================
@@ -118,13 +119,12 @@ public class CorrectionDeadlineSchedulerService {
         log.info("   Intentos usados: {} de 3", modality.getCorrectionAttempts());
 
         // Publicar evento de recordatorio
-        notificationEventPublisher.publish(
-                new CorrectionDeadlineReminderEvent(
-                        modality.getId(),
-                        modality.getLeader().getId(),
-                        modality.getCorrectionDeadline(),
-                        daysRemaining
-                )
+        applicationEventPublisher.publishEvent(
+                new ModalityEvent(NotificationType.CORRECTION_DEADLINE_REMINDER, modality.getId(), null, Map.of(
+                        ModalityEvent.KEY_STUDENT_ID, modality.getLeader().getId(),
+                        ModalityEvent.KEY_DEADLINE, modality.getCorrectionDeadline(),
+                        ModalityEvent.KEY_DAYS_REMAINING, daysRemaining
+                ))
         );
 
         // Marcar que el recordatorio fue enviado
@@ -170,12 +170,11 @@ public class CorrectionDeadlineSchedulerService {
         );
 
         // Publicar evento de rechazo
-        notificationEventPublisher.publish(
-                new CorrectionDeadlineExpiredEvent(
-                        modality.getId(),
-                        modality.getLeader().getId(),
-                        modality.getCorrectionRequestDate()
-                )
+        applicationEventPublisher.publishEvent(
+                new ModalityEvent(NotificationType.CORRECTION_DEADLINE_EXPIRED, modality.getId(), null, Map.of(
+                        ModalityEvent.KEY_STUDENT_ID, modality.getLeader().getId(),
+                        ModalityEvent.KEY_REQUEST_DATE, modality.getCorrectionRequestDate()
+                ))
         );
 
         log.info("✅ Propuesta de modalidad {} rechazada exitosamente", modality.getId());

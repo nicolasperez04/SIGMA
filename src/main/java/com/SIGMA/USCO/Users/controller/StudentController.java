@@ -1,7 +1,8 @@
 package com.SIGMA.USCO.Users.controller;
 
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.service.ModalityService;
+import com.SIGMA.USCO.Modalities.service.CancellationService;
+import com.SIGMA.USCO.Modalities.service.StudentModalityListingService;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.Users.service.StudentService;
@@ -9,6 +10,7 @@ import com.SIGMA.USCO.academic.dto.StudentProfileRequest;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.documents.service.DocumentService;
+import com.SIGMA.USCO.security.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -22,8 +24,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -41,7 +41,8 @@ import java.util.Optional;
 public class StudentController {
 
     private final StudentService studentService;
-    private final ModalityService modalityService;
+    private final StudentModalityListingService modalityListingService;
+    private final CancellationService cancellationService;
     private final DocumentService documentService;
     private final StudentDocumentRepository studentDocumentRepository;
     private final UserRepository userRepository;
@@ -85,7 +86,7 @@ public class StudentController {
     @ApiResponse(responseCode = "200", description = "Modalidad obtenida exitosamente")
     @GetMapping("/modality/current")
     public ResponseEntity<?> getCurrentStudentModality() {
-        return modalityService.getCurrentStudentModality();
+        return modalityListingService.getCurrentStudentModality();
     }
 
     @Operation(summary = "Obtener historial de documento", description = "Retorna el historial de cambios y estados de un documento específico")
@@ -103,7 +104,7 @@ public class StudentController {
     })
     @PostMapping("/{studentModalityId}/request-cancellation")
     public ResponseEntity<?> requestCancellation(@Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId) {
-        return modalityService.requestCancellation(studentModalityId);
+        return cancellationService.requestCancellation(studentModalityId);
     }
 
     @Operation(summary = "Obtener mis documentos", description = "Retorna la lista de documentos requeridos y su estado para la modalidad actual del estudiante")
@@ -143,14 +144,7 @@ public class StudentController {
     @PreAuthorize("hasRole('STUDENT')")
     public ResponseEntity<?> viewMyDocument(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) {
         // Obtener el usuario actual autenticado
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String email = auth.getName();
-
-        Optional<User> userOpt = userRepository.findByEmail(email);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(404).body("Usuario no encontrado");
-        }
-        User currentUser = userOpt.get();
+        User currentUser = SecurityUtils.getCurrentUser();
 
         // Buscar el documento
         Optional<StudentDocument> docOpt = studentDocumentRepository.findById(studentDocumentId);
