@@ -29,6 +29,10 @@ import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.AcademicHistoryPdfRepository;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
+import com.SIGMA.USCO.common.exception.BusinessException;
+import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.documents.dto.DetailDocumentDTO;
 import com.SIGMA.USCO.documents.entity.RequiredDocument;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
@@ -47,24 +51,12 @@ import com.SIGMA.USCO.notifications.listeners.ExaminerNotificationListener;
 import com.SIGMA.USCO.security.SecurityUtils;
 import org.springframework.context.ApplicationEventPublisher;
 import com.SIGMA.USCO.notifications.repository.NotificationRepository;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.UrlResource;
-import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.net.MalformedURLException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -298,14 +290,15 @@ public class StudentModalityListingService {
                 .build();
     }
 
-    public ResponseEntity<?> getCurrentStudentModality() {
+    @Transactional(readOnly = true)
+    public StudentModalityDTO getCurrentStudentModality() {
 
         User student = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository
                 .findTopByStudentIdOrderByUpdatedAtDesc(student.getId())
                 .orElseThrow(() ->
-                        new RuntimeException("Not current modality found for the student")
+                        new NotFoundException("Not current modality found for the student")
                 );
 
         DegreeModality modality = studentModality.getProgramDegreeModality().getDegreeModality();
@@ -402,8 +395,7 @@ public class StudentModalityListingService {
             defenseProposedBy = "El director de proyecto ha propuesto una fecha de sustentación";
         }
 
-        return ResponseEntity.ok(
-                StudentModalityDTO.builder()
+        return StudentModalityDTO.builder()
 
                         .studentId(student.getId())
                         .studentName(student.getName())
@@ -465,11 +457,11 @@ public class StudentModalityListingService {
                         .hasDefenseScheduled(hasDefenseScheduled)
                         .requiresAction(requiresAction)
 
-                        .build()
-        );
+                        .build();
     }
 
-    public ResponseEntity<?> getAllStudentModalitiesForProgramHead(List<ModalityProcessStatus> statuses, String name) {
+    @Transactional(readOnly = true)
+    public List<ModalityListDTO> getAllStudentModalitiesForProgramHead(List<ModalityProcessStatus> statuses, String name) {
 
         User programHead = SecurityUtils.getCurrentUser();
 
@@ -481,7 +473,7 @@ public class StudentModalityListingService {
                         .toList();
 
         if (programIds.isEmpty()) {
-            return ResponseEntity.ok(List.of());
+            return List.of();
         }
 
         boolean hasStatusFilter = statuses != null && !statuses.isEmpty();
@@ -540,28 +532,16 @@ public class StudentModalityListingService {
                                     .map(member -> member.getStudent().getEmail())
                                     .collect(Collectors.joining(", "));
 
-                            return ModalityListDTO.builder()
-                                    .studentModalityId(sm.getId())
-                                    .studentName(studentNames)
-                                    .studentEmail(studentEmails)
-                                    .modalityName(
-                                            sm.getProgramDegreeModality()
-                                                    .getDegreeModality()
-                                                    .getName()
-                                    )
-                                    .currentStatus(status.name())
-                                    .currentStatusDescription(ModalityServiceUtils.describeModalityStatus(status))
-                                    .lastUpdatedAt(sm.getUpdatedAt())
-                                    .hasPendingActions(pending)
-                                    .build();
+                            return toModalityList(sm, status, pending);
                         })
                         .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                         .toList();
 
-        return ResponseEntity.ok(response);
+        return response;
     }
 
-    public ResponseEntity<?> getAllStudentModalitiesForProgramCurriculumCommittee(List<ModalityProcessStatus> statuses, String name) {
+    @Transactional(readOnly = true)
+    public List<ModalityListDTO> getAllStudentModalitiesForProgramCurriculumCommittee(List<ModalityProcessStatus> statuses, String name) {
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
@@ -573,7 +553,7 @@ public class StudentModalityListingService {
                 .toList();
 
         if (programIds.isEmpty()) {
-            return ResponseEntity.ok(List.of());
+            return List.of();
         }
 
         List<ModalityProcessStatus> committeeRelevantStatuses = Arrays.asList(ModalityProcessStatus.values());
@@ -586,7 +566,7 @@ public class StudentModalityListingService {
                     .toList();
 
             if (finalStatuses.isEmpty()) {
-                return ResponseEntity.ok(List.of());
+                return List.of();
             }
         } else {
 
@@ -633,28 +613,16 @@ public class StudentModalityListingService {
                                     .map(member -> member.getStudent().getEmail())
                                     .collect(Collectors.joining(", "));
 
-                            return ModalityListDTO.builder()
-                                    .studentModalityId(sm.getId())
-                                    .studentName(studentNames)
-                                    .studentEmail(studentEmails)
-                                    .modalityName(
-                                            sm.getProgramDegreeModality()
-                                                    .getDegreeModality()
-                                                    .getName()
-                                    )
-                                    .currentStatus(status.name())
-                                    .currentStatusDescription(ModalityServiceUtils.describeModalityStatus(status))
-                                    .lastUpdatedAt(sm.getUpdatedAt())
-                                    .hasPendingActions(pending)
-                                    .build();
+                            return toModalityList(sm, status, pending);
                         })
                         .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                         .toList();
 
-        return ResponseEntity.ok(response);
+        return response;
     }
 
-    public ResponseEntity<?> getAllStudentModalitiesForProjectDirector(List<ModalityProcessStatus> statuses, String name) {
+    @Transactional(readOnly = true)
+    public List<ModalityListDTO> getAllStudentModalitiesForProjectDirector(List<ModalityProcessStatus> statuses, String name) {
 
         User projectDirector = SecurityUtils.getCurrentUser();
 
@@ -665,8 +633,7 @@ public class StudentModalityListingService {
                 .toList();
 
         if (directorAuthorities.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("El usuario no tiene el rol de PROJECT_DIRECTOR");
+            throw new ForbiddenException("El usuario no tiene el rol de PROJECT_DIRECTOR");
         }
 
         boolean hasStatusFilter = statuses != null && !statuses.isEmpty();
@@ -713,24 +680,16 @@ public class StudentModalityListingService {
                             .map(member -> member.getStudent().getEmail())
                             .collect(Collectors.joining(", "));
 
-                    return ModalityListDTO.builder()
-                            .studentModalityId(sm.getId())
-                            .studentName(studentNames)
-                            .studentEmail(studentEmails)
-                            .modalityName(sm.getProgramDegreeModality().getDegreeModality().getName())
-                            .currentStatus(status.name())
-                            .currentStatusDescription(ModalityServiceUtils.describeModalityStatus(status))
-                            .lastUpdatedAt(sm.getUpdatedAt())
-                            .hasPendingActions(pending)
-                            .build();
+                    return toModalityList(sm, status, pending);
                 })
                 .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                 .toList();
 
-        return ResponseEntity.ok(response);
+        return response;
     }
 
-    public ResponseEntity<?> getAllStudentModalitiesForExaminer(List<ModalityProcessStatus> statuses, String name) {
+    @Transactional(readOnly = true)
+    public List<ModalityListDTO> getAllStudentModalitiesForExaminer(List<ModalityProcessStatus> statuses, String name) {
 
         User examiner = SecurityUtils.getCurrentUser();
 
@@ -738,7 +697,7 @@ public class StudentModalityListingService {
                 .findByExaminerId(examiner.getId());
 
         if (examinerAssignments.isEmpty()) {
-            return ResponseEntity.ok(List.of());
+            return List.of();
         }
 
         boolean hasStatusFilter = statuses != null && !statuses.isEmpty();
@@ -784,29 +743,21 @@ public class StudentModalityListingService {
                             .map(member -> member.getStudent().getEmail())
                             .collect(Collectors.joining(", "));
 
-                    return ModalityListDTO.builder()
-                            .studentModalityId(sm.getId())
-                            .studentName(studentNames)
-                            .studentEmail(studentEmails)
-                            .modalityName(sm.getProgramDegreeModality().getDegreeModality().getName())
-                            .currentStatus(status.name())
-                            .currentStatusDescription(ModalityServiceUtils.describeModalityStatus(status))
-                            .lastUpdatedAt(sm.getUpdatedAt())
-                            .hasPendingActions(pending)
-                            .build();
+                    return toModalityList(sm, status, pending);
                 })
                 .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                 .toList();
 
-        return ResponseEntity.ok(response);
+        return response;
     }
 
-    public ResponseEntity<?> getStudentModalityDetailForProgramHead(Long studentModalityId) {
+    @Transactional(readOnly = true)
+    public StudentModalityDTO getStudentModalityDetailForProgramHead(Long studentModalityId) {
 
         User programHead = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         AcademicProgram academicProgram = studentModality.getProgramDegreeModality().getAcademicProgram();
 
@@ -818,8 +769,7 @@ public class StudentModalityListingService {
                 );
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para ver esta modalidad");
+            throw new ForbiddenException("No tiene permiso para ver esta modalidad");
         }
 
         List<StudentModalityMember> activeMembers =
@@ -843,8 +793,7 @@ public class StudentModalityListingService {
                 studentDocumentRepository
                         .findByStudentModalityId(studentModalityId);
 
-        return ResponseEntity.ok(
-                buildStudentModalityDTO(
+        return buildStudentModalityDTO(
                         studentModality,
                         modality,
                         academicProgram,
@@ -855,15 +804,15 @@ public class StudentModalityListingService {
                         buildDetailDocuments(requiredDocuments, uploadedDocuments),
                         uploadedDocuments,
                         "El director de proyecto ha propuesto una fecha de sustentación"
-                )
-        );
+                );
     }
 
-    public ResponseEntity<?> getStudentModalityDetailForCommittee(Long studentModalityId) {
+    @Transactional(readOnly = true)
+    public StudentModalityDTO getStudentModalityDetailForCommittee(Long studentModalityId) {
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         AcademicProgram academicProgram = studentModality.getProgramDegreeModality().getAcademicProgram();
 
@@ -875,8 +824,7 @@ public class StudentModalityListingService {
                 );
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para ver esta modalidad");
+            throw new ForbiddenException("No tiene permiso para ver esta modalidad");
         }
 
         List<StudentModalityMember> activeMembers =
@@ -900,8 +848,7 @@ public class StudentModalityListingService {
                 studentDocumentRepository
                         .findByStudentModalityId(studentModalityId);
 
-        return ResponseEntity.ok(
-                buildStudentModalityDTO(
+        return buildStudentModalityDTO(
                         studentModality,
                         modality,
                         academicProgram,
@@ -912,21 +859,20 @@ public class StudentModalityListingService {
                         buildDetailDocuments(requiredDocuments, uploadedDocuments),
                         uploadedDocuments,
                         "El director de proyecto ha propuesto una fecha de sustentación"
-                )
-        );
+                );
     }
 
-    public ResponseEntity<?> getStudentModalityDetailForProjectDirector(Long studentModalityId) {
+    @Transactional(readOnly = true)
+    public StudentModalityDTO getStudentModalityDetailForProjectDirector(Long studentModalityId) {
 
         User projectDirector = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         if (studentModality.getProjectDirector() == null ||
                 !studentModality.getProjectDirector().getId().equals(projectDirector.getId())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para ver esta modalidad. No es el director asignado.");
+            throw new ForbiddenException("No tiene permiso para ver esta modalidad. No es el director asignado.");
         }
 
         List<StudentModalityMember> activeMembers =
@@ -952,8 +898,7 @@ public class StudentModalityListingService {
                 studentDocumentRepository
                         .findByStudentModalityId(studentModalityId);
 
-        return ResponseEntity.ok(
-                buildStudentModalityDTO(
+        return buildStudentModalityDTO(
                         studentModality,
                         modality,
                         academicProgram,
@@ -964,16 +909,16 @@ public class StudentModalityListingService {
                         buildDetailDocuments(requiredDocuments, uploadedDocuments),
                         uploadedDocuments,
                         "Usted ha propuesto una fecha de sustentación. Pendiente de aprobación del comité."
-                )
-        );
+                );
     }
 
-    public ResponseEntity<?> getStudentModalityDetailForExaminer(Long studentModalityId) {
+    @Transactional(readOnly = true)
+    public StudentModalityExaminerDTO getStudentModalityDetailForExaminer(Long studentModalityId) {
 
         User examiner = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         // Verificar si el usuario es un examinador asignado a esta modalidad
         DefenseExaminer defenseExaminer = defenseExaminerRepository
@@ -981,8 +926,7 @@ public class StudentModalityListingService {
                 .orElse(null);
 
         if (defenseExaminer == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para ver esta modalidad. No está asignado como examinador.");
+            throw new ForbiddenException("No tiene permiso para ver esta modalidad. No está asignado como examinador.");
         }
 
         // Obtener todos los miembros activos de la modalidad
@@ -1102,8 +1046,7 @@ public class StudentModalityListingService {
         // Director del proyecto
         User projectDirector = studentModality.getProjectDirector();
 
-        return ResponseEntity.ok(
-                StudentModalityExaminerDTO.builder()
+        return StudentModalityExaminerDTO.builder()
                         // Información del estudiante
                         .studentId(student.getId())
                         .studentName(student.getName())
@@ -1171,8 +1114,7 @@ public class StudentModalityListingService {
                         .requiresAction(requiresAction)
                         .defenseCompleted(defenseCompleted)
 
-                        .build()
-        );
+                        .build();
     }
 
     /**
@@ -1188,7 +1130,8 @@ public class StudentModalityListingService {
      *
      * @param studentName (opcional) filtro parcial por nombre, apellido o nombre completo
      */
-    public ResponseEntity<?> getProgramStudentsForCommittee(String studentName) {
+@Transactional(readOnly = true)
+    public Map<String, Object> getProgramStudentsForCommittee(String studentName) {
         try {
             // 1. Resolver usuario autenticado desde el contexto de seguridad
             User currentUser = SecurityUtils.getCurrentUser();
@@ -1198,10 +1141,7 @@ public class StudentModalityListingService {
                     .findByUser_IdAndRole(currentUser.getId(), ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
 
             if (authorities.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                        "success", false,
-                        "message", "El usuario no pertenece a ningún comité de programa académico."
-                ));
+                throw new ForbiddenException("El usuario no pertenece a ningún comité de programa académico.");
             }
 
             // 3. Obtener el programa académico del comité
@@ -1294,85 +1234,47 @@ public class StudentModalityListingService {
                     })
                     .collect(Collectors.toList());
 
-            return ResponseEntity.ok(Map.of(
+            return Map.of(
                     "success", true,
                     "academicProgramId", program.getId(),
                     "academicProgramName", program.getName(),
                     "totalStudents", students.size(),
                     "students", students
-            ));
+            );
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (RuntimeException e) {
             log.error("Error al obtener estudiantes del programa para comité: {}", e.getMessage(), e);
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", e.getMessage()
-            ));
+            throw new ValidationException(e.getMessage());
         } catch (Exception e) {
             log.error("Error inesperado al obtener estudiantes del programa: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Error al obtener los estudiantes: " + e.getMessage()
-            ));
+            throw new RuntimeException("Error al obtener los estudiantes: " + e.getMessage());
         }
     }
 
-    /**
-     * Obtiene los PDFs de historial académico de todos los estudiantes
-     * asociados a una modalidad específica
-     * @param modalityId ID de la modalidad
-     * @return Lista de AcademicHistoryPdf de los estudiantes en la modalidad
-     */
-    public List<AcademicHistoryPdf> getAcademicHistoryPdfsByModality(Long modalityId) {
-        log.info("Obteniendo PDFs de historial académico para la modalidad: {}", modalityId);
-        try {
-            return academicHistoryPdfRepository.findByStudentModalityId(modalityId);
-        } catch (Exception e) {
-            log.error("Error al obtener PDFs de historial académico: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al obtener los PDFs de historial académico: " + e.getMessage());
-        }
-    }
+    private ModalityListDTO toModalityList(StudentModality sm, ModalityProcessStatus status, boolean pending) {
+        List<StudentModalityMember> activeMembers = studentModalityMemberRepository
+                .findByStudentModalityIdAndStatus(sm.getId(), MemberStatus.ACTIVE);
 
-    /**
-     * Descarga/visualiza un PDF de historial académico específico
-     * @param academicHistoryPdfId ID del documento PDF
-     * @return ResponseEntity con el archivo PDF para descargar o visualizar
-     */
-    public ResponseEntity<?> downloadAcademicHistoryPdf(Long academicHistoryPdfId) throws MalformedURLException {
-        log.info("Descargando PDF de historial académico: {}", academicHistoryPdfId);
-        
-        AcademicHistoryPdf pdf = academicHistoryPdfRepository.findById(academicHistoryPdfId)
-                .orElseThrow(() -> new RuntimeException("PDF de historial académico no encontrado con ID: " + academicHistoryPdfId));
-        
-        Path filePath = Paths.get(pdf.getFilePath());
-        
-        if (!Files.exists(filePath)) {
-            log.error("Archivo PDF no existe en la ruta: {}", pdf.getFilePath());
-            throw new RuntimeException("Archivo PDF no encontrado en el servidor: " + pdf.getOriginalFileName());
-        }
-        
-        try {
-            Resource resource = new UrlResource(filePath.toUri());
-            
-            if (!resource.exists()) {
-                throw new RuntimeException("No se puede acceder al archivo PDF");
-            }
-            
-            String contentType = "application/pdf";
-            
-            return ResponseEntity.ok()
-                    .contentType(MediaType.parseMediaType(contentType))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, 
-                            "inline; filename=\"" + pdf.getOriginalFileName() + "\"")
-                    .body(resource);
-                    
-        } catch (MalformedURLException e) {
-            log.error("Error al crear URL del recurso: {}", e.getMessage());
-            throw e;
-        } catch (Exception e) {
-            log.error("Error al descargar PDF: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al descargar el archivo PDF: " + e.getMessage());
-        }
+        String studentNames = activeMembers.stream()
+                .map(member -> member.getStudent().getName() + " " + member.getStudent().getLastName())
+                .collect(Collectors.joining(", "));
+
+        String studentEmails = activeMembers.stream()
+                .map(member -> member.getStudent().getEmail())
+                .collect(Collectors.joining(", "));
+
+        return ModalityListDTO.builder()
+                .studentModalityId(sm.getId())
+                .studentName(studentNames)
+                .studentEmail(studentEmails)
+                .modalityName(sm.getProgramDegreeModality().getDegreeModality().getName())
+                .currentStatus(status.name())
+                .currentStatusDescription(ModalityServiceUtils.describeModalityStatus(status))
+                .lastUpdatedAt(sm.getUpdatedAt())
+                .hasPendingActions(pending)
+                .build();
     }
 
 }

@@ -8,6 +8,8 @@ import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.ProgramDegreeModality;
 import com.SIGMA.USCO.academic.repository.AcademicProgramRepository;
 import com.SIGMA.USCO.academic.repository.ProgramDegreeModalityRepository;
+import com.SIGMA.USCO.common.exception.ConflictException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,32 +30,21 @@ public class ProgramDegreeModalityService {
     @Transactional
     public ProgramDegreeModalityDTO createProgramModality(ProgramDegreeModalityRequest request) {
 
-        if (request.getAcademicProgramId() == null ||
-                request.getDegreeModalityId() == null ||
-                request.getCreditsRequired() == null) {
-            throw new IllegalArgumentException("Programa, modalidad y créditos son obligatorios.");
-        }
-
-        if (request.getCreditsRequired() <= 0) {
-            throw new IllegalArgumentException(
-                    "Los créditos requeridos deben ser mayores a cero."
-            );
-        }
 
         AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId()).orElseThrow(() ->
-                        new IllegalArgumentException("El programa académico no existe."));
+                        new NotFoundException("El programa académico no existe."));
 
         DegreeModality modality = degreeModalityRepository.findById(request.getDegreeModalityId()).orElseThrow(() ->
-                        new IllegalArgumentException("La modalidad no existe."));
+                        new NotFoundException("La modalidad no existe."));
 
 
         if (!program.getFaculty().getId().equals(modality.getFaculty().getId())) {
-            throw new IllegalArgumentException("La modalidad no pertenece a la facultad del programa.");
+            throw new ConflictException("La modalidad no pertenece a la facultad del programa.");
         }
 
 
         if (programDegreeModalityRepository.existsByAcademicProgramIdAndDegreeModalityId(program.getId(), modality.getId())) {
-            throw new IllegalArgumentException("La modalidad ya está configurada para este programa.");
+            throw new ConflictException("La modalidad ya está configurada para este programa.");
         }
 
         ProgramDegreeModality programModality = ProgramDegreeModality.builder()
@@ -82,7 +73,7 @@ public class ProgramDegreeModalityService {
     @Transactional(readOnly = true)
     public ProgramDegreeModalityDTO getProgramModalityById(Long id) {
         ProgramDegreeModality programModality = programDegreeModalityRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("La configuración de modalidad no existe."));
+                .orElseThrow(() -> new NotFoundException("La configuración de modalidad no existe."));
         return mapToDTO(programModality);
     }
 
@@ -93,15 +84,10 @@ public class ProgramDegreeModalityService {
     @Transactional
     public ProgramDegreeModalityDTO updateProgramModality(Long id, ProgramDegreeModalityRequest request) {
         ProgramDegreeModality programModality = programDegreeModalityRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("La configuración de modalidad no existe."));
+                .orElseThrow(() -> new NotFoundException("La configuración de modalidad no existe."));
 
 
-        if (request.getCreditsRequired() != null) {
-            if (request.getCreditsRequired() <= 0) {
-                throw new IllegalArgumentException("Los créditos requeridos deben ser mayores a cero.");
-            }
-            programModality.setCreditsRequired(request.getCreditsRequired());
-        }
+        programModality.setCreditsRequired(request.getCreditsRequired());
 
         // Actualizar requiresDefenseProcess siempre que venga en el request
         programModality.setRequiresDefenseProcess(request.isRequiresDefenseProcess());
@@ -121,23 +107,23 @@ public class ProgramDegreeModalityService {
                 !newModalityId.equals(programModality.getDegreeModality().getId())) {
 
                 if (programDegreeModalityRepository.existsByAcademicProgramIdAndDegreeModalityId(newProgramId, newModalityId)) {
-                    throw new IllegalArgumentException("Ya existe una configuración con este programa y modalidad.");
+                    throw new ConflictException("Ya existe una configuración con este programa y modalidad.");
                 }
             }
 
             if (request.getAcademicProgramId() != null) {
                 AcademicProgram newProgram = academicProgramRepository.findById(request.getAcademicProgramId())
-                        .orElseThrow(() -> new IllegalArgumentException("El programa académico no existe."));
+                        .orElseThrow(() -> new NotFoundException("El programa académico no existe."));
                 programModality.setAcademicProgram(newProgram);
             }
 
             if (request.getDegreeModalityId() != null) {
                 DegreeModality newModality = degreeModalityRepository.findById(request.getDegreeModalityId())
-                        .orElseThrow(() -> new IllegalArgumentException("La modalidad no existe."));
+                        .orElseThrow(() -> new NotFoundException("La modalidad no existe."));
 
 
                 if (!programModality.getAcademicProgram().getFaculty().getId().equals(newModality.getFaculty().getId())) {
-                    throw new IllegalArgumentException("La modalidad no pertenece a la facultad del programa.");
+                    throw new ConflictException("La modalidad no pertenece a la facultad del programa.");
                 }
 
                 programModality.setDegreeModality(newModality);
@@ -153,7 +139,7 @@ public class ProgramDegreeModalityService {
     @Transactional
     public void deactivateProgramModality(Long id) {
         ProgramDegreeModality programModality = programDegreeModalityRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("La configuración de modalidad no existe."));
+                .orElseThrow(() -> new NotFoundException("La configuración de modalidad no existe."));
 
         programModality.setActive(false);
         programModality.setUpdatedAt(LocalDateTime.now());
@@ -164,7 +150,7 @@ public class ProgramDegreeModalityService {
     @Transactional
     public void activateProgramModality(Long id) {
         ProgramDegreeModality programModality = programDegreeModalityRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("La configuración de modalidad no existe."));
+                .orElseThrow(() -> new NotFoundException("La configuración de modalidad no existe."));
 
         programModality.setActive(true);
         programModality.setUpdatedAt(LocalDateTime.now());

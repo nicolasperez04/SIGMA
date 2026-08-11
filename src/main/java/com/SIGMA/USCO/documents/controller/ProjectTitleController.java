@@ -1,5 +1,6 @@
 package com.SIGMA.USCO.documents.controller;
 
+import com.SIGMA.USCO.documents.dto.ProjectTitleRequest;
 import com.SIGMA.USCO.documents.service.ProjectTitleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -7,6 +8,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -33,18 +35,11 @@ public class ProjectTitleController {
     @PreAuthorize("hasRole('STUDENT') or hasRole('ADMIN') or hasRole('PROGRAM_HEAD') or hasRole('JURY')")
     public ResponseEntity<?> getProjectTitle(
             @Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId) {
-        try {
-            String projectTitle = projectTitleService.getProjectTitle(studentModalityId);
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "projectTitle", projectTitle != null ? projectTitle : "No registrado"
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", e.getMessage()
-            ));
-        }
+        String projectTitle = projectTitleService.getProjectTitle(studentModalityId);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "projectTitle", projectTitle != null ? projectTitle : "No registrado"
+        ));
     }
 
     @Operation(summary = "Actualizar título del proyecto manualmente", 
@@ -59,30 +54,16 @@ public class ProjectTitleController {
     @PreAuthorize("hasAuthority('PERM_UPDATE_MODALITY') or hasRole('ADMIN')")
     public ResponseEntity<?> updateProjectTitle(
             @Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId,
-            @RequestBody Map<String, String> request) {
-        try {
-            String projectTitle = request.get("projectTitle");
-            
-            if (projectTitle == null) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "success", false,
-                        "message", "El campo 'projectTitle' es requerido"
-                ));
-            }
+            @Valid @RequestBody ProjectTitleRequest request) {
+        String projectTitle = request.getProjectTitle();
 
-            projectTitleService.updateProjectTitleManually(studentModalityId, projectTitle);
-            
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Título del proyecto actualizado exitosamente",
-                    "projectTitle", projectTitle
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", e.getMessage()
-            ));
-        }
+        projectTitleService.updateProjectTitleManually(studentModalityId, projectTitle);
+        
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Título del proyecto actualizado exitosamente",
+                "projectTitle", projectTitle
+        ));
     }
 
 }

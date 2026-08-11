@@ -19,15 +19,16 @@ import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.ProgramDegreeModality;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
+import com.SIGMA.USCO.common.exception.BusinessException;
+import com.SIGMA.USCO.common.exception.ConflictException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import com.SIGMA.USCO.security.SecurityUtils;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -49,7 +50,7 @@ public class SeminarModalityService {
     private final ApplicationEventPublisher applicationEventPublisher;
 
     @Transactional
-    public ResponseEntity<?> createSeminar(SeminarDTO request) {
+    public Map<String, Object> createSeminar(SeminarDTO request) {
         try {
 
             User user = SecurityUtils.getCurrentUser();
@@ -59,33 +60,37 @@ public class SeminarModalityService {
                     .findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
                     .stream()
                     .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "El usuario no tiene el rol de jefe de programa (PROGRAM_HEAD)"
                     ));
 
             AcademicProgram academicProgram = programAuthority.getAcademicProgram();
 
 
+            if (seminarRepository.existsByNameIgnoreCaseAndAcademicProgramId(request.getName(), academicProgram.getId())) {
+                throw new ConflictException("Ya existe un seminario con ese nombre en este programa académico.");
+            }
+
             if (request.getMinParticipants() < 15) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "El número mínimo de participantes debe ser al menos 15 según el Artículo 43"
                 );
             }
 
             if (request.getMaxParticipants() > 35) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "El número máximo de participantes no puede exceder 35 según el Artículo 43"
                 );
             }
 
             if (request.getMinParticipants() > request.getMaxParticipants()) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "El número mínimo de participantes no puede ser mayor al máximo"
                 );
             }
 
             if (request.getTotalHours() < 160) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "La intensidad horaria mínima debe ser de 160 horas según el Artículo 42"
                 );
             }
@@ -110,41 +115,32 @@ public class SeminarModalityService {
 
             seminar = seminarRepository.save(seminar);
 
-            return ResponseEntity.status(HttpStatus.CREATED).body(
-                    Map.of(
-                            "success", true,
-                            "message", "Seminario creado exitosamente",
-                            "seminarId", seminar.getId(),
-                            "programName", academicProgram.getName(),
-                            "seminarName", seminar.getName()
-                    )
+            return Map.of(
+                    "success", true,
+                    "message", "Seminario creado exitosamente",
+                    "seminarId", seminar.getId(),
+                    "programName", academicProgram.getName(),
+                    "seminarName", seminar.getName()
             );
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al crear el seminario: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al crear el seminario: " + e.getMessage());
         }
     }
 
-    public ResponseEntity<?> listActiveSeminarsWithSeats() {
+    @Transactional(readOnly = true)
+    public Map<String, Object> listActiveSeminarsWithSeats() {
         try {
 
             User user = SecurityUtils.getCurrentUser();
 
 
             StudentProfile studentProfile = studentProfileRepository.findById(user.getId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "No se encontró el perfil de estudiante para este usuario"
                     ));
 
@@ -190,41 +186,29 @@ public class SeminarModalityService {
                     })
                     .toList();
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "seminars", seminarDTOs
-                    )
+            return Map.of(
+                    "success", true,
+                    "seminars", seminarDTOs
             );
 
         } catch (IllegalArgumentException e) {
             log.error("Error de validación al listar seminarios: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
         } catch (Exception e) {
             log.error("Error inesperado al listar seminarios: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al listar los seminarios: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al listar los seminarios: " + e.getMessage());
         }
     }
 
     @Transactional
-    public ResponseEntity<?> enrollInSeminar(Long seminarId) {
+    public Map<String, Object> enrollInSeminar(Long seminarId) {
         try {
 
             User user = SecurityUtils.getCurrentUser();
 
 
             StudentProfile studentProfile = studentProfileRepository.findById(user.getId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "No se encontró el perfil de estudiante para este usuario"
                     ));
 
@@ -244,32 +228,32 @@ public class SeminarModalityService {
                     });
 
             if (!hasSeminarioGradoModality) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Para inscribirse en un seminario, debes tener iniciada la modalidad 'SEMINARIO DE GRADO'. " +
                         "Por favor, solicita primero esta modalidad de grado."
                 );
             }
 
             Seminar seminar = seminarRepository.findById(seminarId)
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "El seminario con ID " + seminarId + " no existe"
                     ));
 
 
             if (!seminar.isActive()) {
-                throw new IllegalArgumentException("El seminario no está activo");
+                throw new ValidationException("El seminario no está activo");
             }
 
 
             if (seminar.getStatus() != SeminarStatus.OPEN) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "El seminario no está abierto para inscripciones. Estado actual: " + seminar.getStatus()
                 );
             }
 
 
             if (!seminar.getAcademicProgram().getId().equals(studentProfile.getAcademicProgram().getId())) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "El seminario no pertenece a tu programa académico"
                 );
             }
@@ -278,12 +262,12 @@ public class SeminarModalityService {
             boolean alreadyEnrolled = seminarRepository.isStudentEnrolled(seminarId, studentProfile.getId());
             if (alreadyEnrolled) {
 
-                throw new IllegalArgumentException("Ya estás inscrito en este seminario");
+                throw new ValidationException("Ya estás inscrito en este seminario");
             }
 
 
             if (seminar.getCurrentParticipants() >= seminar.getMaxParticipants()) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "No hay cupos disponibles. El seminario ha alcanzado el máximo de " +
                         seminar.getMaxParticipants() + " participantes"
                 );
@@ -302,46 +286,35 @@ public class SeminarModalityService {
 
             int availableSeats = seminar.getMaxParticipants() - seminar.getCurrentParticipants();
 
-            return ResponseEntity.status(HttpStatus.CREATED).body(
-                    Map.of(
-                            "success", true,
-                            "message", "Te has inscrito exitosamente en el seminario",
-                            "seminarName", seminar.getName(),
-                            "enrollmentDate", LocalDateTime.now(),
-                            "currentParticipants", seminar.getCurrentParticipants(),
-                            "maxParticipants", seminar.getMaxParticipants(),
-                            "availableSeats", availableSeats
-                    )
+            return Map.of(
+                    "success", true,
+                    "message", "Te has inscrito exitosamente en el seminario",
+                    "seminarName", seminar.getName(),
+                    "enrollmentDate", LocalDateTime.now(),
+                    "currentParticipants", seminar.getCurrentParticipants(),
+                    "maxParticipants", seminar.getMaxParticipants(),
+                    "availableSeats", availableSeats
             );
 
         } catch (IllegalArgumentException e) {
 
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
         } catch (Exception e) {
 
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al inscribirse en el seminario: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al inscribirse en el seminario: " + e.getMessage());
         }
     }
 
 
-    public ResponseEntity<?> FgetSeminarDetailForProgramHead(Long seminarId) {
+    @Transactional(readOnly = true)
+    public Map<String, Object> FgetSeminarDetailForProgramHead(Long seminarId) {
         try {
 
             User user = SecurityUtils.getCurrentUser();
 
 
             Seminar seminar = seminarRepository.findById(seminarId)
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "El seminario con ID " + seminarId + " no existe"
                     ));
 
@@ -351,12 +324,12 @@ public class SeminarModalityService {
                     .stream()
                     .findFirst()
                     .map(pa -> pa.getAcademicProgram().getId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "No tienes permisos de jefe de programa"
                     ));
 
             if (!seminar.getAcademicProgram().getId().equals(userProgramId)) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Este seminario no pertenece a tu programa académico"
                 );
             }
@@ -375,10 +348,10 @@ public class SeminarModalityService {
                         }
 
 
-                        List<StudentModality> modalities = studentModalityRepository
+                        List<StudentModality> modalityList = studentModalityRepository
                                 .findByLeaderId(studentProfile.getId());
 
-                        StudentModality seminarioModality = modalities.stream()
+                        StudentModality seminarioModality = modalityList.stream()
                                 .filter(sm -> {
                                     String modalityName = sm.getProgramDegreeModality()
                                             .getDegreeModality().getName();
@@ -443,32 +416,23 @@ public class SeminarModalityService {
                     .enrolledStudents(enrolledStudentDTOs)
                     .build();
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "seminar", detailDTO
-                    )
+            return Map.of(
+                    "success", true,
+                    "seminar", detailDTO
             );
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al obtener el detalle del seminario: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al obtener el detalle del seminario: " + e.getMessage());
         }
     }
 
 
-    public ResponseEntity<?> listSeminarsForProgramHead(String status, Boolean active) {
+    @Transactional(readOnly = true)
+    public Map<String, Object> listSeminarsForProgramHead(String status, Boolean active) {
         try {
             User user = SecurityUtils.getCurrentUser();
 
@@ -477,7 +441,7 @@ public class SeminarModalityService {
                     .stream()
                     .findFirst()
                     .map(pa -> pa.getAcademicProgram().getId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "No tienes permisos de jefe de programa"
                     ));
 
@@ -531,71 +495,57 @@ public class SeminarModalityService {
                     })
                     .collect(Collectors.toList());
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "seminars", seminarDTOs,
-                            "total", seminarDTOs.size()
-                    )
+            return Map.of(
+                    "success", true,
+                    "seminars", seminarDTOs,
+                    "total", seminarDTOs.size()
             );
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al listar seminarios: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al listar seminarios: " + e.getMessage());
         }
     }
 
 
     @Transactional
-    public ResponseEntity<?> startSeminar(Long seminarId) {
+    public Map<String, Object> startSeminar(Long seminarId) {
         try {
             User user = SecurityUtils.getCurrentUser();
 
             Long userProgramId = programAuthorityRepository
-                    .findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
+.findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
                     .stream()
                     .findFirst()
                     .map(pa -> pa.getAcademicProgram().getId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "No tienes permisos de jefe de programa"
                     ));
 
             Seminar seminar = seminarRepository.findById(seminarId)
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "El seminario con ID " + seminarId + " no existe"
                     ));
 
             if (!seminar.getAcademicProgram().getId().equals(userProgramId)) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Este seminario no pertenece a tu programa académico"
                 );
             }
 
-            if (!seminar.isActive()) {
-                throw new IllegalArgumentException("El seminario no está activo");
-            }
-
             if (seminar.getStatus() == SeminarStatus.IN_PROGRESS) {
-                throw new IllegalArgumentException("El seminario ya está en progreso");
+                throw new ValidationException("El seminario ya está en progreso");
             }
 
             if (seminar.getStatus() == SeminarStatus.COMPLETED) {
-                throw new IllegalArgumentException("El seminario ya ha sido completado");
+                throw new ValidationException("El seminario ha sido completado");
             }
 
             if (seminar.getCurrentParticipants() < seminar.getMinParticipants()) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "No se puede iniciar el seminario. Se requieren al menos " +
                         seminar.getMinParticipants() + " participantes. Actualmente hay " +
                         seminar.getCurrentParticipants()
@@ -613,55 +563,42 @@ public class SeminarModalityService {
             for (StudentProfile studentProfile : enrolledStudents) {
                 User student = userRepository.findById(studentProfile.getId()).orElse(null);
                 if (student != null && student.getEmail() != null) {
-                    try {
-                        applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.SEMINAR_STARTED, 0L, null, Map.of(
-                                ModalityEvent.KEY_RECIPIENT_EMAIL, student.getEmail(),
-                                ModalityEvent.KEY_RECIPIENT_NAME, student.getName() + " " + student.getLastName(),
-                                ModalityEvent.KEY_SEMINAR_NAME, seminar.getName(),
-                                ModalityEvent.KEY_START_DATE, seminar.getStartDate(),
-                                ModalityEvent.KEY_TOTAL_HOURS, seminar.getTotalHours(),
-                                ModalityEvent.KEY_PROGRAM_NAME, seminar.getAcademicProgram().getName()
-                        )));
-                        emailsSent++;
-                    } catch (Exception e) {
-                        // Continuar con el siguiente estudiante si falla el envío
-                    }
+                    applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.SEMINAR_STARTED, 0L, null, Map.of(
+                            ModalityEvent.KEY_RECIPIENT_EMAIL, student.getEmail(),
+                            ModalityEvent.KEY_RECIPIENT_NAME, student.getName() + " " + student.getLastName(),
+                            ModalityEvent.KEY_SEMINAR_NAME, seminar.getName(),
+                            ModalityEvent.KEY_START_DATE, seminar.getStartDate(),
+                            ModalityEvent.KEY_TOTAL_HOURS, seminar.getTotalHours(),
+                            ModalityEvent.KEY_PROGRAM_NAME, seminar.getAcademicProgram().getName()
+                    )));
+                    emailsSent++;
                 }
             }
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "message", "Seminario iniciado exitosamente",
-                            "seminarId", seminar.getId(),
-                            "seminarName", seminar.getName(),
-                            "status", seminar.getStatus().name(),
-                            "startDate", seminar.getStartDate(),
-                            "enrolledStudents", enrolledStudents.size(),
-                            "emailsSent", emailsSent
-                    )
+            return Map.of(
+                    "success", true,
+                    "message", "Seminario iniciado exitosamente",
+                    "seminarId", seminar.getId(),
+                    "seminarName", seminar.getName(),
+                    "status", seminar.getStatus().name(),
+                    "startDate", seminar.getStartDate(),
+                    "enrolledStudents", enrolledStudents.size(),
+                    "emailsSent", emailsSent
             );
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al iniciar el seminario: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al iniciar el seminario: " + e.getMessage());
         }
     }
 
 
 
-    public ResponseEntity<?> cancelSeminar(Long seminarId, String reason) {
+    @Transactional
+    public Map<String, Object> cancelSeminar(Long seminarId, String reason) {
         try {
             User user = SecurityUtils.getCurrentUser();
 
@@ -670,23 +607,23 @@ public class SeminarModalityService {
                     .stream()
                     .findFirst()
                     .map(pa -> pa.getAcademicProgram().getId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "No tienes permisos de jefe de programa"
                     ));
 
             Seminar seminar = seminarRepository.findById(seminarId)
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "El seminario con ID " + seminarId + " no existe"
                     ));
 
             if (!seminar.getAcademicProgram().getId().equals(userProgramId)) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Este seminario no pertenece a tu programa académico"
                 );
             }
 
             if (seminar.getStatus() != SeminarStatus.OPEN) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Solo se pueden cancelar seminarios que estén en estado ABIERTO (OPEN). " +
                         "Estado actual: " + seminar.getStatus() + ". " +
                         "No se puede cancelar un seminario que ya ha iniciado o está completado."
@@ -714,53 +651,39 @@ public class SeminarModalityService {
             for (StudentProfile studentProfile : enrolledStudents) {
                 User student = userRepository.findById(studentProfile.getId()).orElse(null);
                 if (student != null && student.getEmail() != null) {
-                    try {
-                        applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.SEMINAR_CANCELLED, 0L, null, Map.of(
-                                ModalityEvent.KEY_RECIPIENT_EMAIL, student.getEmail(),
-                                ModalityEvent.KEY_RECIPIENT_NAME, student.getName() + " " + student.getLastName(),
-                                ModalityEvent.KEY_SEMINAR_NAME, seminar.getName(),
-                                ModalityEvent.KEY_CANCELLED_DATE, LocalDateTime.now(),
-                                ModalityEvent.KEY_PROGRAM_NAME, seminar.getAcademicProgram().getName(),
-                                ModalityEvent.KEY_REASON, reason
-                        )));
-                        emailsSent++;
-                    } catch (Exception e) {
-                        // Continuar con el siguiente estudiante si falla el envío
-                    }
+                    applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.SEMINAR_CANCELLED, 0L, null, Map.of(
+                            ModalityEvent.KEY_RECIPIENT_EMAIL, student.getEmail(),
+                            ModalityEvent.KEY_RECIPIENT_NAME, student.getName() + " " + student.getLastName(),
+                            ModalityEvent.KEY_SEMINAR_NAME, seminar.getName(),
+                            ModalityEvent.KEY_CANCELLED_DATE, LocalDateTime.now(),
+                            ModalityEvent.KEY_PROGRAM_NAME, seminar.getAcademicProgram().getName(),
+                            ModalityEvent.KEY_REASON, reason
+                    )));
+                    emailsSent++;
                 }
             }
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "message", "Seminario cancelado exitosamente",
-                            "seminarId", seminar.getId(),
-                            "seminarName", seminar.getName(),
-                            "status", seminar.getStatus().name(),
-                            "previouslyEnrolledStudents", enrolledStudents.size(),
-                            "emailsSent", emailsSent
-                    )
+            return Map.of(
+                    "success", true,
+                    "message", "Seminario cancelado exitosamente",
+                    "seminarId", seminar.getId(),
+                    "seminarName", seminar.getName(),
+                    "status", seminar.getStatus().name(),
+                    "previouslyEnrolledStudents", enrolledStudents.size(),
+                    "emailsSent", emailsSent
             );
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al cancelar el seminario: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al cancelar el seminario: " + e.getMessage());
         }
     }
 
     @Transactional
-    public ResponseEntity<?> updateSeminar(Long seminarId, SeminarDTO request) {
+    public Map<String, Object> updateSeminar(Long seminarId, SeminarDTO request) {
         try {
             User user = SecurityUtils.getCurrentUser();
 
@@ -769,43 +692,43 @@ public class SeminarModalityService {
                     .stream()
                     .findFirst()
                     .map(pa -> pa.getAcademicProgram().getId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "No tienes permisos de jefe de programa"
                     ));
 
             Seminar seminar = seminarRepository.findById(seminarId)
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "El seminario con ID " + seminarId + " no existe"
                     ));
 
             if (!seminar.getAcademicProgram().getId().equals(userProgramId)) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Este seminario no pertenece a tu programa académico"
                 );
             }
 
             if (seminar.getStatus() == SeminarStatus.COMPLETED) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "No se puede editar un seminario que ya ha sido completado"
                 );
             }
 
             if (seminar.getStatus() == SeminarStatus.CLOSED) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "No se puede editar un seminario que ha sido cancelado"
                 );
             }
 
             if (request.getMinParticipants() != null && request.getMaxParticipants() != null) {
                 if (request.getMinParticipants() > request.getMaxParticipants()) {
-                    throw new IllegalArgumentException(
+                    throw new ValidationException(
                             "El mínimo de participantes no puede ser mayor al máximo"
                     );
                 }
             }
 
             if (request.getMaxParticipants() != null && seminar.getCurrentParticipants() > request.getMaxParticipants()) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "No se puede reducir el máximo de participantes por debajo del número actual de inscritos (" +
                         seminar.getCurrentParticipants() + ")"
                 );
@@ -851,33 +774,23 @@ public class SeminarModalityService {
             seminarData.put("active", seminar.isActive());
             seminarData.put("updatedAt", seminar.getUpdatedAt());
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "message", "Seminario actualizado exitosamente",
-                            "seminar", seminarData
-                    )
+            return Map.of(
+                    "success", true,
+                    "message", "Seminario actualizado exitosamente",
+                    "seminar", seminarData
             );
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al actualizar el seminario: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al actualizar el seminario: " + e.getMessage());
         }
     }
 
     @Transactional
-    public ResponseEntity<?> closeRegistrations(Long seminarId) {
+    public Map<String, Object> closeRegistrations(Long seminarId) {
         try {
             User user = SecurityUtils.getCurrentUser();
 
@@ -886,35 +799,35 @@ public class SeminarModalityService {
                     .stream()
                     .findFirst()
                     .map(pa -> pa.getAcademicProgram().getId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "No tienes permisos de jefe de programa"
                     ));
 
             Seminar seminar = seminarRepository.findById(seminarId)
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "El seminario con ID " + seminarId + " no existe"
                     ));
 
             if (!seminar.getAcademicProgram().getId().equals(userProgramId)) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Este seminario no pertenece a tu programa académico"
                 );
             }
 
             if (seminar.getStatus() == SeminarStatus.COMPLETED) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "No se pueden cerrar inscripciones de un seminario ya completado"
                 );
             }
 
             if (seminar.getStatus() == SeminarStatus.CLOSED) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "No se pueden cerrar inscripciones de un seminario cancelado"
                 );
             }
 
             if (seminar.getStatus() == SeminarStatus.REGISTRATION_CLOSED) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Las inscripciones de este seminario ya están cerradas"
                 );
             }
@@ -923,38 +836,28 @@ public class SeminarModalityService {
             seminar.setUpdatedAt(LocalDateTime.now());
             seminarRepository.save(seminar);
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "message", "Inscripciones cerradas exitosamente",
-                            "seminarId", seminar.getId(),
-                            "seminarName", seminar.getName(),
-                            "status", seminar.getStatus().name(),
-                            "currentParticipants", seminar.getCurrentParticipants(),
-                            "maxParticipants", seminar.getMaxParticipants(),
-                            "updatedAt", seminar.getUpdatedAt()
-                    )
+            return Map.of(
+                    "success", true,
+                    "message", "Inscripciones cerradas exitosamente",
+                    "seminarId", seminar.getId(),
+                    "seminarName", seminar.getName(),
+                    "status", seminar.getStatus().name(),
+                    "currentParticipants", seminar.getCurrentParticipants(),
+                    "maxParticipants", seminar.getMaxParticipants(),
+                    "updatedAt", seminar.getUpdatedAt()
             );
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al cerrar inscripciones del seminario: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al cerrar inscripciones del seminario: " + e.getMessage());
         }
     }
 
     @Transactional
-    public ResponseEntity<?> completeSeminar(Long seminarId) {
+    public Map<String, Object> completeSeminar(Long seminarId) {
         try {
             User user = SecurityUtils.getCurrentUser();
 
@@ -963,23 +866,23 @@ public class SeminarModalityService {
                     .stream()
                     .findFirst()
                     .map(pa -> pa.getAcademicProgram().getId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "No tienes permisos de jefe de programa"
                     ));
 
             Seminar seminar = seminarRepository.findById(seminarId)
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new ValidationException(
                             "El seminario con ID " + seminarId + " no existe"
                     ));
 
             if (!seminar.getAcademicProgram().getId().equals(userProgramId)) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Este seminario no pertenece a tu programa académico"
                 );
             }
 
             if (seminar.getStatus() != SeminarStatus.IN_PROGRESS) {
-                throw new IllegalArgumentException(
+                throw new ValidationException(
                         "Solo se pueden completar seminarios que estén en estado EN PROGRESO (IN_PROGRESS). " +
                         "Estado actual: " + seminar.getStatus()
                 );
@@ -991,33 +894,23 @@ public class SeminarModalityService {
             seminar.setUpdatedAt(LocalDateTime.now());
             seminarRepository.save(seminar);
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "message", "Seminario completado exitosamente",
-                            "seminarId", seminar.getId(),
-                            "seminarName", seminar.getName(),
-                            "status", seminar.getStatus().name(),
-                            "startDate", seminar.getStartDate(),
-                            "endDate", seminar.getEndDate(),
-                            "totalParticipants", seminar.getCurrentParticipants()
-                    )
+            return Map.of(
+                    "success", true,
+                    "message", "Seminario completado exitosamente",
+                    "seminarId", seminar.getId(),
+                    "seminarName", seminar.getName(),
+                    "status", seminar.getStatus().name(),
+                    "startDate", seminar.getStartDate(),
+                    "endDate", seminar.getEndDate(),
+                    "totalParticipants", seminar.getCurrentParticipants()
             );
 
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "error", e.getMessage()
-                    )
-            );
+            throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "success", false,
-                            "error", "Error al completar el seminario: " + e.getMessage()
-                    )
-            );
+            throw new RuntimeException("Error al completar el seminario: " + e.getMessage());
         }
     }
 }

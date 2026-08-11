@@ -5,7 +5,7 @@ import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
 import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.notifications.listeners.TranslationUtils;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.report.dto.*;
@@ -257,7 +257,7 @@ public class ComparisonReportService {
                             .modalitiesWithDirector((int) withDirector)
                             .modalitiesWithoutDirector((int) withoutDirector)
                             .distributionByStatus(statusDistribution)
-                            .trend("STABLE") // Por defecto, se calcula en análisis de tendencias
+                            .trend(null) // No calculable por tipo; el análisis de tendencias es a nivel global
                             .build();
                 })
                 .filter(Objects::nonNull)

@@ -97,6 +97,7 @@ public class ProjectTitleService {
      * @param studentModalityId ID de la modalidad
      * @return Título del proyecto, o null si no está definido
      */
+    @Transactional(readOnly = true)
     public String getProjectTitle(Long studentModalityId) {
         return studentModalityRepository.findById(studentModalityId)
                 .map(StudentModality::getModalityTitle)

@@ -1,5 +1,6 @@
 package com.SIGMA.USCO.Users.dto.request;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +15,7 @@ import java.util.Set;
 public class RoleRequest {
 
     private Long id;
+    @NotBlank(message = "El nombre del rol es obligatorio.")
     private String name;
     private Set<Long> permissionIds;
 

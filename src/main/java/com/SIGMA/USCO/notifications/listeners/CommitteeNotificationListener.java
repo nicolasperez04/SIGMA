@@ -8,14 +8,18 @@ import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import com.SIGMA.USCO.notifications.service.NotificationBuilderHelper;
 import com.SIGMA.USCO.notifications.service.NotificationFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.EnumSet;
 import java.util.List;
@@ -38,13 +42,20 @@ public class CommitteeNotificationListener {
                     ModalityProcessStatus.DEFENSE_SCHEDULED
             );
 
-    @EventListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void handleEvent(ModalityEvent event) {
-        switch (event.getType()) {
-            case MODALITY_CANCELLATION_REQUESTED -> handleCancellationRequested(event);
-            case MODALITY_APPROVED_BY_PROGRAM_HEAD -> handleModalityApprovedByProgramHead(event);
-            case DOCUMENT_UPLOADED -> handleStudentDocumentUpdated(event);
-            default -> log.warn("Unhandled ModalityEvent type: {}", event.getType());
+        try {
+            switch (event.getType()) {
+                case MODALITY_CANCELLATION_REQUESTED -> handleCancellationRequested(event);
+                case MODALITY_APPROVED_BY_PROGRAM_HEAD -> handleModalityApprovedByProgramHead(event);
+                case DOCUMENT_UPLOADED -> handleStudentDocumentUpdated(event);
+                default -> log.warn("Unhandled ModalityEvent type: {}", event.getType());
+            }
+        } catch (Exception e) {
+            log.error("Error en CommitteeNotificationListener procesando evento {} (studentModalityId={})",
+                    event.getType(), event.getStudentModalityId(), e);
+            throw e;
         }
     }
 

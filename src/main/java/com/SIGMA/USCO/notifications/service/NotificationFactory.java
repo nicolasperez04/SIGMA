@@ -72,12 +72,8 @@ public class NotificationFactory {
         Notification notification = NotificationBuilderHelper.buildNotification(
                 type, recipientType, recipient, triggeredBy, modality, subject, message);
         notificationRepository.save(notification);
-        try {
-            dispatcher.dispatchWithAttachment(notification, attachmentPath, attachmentName);
-        } catch (Exception e) {
-            log.warn("Fallo envío con adjunto, reenviando sin adjunto: {}", e.getMessage());
-            dispatcher.dispatch(notification);
-        }
+        // dispatchWithAttachment es @Async; fallos de email se manejan dentro (emailSent=false + log)
+        dispatcher.dispatchWithAttachment(notification, attachmentPath, attachmentName);
         return notification;
     }
 

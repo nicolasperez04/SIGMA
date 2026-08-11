@@ -2,15 +2,14 @@ package com.SIGMA.USCO.notifications.service;
 
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.repository.UserRepository;
-import com.SIGMA.USCO.Users.service.AuthService;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.notifications.entity.Notification;
 import com.SIGMA.USCO.notifications.repository.NotificationRepository;
 import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -27,14 +26,15 @@ public class NotificationService {
         return SecurityUtils.getCurrentUser();
     }
 
-    public ResponseEntity<?> getMyNotifications() {
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getMyNotifications() {
 
         User user = getCurrentUser();
 
         List<Notification> notifications =
                 notificationRepository.findByRecipient_IdOrderByCreatedAtDesc(user.getId());
 
-        List<Map<String, Object>> response = notifications.stream()
+        return notifications.stream()
                 .map(n -> {
                     Map<String, Object> map = new HashMap<>();
                     map.put("id", n.getId());
@@ -53,27 +53,25 @@ public class NotificationService {
                     return map;
                 })
                 .toList();
-
-        return ResponseEntity.ok(response);
     }
 
-    public ResponseEntity<?> getUnreadCount() {
+    @Transactional(readOnly = true)
+    public Map<String, Object> getUnreadCount() {
 
         User user = getCurrentUser();
 
         long count = notificationRepository.countByRecipient_IdAndReadFalse(user.getId());
 
-        return ResponseEntity.ok(
-                Map.of("unreadCount", count)
-        );
+        return Map.of("unreadCount", count);
     }
 
-    public ResponseEntity<?> getNotificationDetail(Long notificationId) {
+    @Transactional(readOnly = true)
+    public Map<String, Object> getNotificationDetail(Long notificationId) {
 
         User user = getCurrentUser();
         Notification notification = notificationRepository.findByIdAndRecipient_Id(notificationId, user.getId())
                         .orElseThrow(() ->
-                                new RuntimeException("Notificación no encontrada")
+                                new NotFoundException("Notificación no encontrada")
                         );
 
         Map<String, Object> response = new HashMap<>();
@@ -94,16 +92,16 @@ public class NotificationService {
                         : null
         );
 
-        return ResponseEntity.ok(response);
+        return response;
     }
 
-    public ResponseEntity<?> markAsRead(Long notificationId) {
+    public Map<String, Object> markAsRead(Long notificationId) {
 
         User user = getCurrentUser();
 
         Notification notification = notificationRepository.findByIdAndRecipient_Id(notificationId, user.getId())
                         .orElseThrow(() ->
-                                new RuntimeException("Notificación no encontrada")
+                                new NotFoundException("Notificación no encontrada")
                         );
 
         if (!notification.isRead()) {
@@ -112,11 +110,9 @@ public class NotificationService {
             notificationRepository.save(notification);
         }
 
-        return ResponseEntity.ok(
-                Map.of(
-                        "success", true,
-                        "message", "Notificación marcada como leída"
-                )
+        return Map.of(
+                "success", true,
+                "message", "Notificación marcada como leída"
         );
     }
 }

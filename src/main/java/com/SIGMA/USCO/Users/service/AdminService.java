@@ -27,11 +27,13 @@ import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.AcademicProgramRepository;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
+import com.SIGMA.USCO.common.exception.ConflictException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.documents.dto.RequiredDocumentDTO;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -59,9 +61,10 @@ public class AdminService {
     private final PasswordEncoder passwordEncoder;
 
 
-    public ResponseEntity<?> getRoles() {
+    @Transactional(readOnly = true)
+    public List<RoleRequest> getRoles() {
 
-        return ResponseEntity.ok(roleRepository.findAll().stream().map(role -> RoleRequest.builder()
+        return roleRepository.findAll().stream().map(role -> RoleRequest.builder()
                                 .id(role.getId())
                                 .name(role.getName())
                                 .permissionIds(
@@ -71,18 +74,13 @@ public class AdminService {
                                                 .collect(Collectors.toSet()))
                                 .build()
                         )
-                        .toList()
-        );
+                        .toList();
     }
 
-    public ResponseEntity<?> createRole(RoleRequest request) {
-
-        if (request.getName() == null || request.getName().isBlank()) {
-            return ResponseEntity.badRequest().body("El nombre del rol es obligatorio");
-        }
+    public String createRole(RoleRequest request) {
 
         if (roleRepository.findByName(request.getName()).isPresent()) {
-            return ResponseEntity.badRequest().body("El rol ya existe.");
+            throw new ConflictException("El rol ya existe.");
         }
 
         Set<Permission> permissions = Set.of();
@@ -99,21 +97,17 @@ public class AdminService {
 
         roleRepository.save(role);
 
-        return ResponseEntity.ok(" Rol creado correctamente.");
+        return " Rol creado correctamente.";
     }
 
-    public ResponseEntity<?> updateRole(Long id, RoleRequest request){
-        if (request.getName() == null || request.getName().isBlank()) {
-            return ResponseEntity.badRequest().body("El nombre del rol es obligatorio");
-        }
-
+    public String updateRole(Long id, RoleRequest request){
         Role role = roleRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Rol no encontrado"));
 
         Optional<Role> existingRole = roleRepository.findByNameIgnoreCase(request.getName());
 
         if (existingRole.isPresent() && !existingRole.get().getId().equals(id)) {
-            return ResponseEntity.badRequest().body("El rol ya existe.");
+            throw new ConflictException("El rol ya existe.");
         }
 
 
@@ -129,10 +123,10 @@ public class AdminService {
 
         roleRepository.save(role);
 
-        return ResponseEntity.ok(" Rol actualizado correctamente.");
+        return " Rol actualizado correctamente.";
     }
 
-    public ResponseEntity<?> assignRoleToUser(UpdateUserRequest request){
+    public String assignRoleToUser(UpdateUserRequest request){
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
@@ -145,20 +139,20 @@ public class AdminService {
         user.setLastUpdateDate(LocalDateTime.now());
         userRepository.save(user);
 
-        return ResponseEntity.ok("Rol asignado correctamente al usuario.");
+        return "Rol asignado correctamente al usuario.";
     }
 
-    public ResponseEntity<?> changeUserStatus(UpdateUserRequest request){
+    public String changeUserStatus(UpdateUserRequest request){
 
         if (request.getStatus() == null) {
-            return ResponseEntity.badRequest().body("El estado debe ser ACTIVE o INACTIVE.");
+            throw new ValidationException("El estado debe ser ACTIVE o INACTIVE.");
         }
 
         Status newStatus;
         try {
             newStatus = Status.valueOf(request.getStatus().toUpperCase());
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body("El estado debe ser ACTIVE o INACTIVE.");
+            throw new ValidationException("El estado debe ser ACTIVE o INACTIVE.");
         }
 
         User user = userRepository.findById(request.getUserId())
@@ -166,18 +160,14 @@ public class AdminService {
         user.setStatus(newStatus);
         user.setLastUpdateDate(LocalDateTime.now());
         userRepository.save(user);
-        return ResponseEntity.ok("Estado del usuario actualizado correctamente.");
+        return "Estado del usuario actualizado correctamente.";
 
     }
 
-    public ResponseEntity<?> createPermission (PermissionDTO request){
-
-        if (request.getName() == null || request.getName().isBlank()) {
-            return ResponseEntity.badRequest().body("El nombre del permiso es obligatorio");
-        }
+    public String createPermission (PermissionDTO request){
 
         if (permissionRepository.findByName(request.getName()).isPresent()) {
-            return ResponseEntity.badRequest().body("El permiso ya existe.");
+            throw new ConflictException("El permiso ya existe.");
         }
 
         Permission permission = Permission.builder()
@@ -186,22 +176,23 @@ public class AdminService {
 
         permissionRepository.save(permission);
 
-        return ResponseEntity.ok(" Permiso creado correctamente.");
+        return " Permiso creado correctamente.";
 
     }
 
-    public ResponseEntity<?> getPermissions() {
+    @Transactional(readOnly = true)
+    public List<PermissionDTO> getPermissions() {
 
-        return ResponseEntity.ok(permissionRepository.findAll().stream().map(permission -> PermissionDTO.builder()
+        return permissionRepository.findAll().stream().map(permission -> PermissionDTO.builder()
                                 .id(permission.getId())
                                 .name(permission.getName())
                                 .build()
                         )
-                        .toList()
-        );
+                        .toList();
     }
 
-    public ResponseEntity<?> getUsers(String status, String role, Long academicProgramId, Long facultyId, 
+    @Transactional(readOnly = true)
+    public List<UserResponse> getUsers(String status, String role, Long academicProgramId, Long facultyId, 
                                        String name, String lastName, String email) {
 
         List<User> users;
@@ -213,8 +204,7 @@ public class AdminService {
             try {
                 userStatus = Status.valueOf(status.toUpperCase());
             } catch (IllegalArgumentException e) {
-                return ResponseEntity.badRequest()
-                        .body("Estado inválido. Use ACTIVE o INACTIVE");
+                throw new ValidationException("Estado inválido. Use ACTIVE o INACTIVE");
             }
             users = userRepository.findByStatus(userStatus);
         }
@@ -270,21 +260,11 @@ public class AdminService {
                 }
 
                 userResponses.add(
-                    UserResponse.builder()
-                            .id(user.getId())
-                            .name(user.getName())
-                            .lastname(user.getLastName())
-                            .email(user.getEmail())
-                            .status(user.getStatus())
-                            .roles(
-                                    user.getRoles().stream()
-                                            .map(Role::getName)
-                                            .collect(Collectors.toSet())
-                            )
-                            .faculty(sp.getFaculty().getName())
-                            .academicProgram(sp.getAcademicProgram().getName())
-                            .createdDate(user.getCreationDate())
-                            .build()
+                    toUserResponse(
+                            user,
+                            sp.getFaculty().getName(),
+                            sp.getAcademicProgram().getName()
+                    )
                 );
             } else {
                 // Si no es estudiante, usar sus ProgramAuthority
@@ -294,21 +274,7 @@ public class AdminService {
                     // Usuario sin perfil de estudiante ni autoridades: mostrar sin facultad/programa
                     if (facultyId == null && academicProgramId == null) {
                         userResponses.add(
-                            UserResponse.builder()
-                                    .id(user.getId())
-                                    .name(user.getName())
-                                    .lastname(user.getLastName())
-                                    .email(user.getEmail())
-                                    .status(user.getStatus())
-                                    .roles(
-                                            user.getRoles().stream()
-                                                    .map(Role::getName)
-                                                    .collect(Collectors.toSet())
-                                    )
-                                    .faculty(null)
-                                    .academicProgram(null)
-                                    .createdDate(user.getCreationDate())
-                                    .build()
+                            toUserResponse(user, null, null)
                         );
                     }
                 } else {
@@ -326,47 +292,55 @@ public class AdminService {
                         }
 
                         userResponses.add(
-                            UserResponse.builder()
-                                    .id(user.getId())
-                                    .name(user.getName())
-                                    .lastname(user.getLastName())
-                                    .email(user.getEmail())
-                                    .status(user.getStatus())
-                                    .roles(
-                                            user.getRoles().stream()
-                                                    .map(Role::getName)
-                                                    .collect(Collectors.toSet())
-                                    )
-                                    .faculty(authority.getAcademicProgram().getFaculty().getName())
-                                    .academicProgram(authority.getAcademicProgram().getName())
-                                    .createdDate(user.getCreationDate())
-                                    .build()
+                            toUserResponse(
+                                    user,
+                                    authority.getAcademicProgram().getFaculty().getName(),
+                                    authority.getAcademicProgram().getName()
+                            )
                         );
                     }
                 }
             }
         }
 
-        return ResponseEntity.ok(userResponses);
+        return userResponses;
     }
 
-    public ResponseEntity<?> desactiveUser(Long userId) {
+    private UserResponse toUserResponse(User user, String faculty, String academicProgram) {
+        return UserResponse.builder()
+                .id(user.getId())
+                .name(user.getName())
+                .lastname(user.getLastName())
+                .email(user.getEmail())
+                .status(user.getStatus())
+                .roles(
+                        user.getRoles().stream()
+                                .map(Role::getName)
+                                .collect(Collectors.toSet())
+                )
+                .faculty(faculty)
+                .academicProgram(academicProgram)
+                .createdDate(user.getCreationDate())
+                .build();
+    }
+
+    public String desactiveUser(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
         if (user.getStatus() == Status.INACTIVE) {
-            return ResponseEntity.badRequest().body("El usuario ya está inactivo.");
+            throw new ValidationException("El usuario ya está inactivo.");
         }
 
         user.setStatus(Status.INACTIVE);
         user.setLastUpdateDate(LocalDateTime.now());
         userRepository.save(user);
 
-        return ResponseEntity.ok("Usuario desactivado correctamente.");
+        return "Usuario desactivado correctamente.";
     }
 
     @Transactional
-    public ProgramAuthority assignProgramHead(assignAuthorityProgram request){
+    public void assignProgramHead(assignAuthorityProgram request){
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
@@ -389,11 +363,10 @@ public class AdminService {
                 .build();
 
         programAuthorityRepository.save(authority);
-        return authority;
     }
 
     @Transactional
-    public ProgramAuthority assignProjectDirector(assignAuthorityProgram request){
+    public void assignProjectDirector(assignAuthorityProgram request){
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
@@ -416,11 +389,10 @@ public class AdminService {
                 .build();
 
         programAuthorityRepository.save(authority);
-        return authority;
     }
 
     @Transactional
-    public ProgramAuthority assignCommittee(assignAuthorityProgram request){
+    public void assignCommittee(assignAuthorityProgram request){
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
@@ -443,11 +415,10 @@ public class AdminService {
                 .build();
 
         programAuthorityRepository.save(authority);
-        return authority;
     }
 
     @Transactional
-    public ProgramAuthority assignExaminer(assignAuthorityProgram request){
+    public void assignExaminer(assignAuthorityProgram request){
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
@@ -468,7 +439,7 @@ public class AdminService {
         boolean alreadyAssigned = programAuthorityRepository
                 .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), program.getId(), ProgramRole.EXAMINER);
         if (alreadyAssigned) {
-            throw new RuntimeException("El jurado ya está asociado a este programa académico");
+            throw new ConflictException("El jurado ya está asociado a este programa académico");
         }
 
         ProgramAuthority authority = ProgramAuthority.builder()
@@ -478,7 +449,6 @@ public class AdminService {
                 .build();
 
         programAuthorityRepository.save(authority);
-        return authority;
     }
 
     /**
@@ -486,7 +456,7 @@ public class AdminService {
      * Un jurado puede estar vinculado a múltiples programas académicos.
      */
     @Transactional
-    public ResponseEntity<?> assignExaminerToAdditionalProgram(assignAuthorityProgram request) {
+    public Map<String, Object> assignExaminerToAdditionalProgram(assignAuthorityProgram request) {
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
@@ -494,10 +464,7 @@ public class AdminService {
         boolean hasExaminerRole = user.getRoles().stream()
                 .anyMatch(r -> r.getName().equals("EXAMINER"));
         if (!hasExaminerRole) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false,
-                           "message", "El usuario no tiene el rol EXAMINER")
-            );
+            throw new ValidationException("El usuario no tiene el rol EXAMINER");
         }
 
         AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
@@ -506,10 +473,7 @@ public class AdminService {
         boolean alreadyAssigned = programAuthorityRepository
                 .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), program.getId(), ProgramRole.EXAMINER);
         if (alreadyAssigned) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false,
-                           "message", "El jurado ya está asociado al programa: " + program.getName())
-            );
+            throw new ValidationException("El jurado ya está asociado al programa: " + program.getName());
         }
 
         ProgramAuthority authority = ProgramAuthority.builder()
@@ -520,19 +484,19 @@ public class AdminService {
 
         programAuthorityRepository.save(authority);
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "message", "Jurado vinculado correctamente al programa: " + program.getName(),
                 "examinerName", user.getName() + " " + user.getLastName(),
                 "programName", program.getName()
-        ));
+        );
     }
 
     /**
      * Desvincula un jurado (EXAMINER) de un programa académico específico.
      */
     @Transactional
-    public ResponseEntity<?> removeExaminerFromProgram(Long userId, Long academicProgramId) {
+    public Map<String, Object> removeExaminerFromProgram(Long userId, Long academicProgramId) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
@@ -547,20 +511,17 @@ public class AdminService {
                 .toList();
 
         if (authorities.isEmpty()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false,
-                           "message", "El jurado no está asociado al programa: " + program.getName())
-            );
+            throw new ValidationException("El jurado no está asociado al programa: " + program.getName());
         }
 
         programAuthorityRepository.deleteAll(authorities);
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "message", "Jurado desvinculado correctamente del programa: " + program.getName(),
                 "examinerName", user.getName() + " " + user.getLastName(),
                 "programName", program.getName()
-        ));
+        );
     }
 
     /**
@@ -569,19 +530,7 @@ public class AdminService {
      * Los programas donde ya esté asociado se omiten (no generan error).
      */
     @Transactional
-    public ResponseEntity<?> assignExaminerToMultiplePrograms(AssignExaminerMultipleProgramsRequest request) {
-
-        if (request.getUserId() == null) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false, "message", "El ID del usuario es obligatorio")
-            );
-        }
-
-        if (request.getAcademicProgramIds() == null || request.getAcademicProgramIds().isEmpty()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false, "message", "Debe proporcionar al menos un ID de programa académico")
-            );
-        }
+    public Map<String, Object> assignExaminerToMultiplePrograms(AssignExaminerMultipleProgramsRequest request) {
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
@@ -638,7 +587,7 @@ public class AdminService {
             ));
         }
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "examinerId", user.getId(),
                 "examinerName", user.getName() + " " + user.getLastName(),
@@ -647,13 +596,14 @@ public class AdminService {
                 "programsSkipped", skipped,
                 "totalAssigned", assigned.size(),
                 "totalSkipped", skipped.size()
-        ));
+        );
     }
 
     /**
      * Retorna todos los programas académicos a los que está asociado un jurado.
      */
-    public ResponseEntity<?> getExaminerPrograms(Long userId) {
+    @Transactional(readOnly = true)
+    public Map<String, Object> getExaminerPrograms(Long userId) {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
@@ -661,10 +611,7 @@ public class AdminService {
         boolean hasExaminerRole = user.getRoles().stream()
                 .anyMatch(r -> r.getName().equals("EXAMINER"));
         if (!hasExaminerRole) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false,
-                           "message", "El usuario no tiene el rol EXAMINER")
-            );
+            throw new ValidationException("El usuario no tiene el rol EXAMINER");
         }
 
         List<ProgramAuthority> authorities = programAuthorityRepository
@@ -680,16 +627,17 @@ public class AdminService {
                 ))
                 .toList();
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "examinerId", user.getId(),
                 "examinerName", user.getName() + " " + user.getLastName(),
                 "examinerEmail", user.getEmail(),
                 "programs", programs
-        ));
+        );
     }
 
-    public ResponseEntity<List<ModalityDTO>> getModalities(ModalityStatus status) {
+    @Transactional(readOnly = true)
+    public List<ModalityDTO> getModalities(ModalityStatus status) {
 
         List<DegreeModality> modalities;
 
@@ -747,32 +695,20 @@ public class AdminService {
                 )
                 .toList();
 
-        return ResponseEntity.ok(response);
+        return response;
     }
 
     @Transactional
-    public ResponseEntity<?> registerUserByAdmin(RegisterUserByAdminRequest request) {
-
-        if (request.getName() == null || request.getName().isBlank() ||
-                request.getLastName() == null || request.getLastName().isBlank() ||
-                request.getEmail() == null || request.getEmail().isBlank() ||
-                request.getPassword() == null || request.getPassword().isBlank() ||
-                request.getRoleName() == null || request.getRoleName().isBlank()) {
-
-            return ResponseEntity.badRequest()
-                    .body("Todos los campos son obligatorios (nombre, apellido, correo, contraseña y rol)");
-        }
+    public Map<String, Object> registerUserByAdmin(RegisterUserByAdminRequest request) {
 
         String email = request.getEmail().trim().toLowerCase();
 
         if (!email.endsWith("@usco.edu.co")) {
-            return ResponseEntity.badRequest()
-                    .body("El correo debe ser institucional con dominio @usco.edu.co");
+            throw new ValidationException("El correo debe ser institucional con dominio @usco.edu.co");
         }
 
         if (userRepository.existsByEmail(email)) {
-            return ResponseEntity.badRequest()
-                    .body("Este correo ya está registrado en el sistema");
+            throw new ConflictException("Este correo ya está registrado en el sistema");
         }
 
         String roleName = request.getRoleName().toUpperCase();
@@ -786,8 +722,7 @@ public class AdminService {
         boolean isExaminer = roleName.equals("EXAMINER");
 
         if (requiresProgram && request.getAcademicProgramId() == null) {
-            return ResponseEntity.badRequest()
-                    .body("El rol " + roleName + " requiere que se especifique un programa académico");
+            throw new ValidationException("El rol " + roleName + " requiere que se especifique un programa académico");
         }
 
         // Crear y guardar el usuario
@@ -815,13 +750,13 @@ public class AdminService {
 
             if (programIds == null || programIds.isEmpty()) {
                 // Sin programas: el jurado se registra sin asociación de programa
-                return ResponseEntity.ok(Map.of(
+                return Map.of(
                         "success", true,
                         "message", "Usuario registrado exitosamente con el rol EXAMINER sin programas asociados. " +
                                    "Puede asociarlo a programas académicos posteriormente.",
                         "userId", user.getId(),
                         "examinerName", user.getName() + " " + user.getLastName()
-                ));
+                );
             }
 
             List<Map<String, Object>> assigned = new ArrayList<>();
@@ -865,7 +800,7 @@ public class AdminService {
                 ));
             }
 
-            return ResponseEntity.ok(Map.of(
+            return Map.of(
                     "success", true,
                     "message", "Usuario registrado exitosamente con el rol EXAMINER",
                     "userId", user.getId(),
@@ -875,19 +810,19 @@ public class AdminService {
                     "programsSkipped", skipped,
                     "totalAssigned", assigned.size(),
                     "totalSkipped", skipped.size()
-            ));
+            );
         }
 
         // ── Otros roles: un solo programa obligatorio ────────────────────────
         if (requiresProgram) {
             AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
-                    .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
+                    .orElseThrow(() -> new NotFoundException("Programa académico no encontrado"));
 
             ProgramRole programRole = switch (roleName) {
                 case "PROGRAM_HEAD"                   -> ProgramRole.PROGRAM_HEAD;
                 case "PROJECT_DIRECTOR"               -> ProgramRole.PROJECT_DIRECTOR;
                 case "PROGRAM_CURRICULUM_COMMITTEE"   -> ProgramRole.PROGRAM_CURRICULUM_COMMITTEE;
-                default -> throw new RuntimeException("Rol de programa no válido");
+                default -> throw new ValidationException("Rol de programa no válido");
             };
 
             ProgramAuthority authority = ProgramAuthority.builder()
@@ -898,19 +833,19 @@ public class AdminService {
 
             programAuthorityRepository.save(authority);
 
-            return ResponseEntity.ok(Map.of(
+            return Map.of(
                     "success", true,
                     "message", "Usuario registrado exitosamente con el rol " + roleName +
                                " y asignado al programa académico: " + program.getName(),
                     "userId", user.getId()
-            ));
+            );
         }
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "message", "Usuario registrado exitosamente con el rol " + roleName,
                 "userId", user.getId()
-        ));
+        );
     }
 
 }

@@ -6,7 +6,8 @@ import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.ExaminerCertificateRepository;
 import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.notifications.listeners.TranslationUtils;
+import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.PdfPCell;
@@ -27,7 +28,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static com.SIGMA.USCO.notifications.listeners.TranslationUtils.translateExaminerType;
+import static com.SIGMA.USCO.common.util.TranslationUtils.translateExaminerType;
 import static com.SIGMA.USCO.notifications.service.CertificatePdfSupport.*;
 
 /**
@@ -70,7 +71,7 @@ public class ExaminerCertificatePdfService {
     public ExaminerCertificate generateExaminerCertificate(StudentModality studentModality, DefenseExaminer defenseExaminer) throws IOException {
         // Refrescar la modalidad desde la BD para obtener el estado más actualizado
         StudentModality refreshedModality = studentModalityRepository.findById(studentModality.getId())
-                .orElseThrow(() -> new RuntimeException("Modalidad de grado no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad de grado no encontrada"));
         
         log.info("Generando certificado de jurado. Modalidad ID: {}, Estado actual: {}", 
             refreshedModality.getId(), refreshedModality.getStatus());
@@ -126,14 +127,14 @@ public class ExaminerCertificatePdfService {
     public Path getCertificatePath(Long modalityId, Long examinerId) {
         ExaminerCertificate cert = certificateRepository
                 .findByModalityAndExaminer(modalityId, examinerId)
-                .orElseThrow(() -> new RuntimeException("Acta de jurado no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Acta de jurado no encontrada"));
         return Paths.get(cert.getFilePath());
     }
 
     @Transactional
     public void updateCertificateStatus(Long certificateId, CertificateStatus status) {
         ExaminerCertificate cert = certificateRepository.findById(certificateId)
-                .orElseThrow(() -> new RuntimeException("Acta de jurado no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Acta de jurado no encontrada"));
         cert.setStatus(status);
         certificateRepository.save(cert);
     }

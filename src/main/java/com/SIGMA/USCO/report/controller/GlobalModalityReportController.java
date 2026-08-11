@@ -63,7 +63,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/reports")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 @SecurityRequirement(name = "bearer-jwt")
 public class GlobalModalityReportController {
 
@@ -893,7 +892,8 @@ public class GlobalModalityReportController {
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new ByteArrayResource(
                         String.format(
-                                "{\"success\": false, \"error\": \"%s\", \"timestamp\": \"%s\"}",
+                                "{\"success\": false, \"message\": \"%s\", \"error\": \"%s\", \"data\": null, \"timestamp\": \"%s\"}",
+                                errorMessage,
                                 errorMessage,
                                 LocalDateTime.now()
                         ).getBytes()
@@ -903,7 +903,9 @@ public class GlobalModalityReportController {
     private ResponseEntity<Map<String, Object>> jsonError(HttpStatus status, String errorMessage) {
         return ResponseEntity.status(status).body(Map.of(
                 "success", false,
+                "message", errorMessage,
                 "error", errorMessage,
+                "data", null,
                 "timestamp", LocalDateTime.now()
         ));
     }

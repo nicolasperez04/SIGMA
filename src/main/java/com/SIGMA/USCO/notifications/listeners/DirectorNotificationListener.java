@@ -9,6 +9,7 @@ import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import com.SIGMA.USCO.notifications.service.NotificationBuilderHelper;
@@ -18,8 +19,11 @@ import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
 import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -35,16 +39,23 @@ public class DirectorNotificationListener {
     private final StudentDocumentRepository studentDocumentRepository;
     private final StudentModalityMemberRepository studentModalityMemberRepository;
 
-    @EventListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void handleEvent(ModalityEvent event) {
-        switch (event.getType()) {
-            case MODALITY_CANCELLATION_APPROVED -> handleCancellationApproved(event);
-            case MODALITY_CANCELLATION_REJECTED -> handleCancellationRejected(event);
-            case MODALITY_CANCELLATION_REQUESTED -> handleCancellationRequested(event);
-            case DIRECTOR_ASSIGNED -> handleDirectorAssigned(event);
-            case DEFENSE_COMPLETED -> handleFinalDefenseResult(event);
-            case DOCUMENT_UPLOADED -> handleStudentDocumentUpdated(event);
-            default -> log.warn("Unhandled ModalityEvent type: {}", event.getType());
+        try {
+            switch (event.getType()) {
+                case MODALITY_CANCELLATION_APPROVED -> handleCancellationApproved(event);
+                case MODALITY_CANCELLATION_REJECTED -> handleCancellationRejected(event);
+                case MODALITY_CANCELLATION_REQUESTED -> handleCancellationRequested(event);
+                case DIRECTOR_ASSIGNED -> handleDirectorAssigned(event);
+                case DEFENSE_COMPLETED -> handleFinalDefenseResult(event);
+                case DOCUMENT_UPLOADED -> handleStudentDocumentUpdated(event);
+                default -> log.warn("Unhandled ModalityEvent type: {}", event.getType());
+            }
+        } catch (Exception e) {
+            log.error("Error en DirectorNotificationListener procesando evento {} (studentModalityId={})",
+                    event.getType(), event.getStudentModalityId(), e);
+            throw e;
         }
     }
 

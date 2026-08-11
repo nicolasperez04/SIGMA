@@ -34,6 +34,7 @@ public class CompletedModalitiesReportService {
     private final ProgramAuthorityRepository programAuthorityRepository;
 
 
+    @Transactional(readOnly = true)
     public CompletedModalitiesReportDTO generateCompletedModalitiesReport(CompletedModalitiesFilterDTO filters) {
         long startTime = System.currentTimeMillis();
 
@@ -451,13 +452,17 @@ public class CompletedModalitiesReportService {
         Double medianGrade = calculateMedianDouble(grades);
 
         // Distinciones
-        long meritorious = details.stream()
-                .filter(d -> "MERITORIOUS".equals(d.getAcademicDistinction()))
+        long meritorious = modalities.stream()
+                .filter(m -> m.getAcademicDistinction() != null && (
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.AGREED_MERITORIOUS ||
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.TIEBREAKER_MERITORIOUS))
                 .count();
-        long laureate = details.stream()
-                .filter(d -> "LAUREATE".equals(d.getAcademicDistinction()))
+        long laureate = modalities.stream()
+                .filter(m -> m.getAcademicDistinction() != null && (
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.AGREED_LAUREATE ||
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.TIEBREAKER_LAUREATE))
                 .count();
-        long withoutDistinction = details.size() - meritorious - laureate;
+        long withoutDistinction = modalities.size() - meritorious - laureate;
 
         // Por tipo
         long individual = details.stream().filter(d -> !d.getIsGroup()).count();

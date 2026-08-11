@@ -27,6 +27,10 @@ import com.SIGMA.USCO.documents.entity.enums.DocumentType;
 import com.SIGMA.USCO.documents.entity.enums.EditRequestVoteDecision;
 import com.SIGMA.USCO.documents.entity.enums.ExaminerDocumentDecision;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
+import com.SIGMA.USCO.common.exception.ConflictException;
+import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
@@ -34,15 +38,11 @@ import com.SIGMA.USCO.notifications.listeners.ExaminerNotificationListener;
 import com.SIGMA.USCO.security.SecurityUtils;
 import org.springframework.context.ApplicationEventPublisher;
 import com.SIGMA.USCO.notifications.repository.NotificationRepository;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.UrlResource;
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -73,23 +73,16 @@ public class ModalityCatalogService {
     private final UserRepository userRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
 
-    public DegreeModality createModality(ModalityDTO request) {
-
-        if (request.getName() == null || request.getName().isBlank()) {
-            throw new IllegalArgumentException("El nombre de la modalidad es obligatorio.");
-        }
-
-        if (request.getFacultyId() == null) {
-            throw new IllegalArgumentException("La facultad es obligatoria.");
-        }
+    @Transactional
+    public ModalityDTO createModality(ModalityDTO request) {
 
         Faculty faculty = facultyRepository.findById(request.getFacultyId())
                 .orElseThrow(() ->
-                        new IllegalArgumentException("La facultad no existe.")
+                        new NotFoundException("La facultad no existe.")
                 );
 
         if (degreeModalityRepository.existsByNameIgnoreCaseAndFacultyId(request.getName(), faculty.getId())) {
-            throw new IllegalArgumentException("Ya existe una modalidad con ese nombre en esta facultad.");
+            throw new ConflictException("Ya existe una modalidad con ese nombre en esta facultad.");
         }
 
         DegreeModality modality = DegreeModality.builder()
@@ -101,20 +94,30 @@ public class ModalityCatalogService {
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        return degreeModalityRepository.save(modality);
+        degreeModalityRepository.save(modality);
+
+        return toModalityDTO(modality);
     }
 
-    public ResponseEntity<?> updateModality(Long modalityId, ModalityDTO request) {
+    private ModalityDTO toModalityDTO(DegreeModality modality) {
+        return ModalityDTO.builder()
+                .id(modality.getId())
+                .facultyId(modality.getFaculty() != null ? modality.getFaculty().getId() : null)
+                .facultyName(modality.getFaculty() != null ? modality.getFaculty().getName() : null)
+                .name(modality.getName())
+                .description(modality.getDescription())
+                .status(modality.getStatus())
+                .build();
+    }
 
-        if (!degreeModalityRepository.existsById(modalityId)) {
-            return ResponseEntity.badRequest().body("La modalidad con ID " + modalityId + " no existe.");
-        }
+    public String updateModality(Long modalityId, ModalityDTO request) {
 
-        DegreeModality modality = degreeModalityRepository.findById(modalityId).orElseThrow();
+        DegreeModality modality = degreeModalityRepository.findById(modalityId)
+                .orElseThrow(() -> new NotFoundException("La modalidad con ID " + modalityId + " no existe."));
 
         Faculty faculty = facultyRepository.findById(request.getFacultyId())
                 .orElseThrow(() ->
-                        new IllegalArgumentException("La facultad no existe.")
+                        new NotFoundException("La facultad no existe.")
                 );
 
         modality.setFaculty(faculty);
@@ -125,43 +128,31 @@ public class ModalityCatalogService {
 
         degreeModalityRepository.save(modality);
 
-        return ResponseEntity.ok("Modalidad actualizada exitosamente");
+        return "Modalidad actualizada exitosamente";
     }
-    public ResponseEntity<?> desactiveModality(Long modalityId) {
+    public String desactiveModality(Long modalityId) {
 
-        if (!degreeModalityRepository.existsById(modalityId)) {
-            return ResponseEntity.badRequest().body("La modalidad con ID " + modalityId + " no existe.");
-        }
-
-        DegreeModality modality = degreeModalityRepository.findById(modalityId).orElseThrow();
+        DegreeModality modality = degreeModalityRepository.findById(modalityId)
+                .orElseThrow(() -> new NotFoundException("La modalidad con ID " + modalityId + " no existe."));
 
         modality.setStatus(ModalityStatus.INACTIVE);
         modality.setUpdatedAt(LocalDateTime.now());
 
         degreeModalityRepository.save(modality);
 
-        return ResponseEntity.ok("Modalidad desactivada exitosamente");
+        return "Modalidad desactivada exitosamente";
     }
+    @Transactional
     public void createModalityRequirements(Long modalityId, List<RequirementDTO> requirements) {
 
         if (requirements == null || requirements.isEmpty()) {
-            throw new IllegalArgumentException("La lista de requisitos no puede estar vacía.");
+            throw new ValidationException("La lista de requisitos no puede estar vacía.");
         }
 
         DegreeModality modality = degreeModalityRepository.findById(modalityId)
-                .orElseThrow(() -> new IllegalArgumentException("La modalidad con ID " + modalityId + " no existe."));
+                .orElseThrow(() -> new NotFoundException("La modalidad con ID " + modalityId + " no existe."));
 
         for (RequirementDTO req : requirements) {
-
-            if (req.getRequirementName() == null || req.getRequirementName().isBlank()) {throw new IllegalArgumentException("El nombre del requisito es obligatorio.");}
-
-            if (req.getRuleType() == null) {
-                throw new IllegalArgumentException("El tipo de regla es obligatorio para el requisito: " + req.getRequirementName());
-            }
-
-            if (req.getExpectedValue() == null || req.getExpectedValue().isBlank()) {
-                throw new IllegalArgumentException("El valor esperado es obligatorio para el requisito: " + req.getRequirementName());
-            }
 
             ModalityRequirements requirement = ModalityRequirements.builder()
                     .modality(modality)
@@ -182,51 +173,40 @@ public class ModalityCatalogService {
 
         DegreeModality modality = degreeModalityRepository.findById(modalityId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("La modalidad con ID " + modalityId + " no existe.")
+                        new NotFoundException("La modalidad con ID " + modalityId + " no existe.")
                 );
 
         ModalityRequirements requirement = modalityRequirementsRepository.findById(requirementId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("El requisito con ID " + requirementId + " no existe.")
+                        new NotFoundException("El requisito con ID " + requirementId + " no existe.")
                 );
 
         if (!requirement.getModality().getId().equals(modality.getId())) {
-            throw new IllegalArgumentException(
+            throw new ValidationException(
                     "El requisito no pertenece a la modalidad indicada."
             );
         }
 
-        if (req.getRequirementName() != null) {
-            if (req.getRequirementName().isBlank()) {
-                throw new IllegalArgumentException("El nombre del requisito no puede estar vacío.");
-            }
-            requirement.setRequirementName(req.getRequirementName());
-        }
+        requirement.setRequirementName(req.getRequirementName());
 
         if (req.getDescription() != null) {
             requirement.setDescription(req.getDescription());
         }
 
-        if (req.getRuleType() != null) {
-            requirement.setRuleType(req.getRuleType());
-        }
+        requirement.setRuleType(req.getRuleType());
 
-        if (req.getExpectedValue() != null) {
-            if (req.getExpectedValue().isBlank()) {
-                throw new IllegalArgumentException("El valor esperado no puede estar vacío.");
-            }
-            requirement.setExpectedValue(req.getExpectedValue());
-        }
+        requirement.setExpectedValue(req.getExpectedValue());
 
         requirement.setUpdatedAt(LocalDateTime.now());
 
         modalityRequirementsRepository.save(requirement);
     }
 
-    public ResponseEntity<List<RequirementDTO>> getModalityRequirements(Long modalityId, Boolean active) {
+    @Transactional(readOnly = true)
+    public List<RequirementDTO> getModalityRequirements(Long modalityId, Boolean active) {
 
         if (!degreeModalityRepository.existsById(modalityId)) {
-            return ResponseEntity.badRequest().body(List.of());
+            throw new NotFoundException("La modalidad con ID " + modalityId + " no existe.");
         }
 
         List<ModalityRequirements> requirements;
@@ -237,7 +217,7 @@ public class ModalityCatalogService {
             requirements = modalityRequirementsRepository.findByModalityId(modalityId);
         }
 
-        List<RequirementDTO> response = requirements.stream()
+        return requirements.stream()
                 .map(r -> RequirementDTO.builder()
                         .id(r.getId())
                         .requirementName(r.getRequirementName())
@@ -247,47 +227,46 @@ public class ModalityCatalogService {
                         .active(r.isActive())
                         .build())
                 .toList();
-
-        return ResponseEntity.ok(response);
     }
-    public ResponseEntity<?> deleteRequirement(Long requirementId) {
+    public String deleteRequirement(Long requirementId) {
 
         ModalityRequirements requirement = modalityRequirementsRepository.findById(requirementId)
-                .orElseThrow(() -> new RuntimeException("Requisito no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Requisito no encontrado"));
 
         requirement.setActive(false);
         requirement.setUpdatedAt(LocalDateTime.now());
 
         modalityRequirementsRepository.save(requirement);
 
-        return ResponseEntity.ok("Requisito desactivado correctamente");
+        return "Requisito desactivado correctamente";
     }
 
-    public ResponseEntity<?> activeRequirement (Long requirementId){
+    public String activeRequirement (Long requirementId){
         ModalityRequirements requirement = modalityRequirementsRepository.findById(requirementId)
-                .orElseThrow(() -> new RuntimeException("Requisito no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Requisito no encontrado"));
 
         requirement.setActive(true);
         requirement.setUpdatedAt(LocalDateTime.now());
 
         modalityRequirementsRepository.save(requirement);
 
-        return ResponseEntity.ok("Requisito activado correctamente");
+        return "Requisito activado correctamente";
 
     }
 
-    public ResponseEntity<List<ModalityDTO>> getAllModalities() {
+    @Transactional(readOnly = true)
+    public List<ModalityDTO> getAllModalities() {
 
         User user = SecurityUtils.getCurrentUser();
 
         StudentProfile profile = studentProfileRepository.findByUserId(user.getId())
-                .orElseThrow(() -> new RuntimeException("Perfil académico no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Perfil académico no encontrado"));
 
         Long userProgramId = profile.getAcademicProgram().getId();
 
         List<DegreeModality> modalities = degreeModalityRepository.findByStatus(ModalityStatus.ACTIVE);
 
-        List<ModalityDTO> modalityDTOs = modalities.stream().map(mod -> {
+        return modalities.stream().map(mod -> {
 
             Optional<ProgramDegreeModality> pdmOpt = programDegreeModalityRepository
                     .findByAcademicProgramIdAndDegreeModalityIdAndActiveTrue(userProgramId, mod.getId());
@@ -308,20 +287,19 @@ public class ModalityCatalogService {
                     .build();
 
         }).toList();
-
-        return ResponseEntity.ok(modalityDTOs);
     }
 
-    public ResponseEntity<?> getModalityDetail(Long modalityId) {
+    @Transactional(readOnly = true)
+    public ModalityDTO getModalityDetail(Long modalityId) {
 
         if (!degreeModalityRepository.existsById(modalityId)) {
-            return ResponseEntity.badRequest().body("La modalidad con ID " + modalityId + " no existe.");
+            throw new NotFoundException("La modalidad con ID " + modalityId + " no existe.");
         }
 
         User user = SecurityUtils.getCurrentUser();
 
         StudentProfile profile = studentProfileRepository.findByUserId(user.getId())
-                .orElseThrow(() -> new RuntimeException("Perfil académico no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Perfil académico no encontrado"));
 
         Long userProgramId = profile.getAcademicProgram().getId();
 
@@ -358,9 +336,9 @@ public class ModalityCatalogService {
                         .build())
                 .toList();
 
-        DegreeModality modality = degreeModalityRepository.findById(modalityId).orElseThrow();
+        DegreeModality modality = degreeModalityRepository.findById(modalityId).orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
-        ModalityDTO modalityDetail = ModalityDTO.builder()
+        return ModalityDTO.builder()
                 .id(modalityId)
                 .name(modality.getName())
                 .description(modality.getDescription())
@@ -371,10 +349,9 @@ public class ModalityCatalogService {
                 .documents(documents)
                 .build();
 
-        return ResponseEntity.ok(modalityDetail);
-
     }
 
+    @Transactional(readOnly = true)
     public List<ProjectDirectorResponse> getProjectDirectors() {
 
         User currentUser = SecurityUtils.getCurrentUser();
@@ -383,7 +360,7 @@ public class ModalityCatalogService {
                 .findByUser_IdAndRole(currentUser.getId(), ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
 
         if (committeeAuthorities.isEmpty()) {
-            throw new RuntimeException("El usuario no tiene el rol de PROGRAM_CURRICULUM_COMMITTEE");
+            throw new ForbiddenException("El usuario no tiene el rol de PROGRAM_CURRICULUM_COMMITTEE");
         }
 
         Set<Long> userProgramIds = committeeAuthorities.stream()
@@ -406,6 +383,7 @@ public class ModalityCatalogService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<ProjectDirectorResponse> getProgramHeads() {
 
         User currentUser = SecurityUtils.getCurrentUser();
@@ -414,7 +392,7 @@ public class ModalityCatalogService {
                 .findByUser_IdAndRole(currentUser.getId(), ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
 
         if (committeeAuthorities.isEmpty()) {
-            throw new RuntimeException("El usuario no tiene el rol de PROGRAM_CURRICULUM_COMMITTEE");
+            throw new ForbiddenException("El usuario no tiene el rol de PROGRAM_CURRICULUM_COMMITTEE");
         }
 
         Set<Long> userProgramIds = committeeAuthorities.stream()
@@ -437,6 +415,7 @@ public class ModalityCatalogService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<ProjectDirectorResponse> getProgramCurriculumCommittee(Long academicProgramId, Long facultyId) {
 
         List<ProgramAuthority> committeeAuthorities = programAuthorityRepository.findAll()
@@ -467,6 +446,7 @@ public class ModalityCatalogService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<ProjectDirectorResponse> getExaminers(Long academicProgramId, Long facultyId) {
 
         List<User> examiners = userRepository.findAll()
@@ -516,6 +496,7 @@ public class ModalityCatalogService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<ProjectDirectorResponse> getExaminersForCommittee() {
 
         User currentUser = SecurityUtils.getCurrentUser();
@@ -524,7 +505,7 @@ public class ModalityCatalogService {
                 .findByUser_IdAndRole(currentUser.getId(), ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
 
         if (committeeAuthorities.isEmpty()) {
-            throw new RuntimeException("El usuario no tiene el rol de PROGRAM_CURRICULUM_COMMITTEE");
+            throw new ForbiddenException("El usuario no tiene el rol de PROGRAM_CURRICULUM_COMMITTEE");
         }
 
         Set<Long> userProgramIds = committeeAuthorities.stream()

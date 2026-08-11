@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -32,8 +33,8 @@ public class DocumentController {
     })
     @PostMapping("/create")
     @PreAuthorize("hasAuthority('PERM_CREATE_REQUIRED_DOCUMENT') or hasAuthority('PERM_UPDATE_REQUIRED_DOCUMENT')")
-    public ResponseEntity<?> createRequiredDocument(@RequestBody RequiredDocumentDTO request) {
-        return documentService.createRequiredDocument(request);
+    public ResponseEntity<String> createRequiredDocument(@Valid @RequestBody RequiredDocumentDTO request) {
+        return ResponseEntity.ok(documentService.createRequiredDocument(request));
     }
 
     @Operation(summary = "Actualizar documento requerido", description = "Actualiza un documento requerido existente")
@@ -45,8 +46,8 @@ public class DocumentController {
     })
     @PutMapping("/update/{documentId}")
     @PreAuthorize("hasAuthority('PERM_UPDATE_REQUIRED_DOCUMENT')")
-    public ResponseEntity<?> updateRequiredDocument(@Parameter(description = "ID del documento requerido") @PathVariable Long documentId, @RequestBody RequiredDocumentDTO request) {
-        return documentService.updateRequiredDocument(documentId, request);
+    public ResponseEntity<String> updateRequiredDocument(@Parameter(description = "ID del documento requerido") @PathVariable Long documentId, @Valid @RequestBody RequiredDocumentDTO request) {
+        return ResponseEntity.ok(documentService.updateRequiredDocument(documentId, request));
     }
 
     @Operation(summary = "Eliminar documento requerido", description = "Elimina un documento requerido del sistema")
@@ -57,8 +58,8 @@ public class DocumentController {
     })
     @PutMapping("/delete/{documentId}")
     @PreAuthorize("hasAuthority('PERM_DELETE_REQUIRED_DOCUMENT')")
-    public ResponseEntity<?> deleteRequiredDocument(@Parameter(description = "ID del documento requerido") @PathVariable Long documentId) {
-        return documentService.deleteRequiredDocument(documentId);
+    public ResponseEntity<String> deleteRequiredDocument(@Parameter(description = "ID del documento requerido") @PathVariable Long documentId) {
+        return ResponseEntity.ok(documentService.deleteRequiredDocument(documentId));
     }
 
     @Operation(summary = "Obtener documentos por modalidad", description = "Retorna todos los documentos requeridos para una modalidad específica")
@@ -66,7 +67,7 @@ public class DocumentController {
     @GetMapping("/modality/{modalityId}")
     public ResponseEntity<List<RequiredDocumentDTO>>
     getByModality(@Parameter(description = "ID de la modalidad de grado") @PathVariable Long modalityId) {
-        return documentService.getRequiredDocumentsByModality(modalityId);
+        return ResponseEntity.ok(documentService.getRequiredDocumentsByModality(modalityId));
     }
 
     @Operation(summary = "Obtener documentos por modalidad y estado", description = "Retorna documentos requeridos filtrados por estado (activo/inactivo)")
@@ -76,6 +77,6 @@ public class DocumentController {
     public ResponseEntity<List<RequiredDocumentDTO>>
     getByModalityAndStatus(@Parameter(description = "ID de la modalidad de grado") @PathVariable Long modalityId, 
                            @Parameter(description = "Filtrar por estado activo (true=activos, false=inactivos)") @RequestParam boolean active) {
-        return documentService.getRequiredDocumentsByModalityAndStatus(modalityId, active);
+        return ResponseEntity.ok(documentService.getRequiredDocumentsByModalityAndStatus(modalityId, active));
     }
 }

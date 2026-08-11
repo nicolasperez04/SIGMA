@@ -16,9 +16,11 @@ import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
 import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -45,19 +47,26 @@ public class ExaminerNotificationListener {
     private final ExaminerCertificatePdfService examinerCertificatePdfService;
     private final ExaminerCertificateRepository examinerCertificateRepository;
 
-    @EventListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void handleEvent(ModalityEvent event) {
-        switch (event.getType()) {
-            case READY_FOR_DEFENSE_REQUESTED -> handleDefenseReadyByDirectorEvent(event);
-            case EXAMINER_FINAL_REVIEW_COMPLETED -> handleExaminerFinalReviewCompletedEvent(event);
-            case DEFENSE_SCHEDULED -> handleDefenseScheduled(event);
-            case DOCUMENT_EDIT_REQUESTED -> onDocumentEditRequested(event);
-            case DEFENSE_COMPLETED -> onFinalDefenseApproved(event);
-            default -> log.warn("Unhandled ModalityEvent type: {}", event.getType());
+        try {
+            switch (event.getType()) {
+                case READY_FOR_DEFENSE_REQUESTED -> handleDefenseReadyByDirectorEvent(event);
+                case EXAMINER_FINAL_REVIEW_COMPLETED -> handleExaminerFinalReviewCompletedEvent(event);
+                case DEFENSE_SCHEDULED -> handleDefenseScheduled(event);
+                case DOCUMENT_EDIT_REQUESTED -> onDocumentEditRequested(event);
+                case DEFENSE_COMPLETED -> onFinalDefenseApproved(event);
+                case EXAMINER_ASSIGNED -> notifyExaminersAssignment(event.getStudentModalityId());
+                default -> log.warn("Unhandled ModalityEvent type: {}", event.getType());
+            }
+        } catch (Exception e) {
+            log.error("Error en ExaminerNotificationListener procesando evento {} (studentModalityId={})",
+                    event.getType(), event.getStudentModalityId(), e);
+            throw e;
         }
     }
 
-    @Async("notificationTaskExecutor")
     public void notifyExaminersAssignment(Long studentModalityId) {
         StudentModality modality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
@@ -588,28 +597,22 @@ public class ExaminerNotificationListener {
                         NotificationRecipientType.EXAMINER,
                         examinerUser, null, modality, subject, message);
 
-                // Enviar notificación con el acta adjunta
-                try {
-                    dispatcher.dispatchWithAttachment(
-                        notification,
-                        pdfPath,
-                        "ACTA_JURADO_" + certificate.getCertificateNumber() + ".pdf"
-                    );
+                // Enviar notificación con el acta adjunta (dispatchWithAttachment es @Async;
+                // los fallos de email se manejan dentro con emailSent=false + log)
+                dispatcher.dispatchWithAttachment(
+                    notification,
+                    pdfPath,
+                    "ACTA_JURADO_" + certificate.getCertificateNumber() + ".pdf"
+                );
 
-                    // Actualizar estado del certificado
-                    examinerCertificatePdfService.updateCertificateStatus(
-                        certificate.getId(),
-                        CertificateStatus.SENT
-                    );
+                // Actualizar estado del certificado
+                examinerCertificatePdfService.updateCertificateStatus(
+                    certificate.getId(),
+                    CertificateStatus.SENT
+                );
 
-                    log.info("Acta enviada al jurado {} (modalidad ID {})",
-                        examinerUser.getId(), modalityId);
-                } catch (Exception e) {
-                    log.error("Error enviando acta al jurado {}: {}",
-                        examinerUser.getId(), e.getMessage());
-                    // Intentar enviar sin adjunto como fallback
-                    dispatcher.dispatch(notification);
-                }
+                log.info("Acta enviada al jurado {} (modalidad ID {})",
+                    examinerUser.getId(), modalityId);
 
             } catch (Exception e) {
                 log.error("Error generando acta para jurado {} en modalidad ID {}: {}",

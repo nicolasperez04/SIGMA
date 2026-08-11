@@ -2,13 +2,13 @@ package com.SIGMA.USCO.Users.controller;
 
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityStatus;
 import com.SIGMA.USCO.Modalities.dto.ModalityDTO;
-import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
 import com.SIGMA.USCO.Users.dto.request.AssignExaminerMultipleProgramsRequest;
 import com.SIGMA.USCO.Users.dto.request.assignAuthorityProgram;
 import com.SIGMA.USCO.Users.dto.request.PermissionDTO;
 import com.SIGMA.USCO.Users.dto.request.RegisterUserByAdminRequest;
 import com.SIGMA.USCO.Users.dto.request.RoleRequest;
 import com.SIGMA.USCO.Users.dto.request.UpdateUserRequest;
+import com.SIGMA.USCO.Users.dto.response.UserResponse;
 import com.SIGMA.USCO.Users.service.AdminService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -18,6 +18,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -43,8 +44,8 @@ public class AdminController {
     })
     @PostMapping("/createRole")
     @PreAuthorize("hasAuthority('PERM_CREATE_ROLE')")
-    public ResponseEntity<?> createRole(@RequestBody RoleRequest request) {
-        return adminService.createRole(request);
+    public ResponseEntity<String> createRole(@Valid @RequestBody RoleRequest request) {
+        return ResponseEntity.ok(adminService.createRole(request));
     }
 
     @Operation(summary = "Actualizar rol", description = "Actualiza un rol existente con nuevos permisos")
@@ -56,8 +57,8 @@ public class AdminController {
     })
     @PutMapping("/updateRole/{id}")
     @PreAuthorize("hasAuthority('PERM_UPDATE_ROLE')")
-    public ResponseEntity<?> updateRole(@Parameter(description = "ID del rol") @PathVariable Long id, @RequestBody RoleRequest request) {
-        return adminService.updateRole(id, request);
+    public ResponseEntity<String> updateRole(@Parameter(description = "ID del rol") @PathVariable Long id, @Valid @RequestBody RoleRequest request) {
+        return ResponseEntity.ok(adminService.updateRole(id, request));
     }
 
     @Operation(summary = "Asignar rol a usuario", description = "Asigna un rol existente a un usuario")
@@ -68,8 +69,8 @@ public class AdminController {
     })
     @PostMapping("/assignRole")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_ROLE')")
-    public ResponseEntity<?> assignRoleToUser(@RequestBody UpdateUserRequest request) {
-        return adminService.assignRoleToUser(request);
+    public ResponseEntity<String> assignRoleToUser(@Valid @RequestBody UpdateUserRequest request) {
+        return ResponseEntity.ok(adminService.assignRoleToUser(request));
     }
 
     @Operation(summary = "Cambiar estado de usuario", description = "Cambia el estado de un usuario (activo/inactivo)")
@@ -80,16 +81,16 @@ public class AdminController {
     })
     @PostMapping("/changeUserStatus")
     @PreAuthorize("hasAuthority('PERM_ACTIVATE_OR_DEACTIVATE_USER')")
-    public ResponseEntity<?> changeUserStatus(@RequestBody UpdateUserRequest request){
-        return adminService.changeUserStatus(request);
+    public ResponseEntity<String> changeUserStatus(@Valid @RequestBody UpdateUserRequest request){
+        return ResponseEntity.ok(adminService.changeUserStatus(request));
     }
 
     @Operation(summary = "Obtener roles", description = "Obtiene la lista de todos los roles del sistema")
     @ApiResponse(responseCode = "200", description = "Lista de roles obtenida")
     @GetMapping("/getRoles")
     @PreAuthorize("hasAuthority('PERM_VIEW_ROLE')")
-    public ResponseEntity<?> getRoles() {
-        return adminService.getRoles();
+    public ResponseEntity<List<RoleRequest>> getRoles() {
+        return ResponseEntity.ok(adminService.getRoles());
     }
 
     @Operation(summary = "Crear permiso", description = "Crea un nuevo permiso en el sistema")
@@ -100,16 +101,16 @@ public class AdminController {
     })
     @PostMapping("/createPermission")
     @PreAuthorize("hasAuthority('PERM_CREATE_PERMISSION')")
-    public ResponseEntity<?> createPermission(@RequestBody PermissionDTO request) {
-        return adminService.createPermission(request);
+    public ResponseEntity<String> createPermission(@Valid @RequestBody PermissionDTO request) {
+        return ResponseEntity.ok(adminService.createPermission(request));
     }
 
     @Operation(summary = "Obtener permisos", description = "Obtiene la lista de todos los permisos disponibles")
     @ApiResponse(responseCode = "200", description = "Lista de permisos obtenida")
     @GetMapping("/getPermissions")
     @PreAuthorize("hasAuthority('PERM_VIEW_PERMISSION')")
-    public ResponseEntity<?> getPermissions() {
-        return adminService.getPermissions();
+    public ResponseEntity<List<PermissionDTO>> getPermissions() {
+        return ResponseEntity.ok(adminService.getPermissions());
     }
 
     @Operation(summary = "Obtener usuarios", description = "Obtiene lista de usuarios con filtros opcionales por estado, rol, programa académico, facultad, nombre, apellido y email")
@@ -119,7 +120,7 @@ public class AdminController {
     })
     @GetMapping("/getUsers")
     @PreAuthorize("hasAuthority('PERM_VIEW_USER')")
-    public ResponseEntity<?> getUsers(
+    public ResponseEntity<List<UserResponse>> getUsers(
             @Parameter(description = "Filtrar por estado (ACTIVE, INACTIVE)") @RequestParam(required = false) String status,
             @Parameter(description = "Filtrar por nombre de rol") @RequestParam(required = false) String role,
             @Parameter(description = "Filtrar por ID de programa académico") @RequestParam(required = false, name = "programId") Long academicProgramId,
@@ -128,7 +129,7 @@ public class AdminController {
             @Parameter(description = "Filtrar por apellido (búsqueda parcial)") @RequestParam(required = false) String lastName,
             @Parameter(description = "Filtrar por email (búsqueda parcial)") @RequestParam(required = false) String email
     ) {
-        return adminService.getUsers(status, role, academicProgramId, facultyId, name, lastName, email);
+        return ResponseEntity.ok(adminService.getUsers(status, role, academicProgramId, facultyId, name, lastName, email));
     }
 
     @Operation(summary = "Desactivar usuario", description = "Desactiva un usuario específico por su ID")
@@ -139,8 +140,8 @@ public class AdminController {
     })
     @PutMapping("/changeUserStatus/{userId}")
     @PreAuthorize("hasAuthority('PERM_ACTIVATE_OR_DEACTIVATE_USER')")
-    public ResponseEntity<?> desactiveUser(@Parameter(description = "ID del usuario") @PathVariable Long userId) {
-        return adminService.desactiveUser(userId);
+    public ResponseEntity<String> desactiveUser(@Parameter(description = "ID del usuario") @PathVariable Long userId) {
+        return ResponseEntity.ok(adminService.desactiveUser(userId));
     }
 
     @Operation(summary = "Obtener modalidades", description = "Obtiene lista de modalidades con filtro opcional de estado")
@@ -148,7 +149,7 @@ public class AdminController {
     @GetMapping("/modalities")
     @PreAuthorize("hasAuthority('PERM_VIEW_MODALITIES_ADMIN')")
     public ResponseEntity<List<ModalityDTO>> getModalities(@Parameter(description = "Filtrar por estado de modalidad") @RequestParam(required = false) ModalityStatus status) {
-        return adminService.getModalities(status);
+        return ResponseEntity.ok(adminService.getModalities(status));
     }
 
     @Operation(summary = "Asignar jefe de programa", description = "Asigna un usuario como jefe de programa académico")
@@ -159,20 +160,13 @@ public class AdminController {
     })
     @PostMapping("/assign-program-head")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_PROGRAM_HEAD')")
-    public ResponseEntity<?> assignProgramHead(@RequestBody assignAuthorityProgram request){
-
-        try {
-            ProgramAuthority assigned = adminService.assignProgramHead(request);
-            return ResponseEntity.ok(
-                    Map.of(
-                        "message", "Se ha asignado el jefe de programa correctamente"
-                     )
-            );
-
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-
+    public ResponseEntity<?> assignProgramHead(@Valid @RequestBody assignAuthorityProgram request){
+        adminService.assignProgramHead(request);
+        return ResponseEntity.ok(
+                Map.of(
+                    "message", "Se ha asignado el jefe de programa correctamente"
+                 )
+        );
     }
 
     @Operation(summary = "Asignar director de proyecto", description = "Asigna un usuario como director de proyecto para una modalidad")
@@ -183,20 +177,13 @@ public class AdminController {
     })
     @PostMapping("/assign-project-director")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_PROGRAM_HEAD')")
-    public ResponseEntity<?> assignProjectDirector(@RequestBody assignAuthorityProgram request){
-
-        try {
-            ProgramAuthority assigned = adminService.assignProjectDirector(request);
-            return ResponseEntity.ok(
-                    Map.of(
-                            "message", "Se ha asignado el director de proyecto correctamente"
-                    )
-            );
-
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-
+    public ResponseEntity<?> assignProjectDirector(@Valid @RequestBody assignAuthorityProgram request){
+        adminService.assignProjectDirector(request);
+        return ResponseEntity.ok(
+                Map.of(
+                        "message", "Se ha asignado el director de proyecto correctamente"
+                )
+        );
     }
 
     @Operation(summary = "Asignar miembro del comité", description = "Asigna un usuario como miembro del comité curricular")
@@ -207,20 +194,13 @@ public class AdminController {
     })
     @PostMapping("/assign-committee-member")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_PROGRAM_HEAD')")
-    public ResponseEntity<?> assignCommittee(@RequestBody assignAuthorityProgram request){
-
-        try {
-            ProgramAuthority assigned = adminService.assignCommittee(request);
-            return ResponseEntity.ok(
-                    Map.of(
-                            "message", "Se ha asignado el miembro del comité correctamente"
-                    )
-            );
-
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-
+    public ResponseEntity<?> assignCommittee(@Valid @RequestBody assignAuthorityProgram request){
+        adminService.assignCommittee(request);
+        return ResponseEntity.ok(
+                Map.of(
+                        "message", "Se ha asignado el miembro del comité correctamente"
+                )
+        );
     }
 
     @Operation(summary = "Asignar jurado/evaluador", description = "Asigna un usuario como jurado o evaluador para una modalidad")
@@ -231,20 +211,13 @@ public class AdminController {
     })
     @PostMapping("/assign-examiner")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
-    public ResponseEntity<?> assignExaminer(@RequestBody assignAuthorityProgram request){
-
-        try {
-            ProgramAuthority assigned = adminService.assignExaminer(request);
-            return ResponseEntity.ok(
-                    Map.of(
-                            "message", "Se ha asignado el jurado/evaluador (examiner) correctamente"
-                    )
-            );
-
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
-
+    public ResponseEntity<?> assignExaminer(@Valid @RequestBody assignAuthorityProgram request){
+        adminService.assignExaminer(request);
+        return ResponseEntity.ok(
+                Map.of(
+                        "message", "Se ha asignado el jurado/evaluador (examiner) correctamente"
+                )
+        );
     }
 
     @Operation(summary = "Registrar usuario por administrador", description = "Crea un nuevo usuario en el sistema con los datos proporcionados")
@@ -255,8 +228,8 @@ public class AdminController {
     })
     @PostMapping("/register-user")
     @PreAuthorize("hasAuthority('PERM_CREATE_USER')")
-    public ResponseEntity<?> registerUserByAdmin(@RequestBody RegisterUserByAdminRequest request) {
-        return adminService.registerUserByAdmin(request);
+    public ResponseEntity<Map<String, Object>> registerUserByAdmin(@Valid @RequestBody RegisterUserByAdminRequest request) {
+        return ResponseEntity.ok(adminService.registerUserByAdmin(request));
     }
 
     @Operation(
@@ -274,9 +247,9 @@ public class AdminController {
     })
     @PostMapping("/examiner/assign-programs")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
-    public ResponseEntity<?> assignExaminerToMultiplePrograms(
-            @RequestBody AssignExaminerMultipleProgramsRequest request) {
-        return adminService.assignExaminerToMultiplePrograms(request);
+    public ResponseEntity<Map<String, Object>> assignExaminerToMultiplePrograms(
+            @Valid @RequestBody AssignExaminerMultipleProgramsRequest request) {
+        return ResponseEntity.ok(adminService.assignExaminerToMultiplePrograms(request));
     }
 
     @Operation(
@@ -290,8 +263,8 @@ public class AdminController {
     })
     @PostMapping("/examiner/assign-program")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
-    public ResponseEntity<?> assignExaminerToAdditionalProgram(@RequestBody assignAuthorityProgram request) {
-        return adminService.assignExaminerToAdditionalProgram(request);
+    public ResponseEntity<Map<String, Object>> assignExaminerToAdditionalProgram(@Valid @RequestBody assignAuthorityProgram request) {
+        return ResponseEntity.ok(adminService.assignExaminerToAdditionalProgram(request));
     }
 
     @Operation(
@@ -305,10 +278,10 @@ public class AdminController {
     })
     @DeleteMapping("/examiner/{userId}/program/{academicProgramId}")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
-    public ResponseEntity<?> removeExaminerFromProgram(
+    public ResponseEntity<Map<String, Object>> removeExaminerFromProgram(
             @Parameter(description = "ID del usuario jurado") @PathVariable Long userId,
             @Parameter(description = "ID del programa académico") @PathVariable Long academicProgramId) {
-        return adminService.removeExaminerFromProgram(userId, academicProgramId);
+        return ResponseEntity.ok(adminService.removeExaminerFromProgram(userId, academicProgramId));
     }
 
     @Operation(
@@ -318,8 +291,8 @@ public class AdminController {
     @ApiResponse(responseCode = "200", description = "Lista de programas obtenida")
     @GetMapping("/examiner/{userId}/programs")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
-    public ResponseEntity<?> getExaminerPrograms(@Parameter(description = "ID del usuario jurado") @PathVariable Long userId) {
-        return adminService.getExaminerPrograms(userId);
+    public ResponseEntity<Map<String, Object>> getExaminerPrograms(@Parameter(description = "ID del usuario jurado") @PathVariable Long userId) {
+        return ResponseEntity.ok(adminService.getExaminerPrograms(userId));
     }
 
 }

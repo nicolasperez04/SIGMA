@@ -6,7 +6,7 @@ import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.notifications.listeners.TranslationUtils;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
@@ -341,6 +341,12 @@ public class HistoricalReportService {
                            m.getStatus() == ModalityProcessStatus.GRADED_FAILED)
                 .count();
 
+        long cancelled = periodModalities.stream()
+                .filter(m -> m.getStatus() == ModalityProcessStatus.MODALITY_CANCELLED ||
+                           m.getStatus() == ModalityProcessStatus.CANCELLED_WITHOUT_REPROVAL ||
+                           m.getStatus() == ModalityProcessStatus.CANCELLED_BY_CORRECTION_TIMEOUT)
+                .count();
+
         // Calcular tasa de completitud
         double completionRate = periodModalities.size() > 0 ?
                 (double) completed / periodModalities.size() * 100 : 0;
@@ -385,7 +391,7 @@ public class HistoricalReportService {
                 .groupInstances((int) group)
                 .completedSuccessfully((int) completed)
                 .abandoned((int) abandoned)
-                .cancelled(0) // Se puede calcular si hay estados cancelados
+                .cancelled((int) cancelled)
                 .completionRate(Math.round(completionRate * 100.0) / 100.0)
                 .averageCompletionDays(Math.round(avgDays * 100.0) / 100.0)
                 .directorsInvolved(directors.size())
@@ -848,7 +854,7 @@ public class HistoricalReportService {
                 .totalUniqueDirectors(allDirectors.size())
                 .currentActiveDirectors(currentDirectors.size())
                 .topDirectorsAllTime(topDirectors)
-                .topDirectorsCurrentPeriod(new ArrayList<>()) // Se puede calcular si se necesita
+                .topDirectorsCurrentPeriod(null)
                 .averageInstancesPerDirector(Math.round(avgPerDirector * 100.0) / 100.0)
                 .mostExperiencedDirector(mostExperienced != null ?
                         mostExperienced.getKey().getName() + " " + mostExperienced.getKey().getLastName() : null)
@@ -947,7 +953,7 @@ public class HistoricalReportService {
                 .totalHistoricalStudents(allStudents.size())
                 .currentStudents(currentStudents.size())
                 .averageStudentsPerInstance(Math.round(avgStudentsPerInstance * 100.0) / 100.0)
-                .maxStudentsInGroup(3) // Valor por defecto, se puede calcular
+                .maxStudentsInGroup(null)
                 .minStudentsInGroup(1)
                 .individualVsGroupRatio(Math.round(individualRatio * 100.0) / 100.0)
                 .studentsBySemester(studentsBySemester)
@@ -1008,7 +1014,7 @@ public class HistoricalReportService {
                         Collectors.averagingDouble(p -> p.getCompletionRate() != null ? p.getCompletionRate() : 0)
                 ));
 
-        Map<String, Double> successRateByYear = new HashMap<>(); // Se puede calcular si se necesita
+        Map<String, Double> successRateByYear = null;
 
         // Determinar veredicto
         String verdict;

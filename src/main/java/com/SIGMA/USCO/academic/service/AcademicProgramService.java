@@ -6,8 +6,11 @@ import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.Faculty;
 import com.SIGMA.USCO.academic.repository.AcademicProgramRepository;
 import com.SIGMA.USCO.academic.repository.FacultyRepository;
+import com.SIGMA.USCO.common.exception.ConflictException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -19,29 +22,18 @@ public class AcademicProgramService {
     private final AcademicProgramRepository academicProgramRepository;
     private final FacultyRepository facultyRepository;
 
+    @Transactional
     public ProgramDTO createProgram(ProgramDTO request) {
 
-        if (request.getName() == null || request.getName().isBlank()) {
-            throw new IllegalArgumentException("El nombre del programa es obligatorio.");
-        }
-
-        if (request.getCode() == null || request.getCode().isBlank()) {
-            throw new IllegalArgumentException("El código del programa es obligatorio.");
-        }
-
-        if (request.getFacultyId() == null) {
-            throw new IllegalArgumentException("La facultad es obligatoria.");
-        }
-
         Faculty faculty = facultyRepository.findById(request.getFacultyId())
-                .orElseThrow(() -> new IllegalArgumentException("La facultad no existe."));
+                .orElseThrow(() -> new NotFoundException("La facultad no existe."));
 
         if (academicProgramRepository.existsByNameIgnoreCase(request.getName())) {
-            throw new IllegalArgumentException("El nombre del programa ya existe.");
+            throw new ConflictException("El nombre del programa ya existe.");
         }
 
         if (academicProgramRepository.existsByCodeIgnoreCase(request.getCode())) {
-            throw new IllegalArgumentException("El código del programa ya existe.");
+            throw new ConflictException("El código del programa ya existe.");
         }
 
         AcademicProgram program = AcademicProgram.builder()
@@ -57,70 +49,41 @@ public class AcademicProgramService {
 
          academicProgramRepository.save(program);
 
-        return ProgramDTO.builder()
-                .id(program.getId())
-                .name(program.getName())
-                .code(program.getCode())
-                .description(program.getDescription())
-                .facultyId(program.getFaculty().getId())
-                .totalCredits(program.getTotalCredits())
-                .active(program.isActive())
-                .build();
+        return toProgramDTO(program);
     }
 
+    @Transactional(readOnly = true)
     public ProgramDTO getProgramById(Long programId) {
 
         AcademicProgram program = academicProgramRepository.findById(programId)
-                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado."));
+                .orElseThrow(() -> new NotFoundException("Programa académico no encontrado."));
 
-        ProgramDTO programDTO = ProgramDTO.builder()
-                .id(program.getId())
-                .name(program.getName())
-                .code(program.getCode())
-                .totalCredits(program.getTotalCredits())
-                .active(program.isActive())
-                .build();
-
-        return programDTO;
+        return toProgramDTO(program);
 
     }
 
+    @Transactional(readOnly = true)
     public List<ProgramDTO> getAllPrograms() {
         List<AcademicProgram> programs = academicProgramRepository.findAll();
 
-        return programs.stream().map(program -> ProgramDTO.builder()
-                .id(program.getId())
-                .name(program.getName())
-                .code(program.getCode())
-                .description(program.getDescription())
-                .facultyId(program.getFaculty().getId())
-                .totalCredits(program.getTotalCredits())
-                .active(program.isActive())
-                .build()).toList();
+        return programs.stream().map(this::toProgramDTO).toList();
     }
 
+    @Transactional(readOnly = true)
     public List<ProgramDTO> getActivePrograms() {
 
         return facultyRepository.findByActiveTrue()
                 .stream()
                 .flatMap(faculty -> academicProgramRepository.findByFaculty_IdAndActiveTrue(faculty.getId()).stream())
-                .map(program -> ProgramDTO.builder()
-                        .id(program.getId())
-                        .name(program.getName())
-                        .code(program.getCode())
-                        .description(program.getDescription())
-                        .facultyId(program.getFaculty().getId())
-                        .totalCredits(program.getTotalCredits())
-                        .active(program.isActive())
-                        .build())
+                .map(this::toProgramDTO)
                 .toList();
 
-
     }
-    public AcademicProgram updateProgram(Long programId, ProgramDTO request) {
+    @Transactional
+    public ProgramDTO updateProgram(Long programId, ProgramDTO request) {
 
         AcademicProgram program = academicProgramRepository.findById(programId)
-                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado."));
+                .orElseThrow(() -> new NotFoundException("Programa académico no encontrado."));
 
         if (request.getName() != null && !request.getName().isBlank()) {
 
@@ -131,7 +94,7 @@ public class AcademicProgramService {
                     );
 
             if (exists) {
-                throw new RuntimeException("Ya existe un programa con ese nombre.");
+                throw new ConflictException("Ya existe un programa con ese nombre.");
             }
 
             program.setName(request.getName().toUpperCase());
@@ -146,7 +109,7 @@ public class AcademicProgramService {
                     );
 
             if (exists) {
-                throw new RuntimeException("Ya existe un programa con ese código.");
+                throw new ConflictException("Ya existe un programa con ese código.");
             }
 
             program.setCode(request.getCode().toUpperCase());
@@ -164,14 +127,28 @@ public class AcademicProgramService {
                 !request.getFacultyId().equals(program.getFaculty().getId())) {
 
             Faculty faculty = facultyRepository.findById(request.getFacultyId())
-                    .orElseThrow(() -> new RuntimeException("La facultad no existe."));
+                    .orElseThrow(() -> new NotFoundException("La facultad no existe."));
 
             program.setFaculty(faculty);
         }
 
         program.setUpdatedAt(LocalDateTime.now());
 
-        return academicProgramRepository.save(program);
+        academicProgramRepository.save(program);
+
+        return toProgramDTO(program);
+    }
+
+    private ProgramDTO toProgramDTO(AcademicProgram program) {
+        return ProgramDTO.builder()
+                .id(program.getId())
+                .name(program.getName())
+                .code(program.getCode())
+                .description(program.getDescription())
+                .facultyId(program.getFaculty() != null ? program.getFaculty().getId() : null)
+                .totalCredits(program.getTotalCredits())
+                .active(program.isActive())
+                .build();
     }
 
 }

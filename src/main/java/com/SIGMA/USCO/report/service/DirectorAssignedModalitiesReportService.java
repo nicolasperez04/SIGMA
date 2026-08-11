@@ -11,7 +11,7 @@ import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
-import com.SIGMA.USCO.notifications.listeners.TranslationUtils;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import com.SIGMA.USCO.report.dto.*;
 import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;

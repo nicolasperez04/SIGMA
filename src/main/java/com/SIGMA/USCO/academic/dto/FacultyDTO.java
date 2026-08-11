@@ -14,10 +14,13 @@ import java.util.List;
 @NoArgsConstructor
 public class FacultyDTO {
 
-    @NotBlank
+    @NotBlank(message = "El nombre de la facultad es obligatorio.")
     private String name;
-    @NotBlank
+
+    @NotBlank(message = "El código de la facultad es obligatorio.")
     private String code;
+
+    @NotBlank(message = "La descripción de la facultad es obligatoria.")
     private String description;
 
     //response

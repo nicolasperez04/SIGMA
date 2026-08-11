@@ -2,7 +2,6 @@ package com.SIGMA.USCO.academic.controller;
 
 
 import com.SIGMA.USCO.academic.dto.ProgramDTO;
-import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.service.AcademicProgramService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -15,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.util.Map;
 
@@ -35,26 +35,14 @@ public class AcademicProgramController {
     })
     @PostMapping("/create")
     @PreAuthorize("hasAuthority('PERM_CREATE_PROGRAM')")
-    public ResponseEntity<?> createProgram(@RequestBody ProgramDTO request) {
+    public ResponseEntity<?> createProgram(@RequestBody @Valid ProgramDTO request) {
+        ProgramDTO program = academicProgramService.createProgram(request);
 
-        try {
-            ProgramDTO program = academicProgramService.createProgram(request);
-
-            return ResponseEntity.status(HttpStatus.CREATED).body(
-                    Map.of(
-                            "message", "Programa académico creado exitosamente."
-                    )
-            );
-
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("error", e.getMessage())
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of("error", "Ocurrió un error al crear el programa académico.")
-            );
-        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                Map.of(
+                        "message", "Programa académico creado exitosamente."
+                )
+        );
     }
 
     @Operation(summary = "Obtener programa por ID", description = "Retorna la información de un programa académico específico")
@@ -64,18 +52,8 @@ public class AcademicProgramController {
     })
     @GetMapping("/{id}")
     public ResponseEntity<?> getProgramById(@Parameter(description = "ID del programa") @PathVariable Long id) {
-        try {
-            ProgramDTO program = academicProgramService.getProgramById(id);
-            return ResponseEntity.ok(program);
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    Map.of("error", e.getMessage())
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of("error", "Ocurrió un error al obtener el programa académico.")
-            );
-        }
+        ProgramDTO program = academicProgramService.getProgramById(id);
+        return ResponseEntity.ok(program);
     }
 
     @Operation(summary = "Obtener todos los programas", description = "Retorna la lista completa de programas académicos")
@@ -83,26 +61,14 @@ public class AcademicProgramController {
     @GetMapping("/all")
     @PreAuthorize("hasAuthority('PERM_VIEW_PROGRAMS')")
     public ResponseEntity<?> getAllPrograms() {
-        try {
-            return ResponseEntity.ok(academicProgramService.getAllPrograms());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of("error", "Ocurrió un error al obtener los programas académicos.")
-            );
-        }
+        return ResponseEntity.ok(academicProgramService.getAllPrograms());
     }
 
     @Operation(summary = "Obtener programas activos", description = "Retorna solo los programas académicos activos")
     @ApiResponse(responseCode = "200", description = "Lista de programas activos obtenida")
     @GetMapping("/active")
     public ResponseEntity<?> getActivePrograms() {
-        try {
-            return ResponseEntity.ok(academicProgramService.getActivePrograms());
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of("error", "Ocurrió un error al obtener los programas académicos activos.")
-            );
-        }
+        return ResponseEntity.ok(academicProgramService.getActivePrograms());
     }
 
     @Operation(summary = "Actualizar programa académico", description = "Actualiza la información de un programa académico existente")
@@ -114,26 +80,12 @@ public class AcademicProgramController {
     })
     @PutMapping("/update/{id}")
     @PreAuthorize("hasAuthority('PERM_UPDATE_PROGRAM')")
-    public ResponseEntity<?> updateProgram(@Parameter(description = "ID del programa") @PathVariable Long id, @RequestBody ProgramDTO request) {
-        try {
-            AcademicProgram updatedProgram = academicProgramService.updateProgram(id, request);
-            return ResponseEntity.ok(
-                    Map.of(
-                            "message", "Programa académico actualizado exitosamente."
-                    )
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("error", e.getMessage())
-            );
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    Map.of("error", e.getMessage())
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of("error", "Ocurrió un error al actualizar el programa académico.")
-            );
-        }
+    public ResponseEntity<?> updateProgram(@Parameter(description = "ID del programa") @PathVariable Long id, @RequestBody @Valid ProgramDTO request) {
+        academicProgramService.updateProgram(id, request);
+        return ResponseEntity.ok(
+                Map.of(
+                        "message", "Programa académico actualizado exitosamente."
+                )
+        );
     }
 }

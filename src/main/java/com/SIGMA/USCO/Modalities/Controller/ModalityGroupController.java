@@ -1,5 +1,6 @@
 package com.SIGMA.USCO.Modalities.Controller;
 
+import com.SIGMA.USCO.Modalities.dto.groups.EligibleStudentDTO;
 import com.SIGMA.USCO.Modalities.dto.groups.InviteStudentRequest;
 import com.SIGMA.USCO.Modalities.service.ModalityGroupService;
 import com.SIGMA.USCO.documents.service.DocumentService;
@@ -10,9 +11,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
 
 @Tag(name = "Modalidades Grupales", description = "Gestión de modalidades de grado grupales: invitaciones, aceptaciones y rechazos")
 @RestController
@@ -33,16 +38,16 @@ public class ModalityGroupController {
     })
     @PostMapping("/{modalityId}/start-group")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> startGroupModality(@Parameter(description = "ID de la modalidad de grado") @PathVariable Long modalityId) {
-        return modalityGroupService.startStudentModalityGroup(modalityId);
+    public ResponseEntity<Map<String, Object>> startGroupModality(@Parameter(description = "ID de la modalidad de grado") @PathVariable Long modalityId) {
+        return ResponseEntity.ok(modalityGroupService.startStudentModalityGroup(modalityId));
     }
 
     @Operation(summary = "Obtener estudiantes elegibles", description = "Obtiene la lista de estudiantes elegibles para ser invitados a la modalidad grupal del usuario actual")
     @ApiResponse(responseCode = "200", description = "Lista de estudiantes elegibles obtenida")
     @GetMapping("/eligible-students")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> getEligibleStudents(@Parameter(description = "Filtro por nombre de estudiante (opcional)") @RequestParam(required = false) String nameFilter) {
-        return modalityGroupService.getEligibleStudentsForInvitation(nameFilter);
+    public ResponseEntity<List<EligibleStudentDTO>> getEligibleStudents(@Parameter(description = "Filtro por nombre de estudiante (opcional)") @RequestParam(required = false) String nameFilter) {
+        return ResponseEntity.ok(modalityGroupService.getEligibleStudentsForInvitation(nameFilter));
     }
 
     @Operation(summary = "Invitar estudiante", description = "El estudiante invita a otro estudiante para que se una a su modalidad grupal")
@@ -53,8 +58,8 @@ public class ModalityGroupController {
     })
     @PostMapping("/invite")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> inviteStudent(@RequestBody InviteStudentRequest request) {
-        return modalityGroupService.inviteStudentToModality(request.getStudentModalityId(), request.getInviteeId());
+    public ResponseEntity<Map<String, Object>> inviteStudent(@Valid @RequestBody InviteStudentRequest request) {
+        return ResponseEntity.ok(modalityGroupService.inviteStudentToModality(request.getStudentModalityId(), request.getInviteeId()));
     }
 
     @Operation(summary = "Aceptar invitación", description = "El estudiante acepta una invitación para unirse a una modalidad grupal")
@@ -66,8 +71,8 @@ public class ModalityGroupController {
     })
     @PostMapping("/invitations/{invitationId}/accept")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> acceptInvitation(@Parameter(description = "ID de la invitación") @PathVariable Long invitationId) {
-        return modalityGroupService.acceptInvitation(invitationId);
+    public ResponseEntity<Map<String, Object>> acceptInvitation(@Parameter(description = "ID de la invitación") @PathVariable Long invitationId) {
+        return ResponseEntity.ok(modalityGroupService.acceptInvitation(invitationId));
     }
 
     @Operation(summary = "Rechazar invitación", description = "El estudiante rechaza una invitación para unirse a una modalidad grupal")
@@ -78,8 +83,8 @@ public class ModalityGroupController {
     })
     @PostMapping("/invitations/{invitationId}/reject")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> rejectInvitation(@Parameter(description = "ID de la invitación") @PathVariable Long invitationId) {
-        return modalityGroupService.rejectInvitation(invitationId);
+    public ResponseEntity<Map<String, Object>> rejectInvitation(@Parameter(description = "ID de la invitación") @PathVariable Long invitationId) {
+        return ResponseEntity.ok(modalityGroupService.rejectInvitation(invitationId));
     }
 
 

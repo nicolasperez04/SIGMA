@@ -1,7 +1,6 @@
 package com.SIGMA.USCO.academic.controller;
 
 import com.SIGMA.USCO.academic.dto.FacultyDTO;
-import com.SIGMA.USCO.academic.entity.Faculty;
 import com.SIGMA.USCO.academic.service.FacultyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -14,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.util.Map;
 
@@ -34,30 +34,14 @@ public class FacultyController {
     })
     @PostMapping("/create")
     @PreAuthorize("hasAuthority('PERM_CREATE_FACULTY')")
-    public ResponseEntity<?> createFaculty(@RequestBody FacultyDTO request){
-
-        try {
-            Faculty faculty = facultyService.createFaculty(request);
-            return ResponseEntity.status(HttpStatus.CREATED).body(
-                    Map.of(
-                            "message", "Facultad creada exitosamente.",
-                            "faculty", faculty
-                    )
-            );
-        }catch (IllegalArgumentException e){
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "error", e.getMessage()
-                    )
-            );
-        }catch (Exception e){
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "error", "Ocurrió un error al crear la facultad."
-                    )
-            );
-        }
-
+    public ResponseEntity<?> createFaculty(@RequestBody @Valid FacultyDTO request){
+        FacultyDTO faculty = facultyService.createFaculty(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                Map.of(
+                        "message", "Facultad creada exitosamente.",
+                        "faculty", faculty
+                )
+        );
     }
 
     @Operation(summary = "Obtener todas las facultades", description = "Retorna la lista completa de todas las facultades del sistema")
@@ -93,34 +77,14 @@ public class FacultyController {
     })
     @PutMapping("/update/{id}")
     @PreAuthorize("hasAuthority('PERM_UPDATE_FACULTY')")
-    public ResponseEntity<?> updateFaculty(@Parameter(description = "ID de la facultad") @PathVariable Long id, @RequestBody FacultyDTO request) {
-        try {
-            FacultyDTO updatedFaculty = facultyService.updateFaculty(id, request);
-            return ResponseEntity.ok(
-                    Map.of(
-                            "message", "Facultad actualizada exitosamente.",
-                            "faculty", updatedFaculty
-                    )
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "error", e.getMessage()
-                    )
-            );
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    Map.of(
-                            "error", e.getMessage()
-                    )
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of(
-                            "error", "Ocurrió un error al actualizar la facultad."
-                    )
-            );
-        }
+    public ResponseEntity<?> updateFaculty(@Parameter(description = "ID de la facultad") @PathVariable Long id, @RequestBody @Valid FacultyDTO request) {
+        FacultyDTO updatedFaculty = facultyService.updateFaculty(id, request);
+        return ResponseEntity.ok(
+                Map.of(
+                        "message", "Facultad actualizada exitosamente.",
+                        "faculty", updatedFaculty
+                )
+        );
     }
 
     @Operation(summary = "Desactivar facultad", description = "Desactiva una facultad específica del sistema")

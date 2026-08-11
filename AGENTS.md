@@ -77,3 +77,37 @@ Eliminate duplicated save+dispatch patterns across 5 notification listeners by:
 - `handleModalityInvitationSent` (line 1028): uses `.invitationId()` — kept hand-rolled + `saveAndDispatch()`
 - `handleDefenseResult` leader path (line 449): uses `buildAndSave()` + inline `dispatchWithAttachment()`
 - `handleModalityFinalApprovedByCommittee` (line 1244): uses `buildAndSave()` + inline `dispatchWithAttachment()`
+
+## Exception Mapping Audit (Phases 1.1–1.4)
+
+### Status
+- **1.1 (common/error layer)**: DONE. `common/` has 7 exception classes + `GlobalExceptionHandler` (94 lines), `ApiResponse` record, `PaginatedResponse`, `TranslationUtils`. `ApiException` NOT created (YAGNI — `BusinessException` is the root).
+- **1.2 (type-erasing catches)**: FIXED. All findings corrected:
+  - `SeminarModalityService`: added `catch (BusinessException e) { throw e; }` before 10 generic `catch (Exception e)` blocks (previously re-wrapped `ConflictException`/`ValidationException` into 500).
+  - `StudentModalityListingService:1278` & `DocumentEditRequestService:1121`: added `catch (BusinessException e) { throw e; }` before `catch (RuntimeException)` (previously erased 404/409 into 400).
+  - `AdminService:840`: `RuntimeException("Rol de programa no válido")` → `ValidationException`.
+  - `DocumentModalityService:1194`: `IllegalArgumentException("Estado inválido")` → `ValidationException`.
+  - `ModalityController:393`: `RuntimeException("No se pudo leer el archivo")` → `NotFoundException`.
+  - `ModalityController:512` `resubmitCorrectedDocument`: removed `try/catch(IOException)` that leaked `e.getMessage()` as 500; method now declares `throws IOException`.
+- **1.3 (controllers return ApiResponse, not raw types)**: COMPLIANT. Sole exception `AuthService` (register/login) — deliberate, frontend reads `errorMessage.includes("correo")`. Don't touch.
+- **1.4 (@Valid coverage)**: DONE. 63/63 `@RequestBody` counted; 21 without `@Valid` all intentional (AuthController, ScheduleDefense, report filters, raw Map strings).
+
+### Exception hierarchy
+`BusinessException` (root) → `ValidationException`, `ConflictException`, `NotFoundException`, `ForbiddenException`, `UnauthorizedException`.
+`GlobalExceptionHandler`: NotFound→404, Conflict→409, Forbidden→403, Unauthorized→401, AccessDenied→403, IllegalArgumentException→400, BusinessException→400, MethodArgumentNotValid→400 (data={campo:msg}), DateTimeParse→400, DataIntegrityViolation→409, generic Exception→500 (no message leak).
+
+### Rule of thumb
+Services must throw typed exceptions from `com.SIGMA.USCO.common.exception` so the handler maps them. Never re-wrap a caught domain exception into a generic `RuntimeException`/`ValidationException` — either rethrow as-is (`catch (BusinessException e) { throw e; }`) or let it propagate.
+
+## Event Pipeline (Phase 1.6)
+
+### Status: DONE
+- **5 listeners** (`Student/ProgramHead/Committee/Director/ExaminerNotificationListener`): `handleEvent` now has `@Transactional(propagation = Propagation.REQUIRES_NEW)` + `@TransactionalEventListener(AFTER_COMMIT, fallbackExecution=true)`, wrapped in `try/catch` that logs `listener + event type + studentModalityId` then rethrows (context for manual alerting; multicaster error handler stays the single failure surface). REQUIRES_NEW is the only propagation Spring 6.2's `RestrictedTransactionalEventListenerFactory` allows; handlers **write** notifications via `NotificationFactory`, so readOnly would be wrong.
+- **AsyncEventConfig**: `notificationTaskExecutor` now uses `ThreadPoolExecutor.CallerRunsPolicy` (backpressure instead of `RejectedExecutionException` on mass sends). Multicaster remains **synchronous** (intentional — AFTER_COMMIT runs on publisher thread); `dispatch()` keeps `@Async` (one hop total; removing it would put SMTP on the request thread).
+- **ProjectTitleExtractionService**: `@EventListener` → `@TransactionalEventListener(AFTER_COMMIT, fallbackExecution=true)` (was running inside the publisher's transaction, before commit).
+- **Dead try/catch**: the `dispatch(notification)` fallbacks around `dispatchWithAttachment` were already removed by the NotificationFactory refactor; Examiner's try/catch at `onFinalDefenseApproved` kept (also covers synchronous PDF generation).
+
+### Deferred to Phase 2.4
+- `SeminarModalityService` swallow try/catch around `publishEvent` — REMOVED (8/2026); events now rely on the multicaster error handler.
+- `DefenseModalityService` direct `examinerNotificationListener.notifyExaminersAssignment(...)` pre-commit call — REPLACED (8/2026) with `publishEvent(EXAMINER_ASSIGNED)`; `ExaminerNotificationListener.handleEvent` gained `case EXAMINER_ASSIGNED` and `notifyExaminersAssignment` lost `@Async` (runs in the REQUIRES_NEW handler, after commit).
+- Typed event payloads (`Map<String,Object>` → strong optional fields, `studentModalityId = 0L` magic) — done per-publisher in Phase 2.

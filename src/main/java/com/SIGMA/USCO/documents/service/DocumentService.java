@@ -14,13 +14,14 @@ import com.SIGMA.USCO.documents.entity.enums.DocumentType;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentStatusHistoryRepository;
+import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.security.SecurityUtils;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.io.FilenameUtils;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -50,10 +51,10 @@ public class DocumentService {
     private String uploadDir;
 
     @Transactional
-    public ResponseEntity<?> createRequiredDocument(RequiredDocumentDTO request) {
+    public String createRequiredDocument(RequiredDocumentDTO request) {
 
         var modality = degreeModalityRepository.findById(request.getModalityId())
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new NotFoundException(
                         "La modalidad con ID " + request.getModalityId() + " no existe.")
                 );
 
@@ -72,16 +73,16 @@ public class DocumentService {
 
         requiredDocumentRepository.save(document);
 
-        return ResponseEntity.ok("Documento obligatorio registrado correctamente.");
+        return "Documento obligatorio registrado correctamente.";
     }
 
     @Transactional
-    public ResponseEntity<?> updateRequiredDocument(Long documentId, RequiredDocumentDTO request) {
+    public String updateRequiredDocument(Long documentId, RequiredDocumentDTO request) {
 
-        if ( !requiredDocumentRepository.existsById(documentId) ) {
-            return ResponseEntity.badRequest().body("El documento obligatorio con ID " + documentId + " no existe.");
-        }
-        var document = requiredDocumentRepository.findById(documentId).get();
+        var document = requiredDocumentRepository.findById(documentId)
+                .orElseThrow(() -> new NotFoundException(
+                        "El documento obligatorio con ID " + documentId + " no existe."
+                ));
 
         document.setDocumentName(request.getDocumentName());
         document.setDescription(request.getDescription());
@@ -94,20 +95,19 @@ public class DocumentService {
 
         requiredDocumentRepository.save(document);
 
-        return ResponseEntity.ok("Documento obligatorio actualizado correctamente.");
+        return "Documento obligatorio actualizado correctamente.";
     }
 
 
-    public ResponseEntity<?> deleteRequiredDocument(Long documentId) {
+    public String deleteRequiredDocument(Long documentId) {
 
         RequiredDocument document = requiredDocumentRepository.findById(documentId)
                 .orElseThrow(() ->
-                        new RuntimeException("El documento obligatorio con ID " + documentId + " no existe.")
+                        new NotFoundException("El documento obligatorio con ID " + documentId + " no existe.")
                 );
 
         if (!document.isActive()) {
-            return ResponseEntity.badRequest()
-                    .body("El documento obligatorio ya se encuentra inactivo.");
+            throw new ValidationException("El documento obligatorio ya se encuentra inactivo.");
         }
 
         document.setActive(false);
@@ -115,17 +115,17 @@ public class DocumentService {
 
         requiredDocumentRepository.save(document);
 
-        return ResponseEntity.ok("Documento obligatorio desactivado correctamente.");
+        return "Documento obligatorio desactivado correctamente.";
     }
 
-    public ResponseEntity<List<RequiredDocumentDTO>> getRequiredDocumentsByModality(Long modalityId) {
+    @Transactional(readOnly = true)
+    public List<RequiredDocumentDTO> getRequiredDocumentsByModality(Long modalityId) {
 
         if (!degreeModalityRepository.existsById(modalityId)) {
-            return ResponseEntity.badRequest().build();
+            throw new NotFoundException("La modalidad con ID " + modalityId + " no existe.");
         }
 
-        List<RequiredDocumentDTO> documents =
-                requiredDocumentRepository
+        return requiredDocumentRepository
                         .findByModalityIdAndActive(modalityId, true)
                         .stream()
                         .map(doc -> RequiredDocumentDTO.builder()
@@ -140,19 +140,16 @@ public class DocumentService {
                                 .requiresProposalEvaluation(doc.isRequiresProposalEvaluation())
                                 .build())
                         .toList();
-
-        return ResponseEntity.ok(documents);
     }
 
-    public ResponseEntity<List<RequiredDocumentDTO>>
+    public List<RequiredDocumentDTO>
     getRequiredDocumentsByModalityAndStatus(Long modalityId, boolean active) {
 
         if (!degreeModalityRepository.existsById(modalityId)) {
-            return ResponseEntity.badRequest().build();
+            throw new NotFoundException("La modalidad con ID " + modalityId + " no existe.");
         }
 
-        List<RequiredDocumentDTO> documents =
-                requiredDocumentRepository
+        return requiredDocumentRepository
                         .findByModalityIdAndActive(modalityId, active)
                         .stream()
                         .map(doc -> RequiredDocumentDTO.builder()
@@ -166,8 +163,6 @@ public class DocumentService {
                                 .requiresProposalEvaluation(doc.isRequiresProposalEvaluation())
                                 .build())
                         .toList();
-
-        return ResponseEntity.ok(documents);
     }
 
 
@@ -204,40 +199,40 @@ public class DocumentService {
         };
     }
 
-    public ResponseEntity<?> getDocumentHistory(Long studentDocumentId) {
+    @Transactional(readOnly = true)
+    public List<StatusHistoryDTO> getDocumentHistory(Long studentDocumentId) {
 
         User student = SecurityUtils.getCurrentUser();
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
-                .orElseThrow(() -> new RuntimeException("Document not found"));
+                .orElseThrow(() -> new NotFoundException("Document not found"));
 
         if (!document.getStudentModality().getLeader().getId().equals(student.getId())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("No authorized access to document history.");
+            throw new ForbiddenException("No authorized access to document history.");
         }
 
-        List<StudentDocumentStatusHistory> history =
-                documentHistoryRepository
-                        .findByStudentDocumentIdOrderByChangeDateAsc(studentDocumentId);
-
-        List<StatusHistoryDTO> response = history.stream()
-                .map(h -> StatusHistoryDTO.builder()
-                        .status(h.getStatus().name())
-                        .description(describeDocumentStatus(h.getStatus()))
-                        .changeDate(h.getChangeDate())
-                        .responsible(
-                                h.getResponsible() != null
-                                        ? h.getResponsible().getEmail()
-                                        : "Sistema"
+        return documentHistoryRepository
+                        .findByStudentDocumentIdOrderByChangeDateAsc(studentDocumentId)
+                        .stream()
+                        .map(h -> StatusHistoryDTO.builder()
+                                .status(h.getStatus().name())
+                                .description(describeDocumentStatus(h.getStatus()))
+                                .changeDate(h.getChangeDate())
+                                .responsible(
+                                        h.getResponsible() != null
+                                                ? h.getResponsible().getEmail()
+                                                : "Sistema"
+                                )
+                                .observations(h.getObservations())
+                                .build()
                         )
-                        .observations(h.getObservations())
-                        .build()
-                )
-                .toList();
-
-        return ResponseEntity.ok(response);
+                        .toList();
     }
 
+    @Transactional(readOnly = true)
     public StudentDocument getDocumentCancellation(Long studentModalityId) {
+        // ponytail: devuelve la entidad solo para servir bytes (filePath/fileName) en el controller;
+        // no se serializa al JSON, así que no viola el contrato de DTOs de respuesta.
 
         return studentDocumentRepository
                 .findByStudentModalityIdAndDocumentConfig_DocumentType(
@@ -246,22 +241,23 @@ public class DocumentService {
                 )
                 .stream()
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new NotFoundException(
                         "No se encontró documento de cancelación para esta modalidad. " +
                         "El estudiante debe subirlo primero."
                 ));
     }
 
+    @Transactional
     public void uploadCancellationDocument(Long studentModalityId, MultipartFile file) {
 
         User uploader = SecurityUtils.getCurrentUser();
         String email = uploader.getEmail();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         if (!studentModality.getLeader().getEmail().equals(email)) {
-            throw new RuntimeException("No autorizado");
+            throw new ForbiddenException("No autorizado");
         }
 
         // Usar DocumentType.CANCELLATION en lugar de buscar por nombre
@@ -274,7 +270,7 @@ public class DocumentService {
                 )
                 .stream()
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new NotFoundException(
                         "No se encontró configuración de documento de cancelación para esta modalidad"
                 ));
 
@@ -346,7 +342,7 @@ public class DocumentService {
     private void validateFile(MultipartFile file, RequiredDocument config) {
 
         if (file.isEmpty()) {
-            throw new RuntimeException("Archivo vacío");
+            throw new ValidationException("Archivo vacío");
         }
 
         String extension = FilenameUtils.getExtension(file.getOriginalFilename())
@@ -359,13 +355,13 @@ public class DocumentService {
                         .toList();
 
         if (!allowed.contains(extension)) {
-            throw new RuntimeException("Formato no permitido");
+            throw new ValidationException("Formato no permitido");
         }
 
         long maxSizeBytes = config.getMaxFileSizeMB() * 1024L * 1024L;
 
         if (file.getSize() > maxSizeBytes) {
-            throw new RuntimeException("Archivo supera el tamaño permitido");
+            throw new ValidationException("Archivo supera el tamaño permitido");
         }
     }
 

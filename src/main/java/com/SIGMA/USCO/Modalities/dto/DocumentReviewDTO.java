@@ -3,6 +3,7 @@ package com.SIGMA.USCO.Modalities.dto;
 import com.SIGMA.USCO.documents.dto.FinalEvaluationRequest;
 import com.SIGMA.USCO.documents.dto.ProposalEvaluationRequest;
 import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
+import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +15,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class DocumentReviewDTO {
 
+    @NotNull(message = "El estado del documento es obligatorio.")
     private DocumentStatus status;
     private String notes;
 

@@ -428,28 +428,63 @@ public class DefenseCalendarReportService {
                 .min()
                 .orElse(0.0);
 
+        int totalCancelled = (int) modalities.stream()
+                .filter(m -> m.getStatus() == ModalityProcessStatus.MODALITY_CANCELLED ||
+                           m.getStatus() == ModalityProcessStatus.CANCELLED_WITHOUT_REPROVAL ||
+                           m.getStatus() == ModalityProcessStatus.CANCELLED_BY_CORRECTION_TIMEOUT)
+                .count();
+
+        double averageDaysToDefense = withDefenseDate.stream()
+                .filter(m -> m.getSelectionDate() != null)
+                .mapToLong(m -> ChronoUnit.DAYS.between(m.getSelectionDate(), m.getDefenseDate()))
+                .average()
+                .orElse(0.0);
+
+        Map<String, Double> successRateByType = byModalityType.keySet().stream().collect(Collectors.toMap(
+                type -> type,
+                type -> {
+                    List<StudentModality> typeModalities = completed.stream()
+                            .filter(m -> translateModalityType(m.getModalityType().name()).equals(type))
+                            .collect(Collectors.toList());
+                    if (typeModalities.isEmpty()) return 0.0;
+                    long ok = typeModalities.stream()
+                            .filter(m -> m.getStatus() == ModalityProcessStatus.GRADED_APPROVED)
+                            .count();
+                    return (ok * 100.0) / typeModalities.size();
+                }
+        ));
+
+        Map<String, Integer> defensesByMonth = completed.stream()
+                .collect(Collectors.groupingBy(
+                        m -> {
+                            LocalDate date = m.getDefenseDate().toLocalDate();
+                            return date.getYear() + "-" + String.format("%02d", date.getMonthValue());
+                        },
+                        Collectors.collectingAndThen(Collectors.counting(), Long::intValue)
+                ));
+
         return DefenseStatisticsDTO.builder()
                 .totalScheduled(withDefenseDate.size())
                 .totalCompleted(completed.size())
                 .totalPending(modalities.size() - completed.size())
-                .totalCancelled(0)
+                .totalCancelled(totalCancelled)
                 .approved(approved)
                 .rejected(rejected)
-                .withCorrections(0)
+                .withCorrections(null)
                 .approvalRate(approvalRate)
-                .averageDaysToDefense(0.0)
-                .averageDefenseDuration(120.0)
+                .averageDaysToDefense(Math.round(averageDaysToDefense * 100.0) / 100.0)
+                .averageDefenseDuration(null)
                 .byModalityType(byModalityType)
-                .successRateByType(new HashMap<>())
-                .defensesByMonth(new HashMap<>())
+                .successRateByType(successRateByType)
+                .defensesByMonth(defensesByMonth)
                 .withMeritorious(withMeritorious)
                 .withLaudeate(withLaureate)
                 .distinctionRate(distinctionRate)
                 .averageGrade(averageGrade)
                 .highestGrade(highestGrade)
                 .lowestGrade(lowestGrade)
-                .trend("STABLE")
-                .growthRate(0.0)
+                .trend(null)
+                .growthRate(null)
                 .build();
     }
 

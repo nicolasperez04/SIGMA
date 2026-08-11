@@ -15,6 +15,9 @@ import com.SIGMA.USCO.academic.repository.FacultyRepository;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.academic.service.AcademicHistoryPdfParserService;
 import com.SIGMA.USCO.Users.repository.UserRepository;
+import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.entity.enums.DocumentType;
 import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
@@ -29,10 +32,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -68,7 +69,7 @@ public class StudentService {
     private final AcademicProgramRepository academicProgramRepository;
     private final AcademicHistoryPdfParserService academicHistoryPdfParserService;
 
-    public ResponseEntity<?> updateStudentProfile(StudentProfileRequest request) {
+    public String updateStudentProfile(StudentProfileRequest request) {
 
         User user = SecurityUtils.getCurrentUser();
         String email = user.getEmail();
@@ -85,7 +86,7 @@ public class StudentService {
 
         String studentCode = extractStudentCodeFromEmail(email);
         if (studentCode == null) {
-            return ResponseEntity.badRequest().body(
+            throw new ValidationException(
                     "No se pudo extraer el código de estudiante del email. " +
                     "El formato esperado es: u[NUMEROS]@dominio (ejemplo: 202xxxxxxxx@usco.edu.co)"
             );
@@ -95,7 +96,7 @@ public class StudentService {
         if (effectiveSemester == null) {
             effectiveSemester = inferCurrentSemesterFromStudentCode(studentCode);
             if (effectiveSemester == null) {
-                return ResponseEntity.badRequest().body(
+                throw new ValidationException(
                         "No fue posible inferir el semestre desde el código estudiantil. " +
                         "Ingrese el semestre manualmente."
                 );
@@ -103,46 +104,26 @@ public class StudentService {
         }
 
         if (effectiveSemester < 1 || effectiveSemester > 10) {
-            return ResponseEntity.badRequest().body("El semestre debe estar entre 1 y 10.");
-        }
-
-        if (request.getGpa() == null) {
-            return ResponseEntity.badRequest().body("El promedio es obligatorio.");
-        }
-
-        if (request.getGpa() < 0.0 || request.getGpa() > 5.0) {
-            return ResponseEntity.badRequest().body("El promedio debe estar entre 0.0 y 5.0.");
-        }
-
-        if (request.getApprovedCredits() == null) {
-            return ResponseEntity.badRequest().body("Los créditos aprobados son obligatorios.");
-        }
-
-        if (request.getApprovedCredits() < 0) {
-            return ResponseEntity.badRequest().body("Los créditos aprobados no pueden ser negativos.");
-        }
-
-        if (request.getFacultyId() == null || request.getAcademicProgramId() == null) {
-            return ResponseEntity.badRequest().body("La facultad y el programa académico son obligatorios.");
+            throw new ValidationException("El semestre debe estar entre 1 y 10.");
         }
 
 
 
         Faculty faculty = facultyRepository.findById(request.getFacultyId())
                 .orElseThrow(() ->
-                        new RuntimeException("La facultad con ID " + request.getFacultyId() + " no existe")
+                        new NotFoundException("La facultad con ID " + request.getFacultyId() + " no existe")
                 );
 
 
 
         AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
                 .orElseThrow(() ->
-                        new RuntimeException("El programa académico con ID " + request.getAcademicProgramId() + " no existe")
+                        new NotFoundException("El programa académico con ID " + request.getAcademicProgramId() + " no existe")
                 );
 
 
         if (!program.getFaculty().getId().equals(faculty.getId())) {
-            return ResponseEntity.badRequest().body(
+            throw new ValidationException(
                     "El programa académico no pertenece a la facultad seleccionada."
             );
         }
@@ -150,7 +131,7 @@ public class StudentService {
 
 
         if (request.getApprovedCredits() > program.getTotalCredits()) {
-            return ResponseEntity.badRequest().body(
+            throw new ValidationException(
                     "Los créditos aprobados no pueden superar el total del programa (" +
                             program.getTotalCredits() + ")."
             );
@@ -167,24 +148,25 @@ public class StudentService {
 
         studentProfileRepository.save(studentProfile);
 
-        return ResponseEntity.ok("Perfil académico actualizado correctamente");
+        return "Perfil académico actualizado correctamente";
     }
 
-    public ResponseEntity<?> updateStudentProfileFromAcademicHistory(MultipartFile file) {
+    @Transactional
+    public Map<String, Object> updateStudentProfileFromAcademicHistory(MultipartFile file) {
 
         User user = SecurityUtils.getCurrentUser();
         String email = user.getEmail();
 
         String studentCode = extractStudentCodeFromEmail(email);
         if (studentCode == null) {
-            return ResponseEntity.badRequest().body(
+            throw new ValidationException(
                     "No se pudo extraer el código de estudiante del email autenticado."
             );
         }
 
         Long inferredSemester = inferCurrentSemesterFromStudentCode(studentCode);
         if (inferredSemester == null) {
-            return ResponseEntity.badRequest().body(
+            throw new ValidationException(
                     "No fue posible calcular el semestre actual a partir del código estudiantil."
             );
         }
@@ -193,14 +175,14 @@ public class StudentService {
         try {
             extracted = academicHistoryPdfParserService.extract(file);
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
+            throw new ValidationException(e.getMessage());
         } catch (Error e) {
-            return ResponseEntity.badRequest().body(
+            throw new ValidationException(
                     "No fue posible procesar el PDF en este servidor. " +
                     "Intenta nuevamente con el historial académico original en PDF."
             );
         } catch (Exception e) {
-            return ResponseEntity.status(500).body("No fue posible procesar el PDF: " + e.getMessage());
+            throw new RuntimeException("No fue posible procesar el PDF: " + e.getMessage());
         }
 
         Optional<AcademicProgram> programOpt = findProgramByExtractedName(extracted.getProgramName());
@@ -210,7 +192,7 @@ public class StudentService {
                     .sorted()
                     .toList();
 
-            return ResponseEntity.badRequest().body(
+            throw new ValidationException(
                     "No se pudo asociar el programa extraído ('" + extracted.getProgramName() +
                             "') con un programa académico activo. Programas disponibles: " + activePrograms
             );
@@ -220,21 +202,21 @@ public class StudentService {
         Faculty faculty = program.getFaculty();
 
         if (extracted.getApprovedCredits() < 0) {
-            return ResponseEntity.badRequest().body("Los créditos aprobados extraídos no son válidos.");
+            throw new ValidationException("Los créditos aprobados extraídos no son válidos.");
         }
 
         if (extracted.getApprovedCredits() > extracted.getTotalCreditsInPdf()) {
-            return ResponseEntity.badRequest().body(
+            throw new ValidationException(
                     "El historial indica créditos aprobados mayores al total reportado en el PDF."
             );
         }
 
         if (extracted.getGpa() < 0.0 || extracted.getGpa() > 5.0) {
-            return ResponseEntity.badRequest().body("El promedio extraído está fuera del rango permitido (0.0 - 5.0).");
+            throw new ValidationException("El promedio extraído está fuera del rango permitido (0.0 - 5.0).");
         }
 
         if (extracted.getApprovedCredits() > program.getTotalCredits()) {
-            return ResponseEntity.badRequest().body(
+            throw new ValidationException(
                     "Los créditos aprobados extraídos superan el total del programa en SIGMA (" +
                             program.getTotalCredits() + ")."
             );
@@ -282,7 +264,7 @@ public class StudentService {
             response.put("pdfWarning", "El PDF se procesó pero no se logró almacenar en el servidor");
         }
 
-        return ResponseEntity.ok(response);
+        return response;
     }
 
 
@@ -413,12 +395,13 @@ public class StudentService {
     }
 
 
-    public ResponseEntity<?> getStudentProfile() {
+    @Transactional(readOnly = true)
+    public StudentResponse getStudentProfile() {
 
         User user = SecurityUtils.getCurrentUser();
         Optional<StudentProfile> profileOpt = studentProfileRepository.findByUserId(user.getId());
 
-        StudentResponse response = StudentResponse.builder()
+        return StudentResponse.builder()
                 .name(user.getName())
                 .lastname(user.getLastName())
                 .email(user.getEmail())
@@ -430,12 +413,11 @@ public class StudentService {
                 .academicProgram(profileOpt.map(StudentProfile::getAcademicProgram).map(AcademicProgram::getName).orElse(null))
 
                 .build();
-        return ResponseEntity.ok(response);
-
 
     }
 
-    public ResponseEntity<?> getMyDocuments(){
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getMyDocuments(){
 
         User currentUser = SecurityUtils.getCurrentUser();
 
@@ -444,7 +426,7 @@ public class StudentService {
                 studentModalityMemberRepository.findActiveModalitiesByUserId(currentUser.getId());
 
         if (activeModalities.isEmpty()) {
-            return ResponseEntity.status(404).body("No se encontró ninguna modalidad activa asociada al estudiante");
+            throw new NotFoundException("No se encontró ninguna modalidad activa asociada al estudiante");
         }
 
         // Obtener la modalidad más reciente
@@ -454,7 +436,7 @@ public class StudentService {
         List<StudentDocument> documents = studentDocumentRepository.findByStudentModalityId(studentModalityId);
 
         // Filtrar solo documentos MANDATORY y SECONDARY (excluir CANCELLATION)
-        List<Map<String, Object>> response = documents.stream()
+        return documents.stream()
                 .filter(doc -> doc.getDocumentConfig().getDocumentType() == DocumentType.MANDATORY ||
                               doc.getDocumentConfig().getDocumentType() == DocumentType.SECONDARY)
                 .map(doc -> {
@@ -470,19 +452,15 @@ public class StudentService {
                 })
                 .toList();
 
-
-        return ResponseEntity.ok(response);
-
-
-
     }
 
-    public ResponseEntity<?> viewMyDocument(Long studentDocumentId) {
+    @Transactional(readOnly = true)
+    public Resource viewMyDocument(Long studentDocumentId) throws java.net.MalformedURLException {
 
         User currentUser = SecurityUtils.getCurrentUser();
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
-                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Documento no encontrado"));
 
         // Verificar que el usuario sea un miembro activo de la modalidad
         Long studentModalityId = document.getStudentModality().getId();
@@ -492,33 +470,18 @@ public class StudentService {
         );
 
         if (!isActiveMember) {
-            return ResponseEntity.status(403).body("No tienes permiso para ver este documento");
+            throw new ForbiddenException("No tienes permiso para ver este documento");
         }
 
         // Leer el archivo desde el sistema de archivos
-        try {
-            Path filePath = Paths.get(document.getFilePath());
-            Resource resource = new UrlResource(filePath.toUri());
+        Path filePath = Paths.get(document.getFilePath());
+        Resource resource = new UrlResource(filePath.toUri());
 
-            if (!resource.exists() || !resource.isReadable()) {
-                return ResponseEntity.status(404).body("Archivo no encontrado o no legible");
-            }
-
-            // Detectar tipo de contenido
-            String contentType = Files.probeContentType(filePath);
-            if (contentType == null) {
-                contentType = "application/octet-stream";
-            }
-
-            // Retornar el archivo como blob para visualización
-            return ResponseEntity.ok()
-                    .contentType(MediaType.parseMediaType(contentType))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
-                    .body(resource);
-
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body("Error al leer el archivo: " + e.getMessage());
+        if (!resource.exists() || !resource.isReadable()) {
+            throw new NotFoundException("Archivo no encontrado o no legible");
         }
+
+        return resource;
     }
 
     private String saveAcademicHistoryPdf(MultipartFile file, User user, String studentCode) {

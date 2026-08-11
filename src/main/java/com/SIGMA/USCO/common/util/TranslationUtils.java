@@ -1,4 +1,4 @@
-package com.SIGMA.USCO.notifications.listeners;
+package com.SIGMA.USCO.common.util;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;

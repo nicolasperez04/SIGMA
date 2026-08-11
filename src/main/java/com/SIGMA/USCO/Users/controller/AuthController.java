@@ -53,9 +53,9 @@ public class AuthController {
     @Operation(summary = "Cerrar sesión", description = "Cierra la sesión del usuario y revoca el token JWT.")
     @ApiResponse(responseCode = "200", description = "Sesión cerrada correctamente")
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@RequestHeader("Authorization") String authHeader) {
+    public ResponseEntity<String> logout(@RequestHeader("Authorization") String authHeader) {
         String token = authHeader.replace("Bearer ", "");
-        return authService.logout(token);
+        return ResponseEntity.ok(authService.logout(token));
     }
 
 }

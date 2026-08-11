@@ -35,15 +35,16 @@ import com.SIGMA.USCO.documents.repository.StudentDocumentStatusHistoryRepositor
 import com.SIGMA.USCO.documents.dto.DocumentEditRequestDTO;
 import com.SIGMA.USCO.documents.dto.DocumentEditResolutionDTO;
 import com.SIGMA.USCO.documents.dto.DocumentEditRequestResponseDTO;
+import com.SIGMA.USCO.common.exception.BusinessException;
+import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import com.SIGMA.USCO.security.SecurityUtils;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -77,7 +78,8 @@ public class DocumentEditRequestService {
      * Devuelve la decisión individual del jurado, notas y evaluación de propuesta (si aplica).
      * Ruta: GET /modalities/documents/{studentDocumentId}/examiner-proposal-evaluation
      */
-    public ResponseEntity<?> getMyProposalEvaluation(Long studentDocumentId) {
+    @Transactional(readOnly = true)
+    public Map<String, Object> getMyProposalEvaluation(Long studentDocumentId) {
         User examiner = SecurityUtils.getCurrentUser();
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
@@ -87,10 +89,7 @@ public class DocumentEditRequestService {
 
         // Validar que sea un documento MANDATORY
         if (document.getDocumentConfig().getDocumentType() != DocumentType.MANDATORY) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Este documento no es de tipo inicial."
-            ));
+            throw new ValidationException("Este documento no es de tipo inicial.");
         }
 
         // Validar que el examiner esté asignado a la modalidad
@@ -99,10 +98,7 @@ public class DocumentEditRequestService {
                 .orElse(null);
 
         if (defenseExaminer == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No estás asignado como jurado a esta modalidad"
-            ));
+            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
         }
 
         // Obtener la review del jurado para este documento
@@ -111,10 +107,10 @@ public class DocumentEditRequestService {
                 .orElse(null);
 
         if (review == null) {
-            return ResponseEntity.ok(Map.of(
+            return Map.of(
                     "success", false,
                     "message", "No has emitido veredicto para este documento aún"
-            ));
+            );
         }
 
         // Obtener la evaluación de propuesta si existe
@@ -158,7 +154,7 @@ public class DocumentEditRequestService {
         response.put("documentStatus", document.getStatus().name());
         response.put("documentNotes", document.getNotes());
 
-        return ResponseEntity.ok(response);
+        return response;
     }
 
     /**
@@ -166,7 +162,8 @@ public class DocumentEditRequestService {
      * Devuelve la decisión individual del jurado, notas y evaluación final (si aplica).
      * Ruta: GET /modalities/documents/{studentDocumentId}/examiner-final-evaluation
      */
-    public ResponseEntity<?> getMyFinalDocumentEvaluation(Long studentDocumentId) {
+    @Transactional(readOnly = true)
+    public Map<String, Object> getMyFinalDocumentEvaluation(Long studentDocumentId) {
         User examiner = SecurityUtils.getCurrentUser();
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
@@ -176,10 +173,7 @@ public class DocumentEditRequestService {
 
         // Validar que sea un documento SECONDARY
         if (document.getDocumentConfig().getDocumentType() != DocumentType.SECONDARY) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Este documento no es de tipo final."
-            ));
+            throw new ValidationException("Este documento no es de tipo final.");
         }
 
         // Validar que el examiner esté asignado a la modalidad
@@ -188,10 +182,7 @@ public class DocumentEditRequestService {
                 .orElse(null);
 
         if (defenseExaminer == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No estás asignado como jurado a esta modalidad"
-            ));
+            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
         }
 
         // Obtener la review del jurado para este documento
@@ -200,10 +191,10 @@ public class DocumentEditRequestService {
                 .orElse(null);
 
         if (review == null) {
-            return ResponseEntity.ok(Map.of(
+            return Map.of(
                     "success", false,
                     "message", "No has emitido veredicto para este documento aún"
-            ));
+            );
         }
 
         // Obtener la evaluación final (FinalDocumentEvaluation) si existe
@@ -238,7 +229,7 @@ public class DocumentEditRequestService {
         response.put("documentStatus", document.getStatus().name());
         response.put("documentNotes", document.getNotes());
 
-        return ResponseEntity.ok(response);
+        return response;
     }
     // =========================================================================
     // SOLICITUD DE EDICIÓN DE PROPUESTA APROBADA (STUDENT → EXAMINER)
@@ -250,7 +241,7 @@ public class DocumentEditRequestService {
      * Solo se permite si la modalidad no está cerrada/calificada.
      */
     @Transactional
-    public ResponseEntity<?> requestDocumentEdit(Long studentDocumentId, DocumentEditRequestDTO request) {
+    public Map<String, Object> requestDocumentEdit(Long studentDocumentId, DocumentEditRequestDTO request) {
 
         User student = SecurityUtils.getCurrentUser();
 
@@ -263,26 +254,17 @@ public class DocumentEditRequestService {
         boolean isActiveMember = studentModalityMemberRepository.isActiveMember(
                 studentModality.getId(), student.getId());
         if (!isActiveMember) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No eres miembro activo de esta modalidad"
-            ));
+            throw new ForbiddenException("No eres miembro activo de esta modalidad");
         }
 
         // Validar que sea un documento MANDATORY
         if (document.getDocumentConfig().getDocumentType() != DocumentType.MANDATORY) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Solo puedes solicitar edición de documentos de tipo MANDATORY (obligatorios)"
-            ));
+            throw new ValidationException("Solo puedes solicitar edición de documentos de tipo MANDATORY (obligatorios)");
         }
 
         // Validar que el documento esté aprobado por jurados
         if (document.getStatus() != DocumentStatus.ACCEPTED_FOR_EXAMINER_REVIEW) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Solo puedes solicitar edición de documentos que hayan sido aprobados por los jurados. Estado actual: " + document.getStatus()
-            ));
+            throw new ValidationException("Solo puedes solicitar edición de documentos que hayan sido aprobados por los jurados. Estado actual: " + document.getStatus());
         }
 
         // Validar que la modalidad no esté en un estado final
@@ -293,10 +275,7 @@ public class DocumentEditRequestService {
                 modalityStatus == ModalityProcessStatus.MODALITY_CANCELLED ||
                 modalityStatus == ModalityProcessStatus.SEMINAR_CANCELED ||
                 modalityStatus == ModalityProcessStatus.CANCELLED_BY_CORRECTION_TIMEOUT) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "No se puede solicitar edición de documentos en modalidades cerradas o calificadas"
-            ));
+            throw new ValidationException("No se puede solicitar edición de documentos en modalidades cerradas o calificadas");
         }
 
         // Validar que no haya ya una solicitud pendiente o en desempate para este documento
@@ -305,10 +284,7 @@ public class DocumentEditRequestService {
         boolean hasTiebreaker = documentEditRequestRepository.existsByStudentDocumentIdAndStatus(
                 studentDocumentId, DocumentEditRequestStatus.TIEBREAKER_REQUIRED);
         if (hasPending || hasTiebreaker) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Ya existe una solicitud de edición pendiente para este documento"
-            ));
+            throw new ValidationException("Ya existe una solicitud de edición pendiente para este documento");
         }
 
         // Guardar el estado previo de la modalidad para trazabilidad
@@ -369,7 +345,7 @@ public class DocumentEditRequestService {
                 ))
         );
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "editRequestId", editRequest.getId(),
                 "documentId", document.getId(),
@@ -377,7 +353,7 @@ public class DocumentEditRequestService {
                 "newDocumentStatus", DocumentStatus.EDIT_REQUESTED.name(),
                 "newModalityStatus", ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT.name(),
                 "message", "Solicitud de edición registrada correctamente. Los jurados evaluadores serán notificados para votar."
-        ));
+        );
     }
 
     /**
@@ -390,33 +366,24 @@ public class DocumentEditRequestService {
      * - JURADO DE DESEMPATE vota → su decisión es definitiva
      */
     @Transactional
-    public ResponseEntity<?> resolveDocumentEditRequest(Long editRequestId, DocumentEditResolutionDTO request) {
+    public Map<String, Object> resolveDocumentEditRequest(Long editRequestId, DocumentEditResolutionDTO request) {
 
         User examiner = SecurityUtils.getCurrentUser();
 
         boolean hasExaminerRole = examiner.getRoles().stream()
                 .anyMatch(role -> role.getName().equals("EXAMINER"));
         if (!hasExaminerRole) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "Solo los jurados pueden votar sobre solicitudes de edición de documentos"
-            ));
+            throw new ForbiddenException("Solo los jurados pueden votar sobre solicitudes de edición de documentos");
         }
 
         if (request.getApproved() == null) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Debe indicar si aprueba (approved: true) o rechaza (approved: false) la solicitud"
-            ));
+            throw new ValidationException("Debe indicar si aprueba (approved: true) o rechaza (approved: false) la solicitud");
         }
 
         // Si rechaza, las notas son obligatorias
         if (Boolean.FALSE.equals(request.getApproved()) &&
                 (request.getResolutionNotes() == null || request.getResolutionNotes().isBlank())) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Debe proporcionar notas al rechazar una solicitud de edición"
-            ));
+            throw new ValidationException("Debe proporcionar notas al rechazar una solicitud de edición");
         }
 
         DocumentEditRequest editRequest = documentEditRequestRepository.findById(editRequestId)
@@ -425,10 +392,7 @@ public class DocumentEditRequestService {
         // Solo se puede votar si la solicitud está PENDING o TIEBREAKER_REQUIRED
         if (editRequest.getStatus() != DocumentEditRequestStatus.PENDING &&
                 editRequest.getStatus() != DocumentEditRequestStatus.TIEBREAKER_REQUIRED) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Esta solicitud ya fue resuelta. Estado actual: " + editRequest.getStatus()
-            ));
+            throw new ValidationException("Esta solicitud ya fue resuelta. Estado actual: " + editRequest.getStatus());
         }
 
         StudentDocument document = editRequest.getStudentDocument();
@@ -439,10 +403,7 @@ public class DocumentEditRequestService {
                 .findByStudentModalityIdAndExaminerId(studentModality.getId(), examiner.getId())
                 .orElse(null);
         if (defenseExaminer == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No estás asignado como jurado a esta modalidad"
-            ));
+            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
         }
 
         ExaminerType examinerType = defenseExaminer.getExaminerType();
@@ -450,26 +411,17 @@ public class DocumentEditRequestService {
 
         // Validar que no haya ya votado
         if (documentEditRequestVoteRepository.existsByEditRequestIdAndExaminerId(editRequestId, examiner.getId())) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Ya registraste tu veredicto sobre esta solicitud de edición"
-            ));
+            throw new ValidationException("Ya registraste tu veredicto sobre esta solicitud de edición");
         }
 
         // Si es jurado de desempate y la solicitud no está en TIEBREAKER_REQUIRED → no puede votar aún
         if (isTiebreaker && editRequest.getStatus() != DocumentEditRequestStatus.TIEBREAKER_REQUIRED) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "El jurado de desempate solo interviene cuando los jurados principales tienen veredictos divididos"
-            ));
+            throw new ValidationException("El jurado de desempate solo interviene cuando los jurados principales tienen veredictos divididos");
         }
 
         // Si es jurado primario y la solicitud está en TIEBREAKER_REQUIRED → ya no puede votar
         if (!isTiebreaker && editRequest.getStatus() == DocumentEditRequestStatus.TIEBREAKER_REQUIRED) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Los jurados principales ya votaron. Esta solicitud está en espera del jurado de desempate"
-            ));
+            throw new ValidationException("Los jurados principales ya votaron. Esta solicitud está en espera del jurado de desempate");
         }
 
         EditRequestVoteDecision voteDecision = Boolean.TRUE.equals(request.getApproved())
@@ -494,7 +446,7 @@ public class DocumentEditRequestService {
     /**
      * Procesa el consenso de votos sobre una solicitud de edición.
      */
-    private ResponseEntity<?> processEditRequestConsensus(
+    private Map<String, Object> processEditRequestConsensus(
             DocumentEditRequest editRequest,
             StudentDocument document,
             StudentModality studentModality,
@@ -534,13 +486,13 @@ public class DocumentEditRequestService {
 
         // Si aún no han votado todos los jurados primarios, esperar
         if (primaryVotes.size() < 2) {
-            return ResponseEntity.ok(Map.of(
+            return Map.of(
                     "success", true,
                     "editRequestId", editRequestId,
                     "message", "Veredicto registrado. Esperando el veredicto del otro jurado principal.",
                     "votesReceived", primaryVotes.size(),
                     "votesRequired", 2
-            ));
+            );
         }
 
         // Ambos han votado — analizar resultado
@@ -604,19 +556,19 @@ public class DocumentEditRequestService {
                 ))
         );
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "editRequestId", editRequestId,
                 "newStatus", DocumentEditRequestStatus.TIEBREAKER_REQUIRED.name(),
                 "message", "Los jurados principales tienen votos divididos. El jurado de desempate deberá resolver la solicitud.",
                 "votes", buildVotesSummary(documentEditRequestVoteRepository.findByEditRequestId(editRequestId))
-        ));
+        );
     }
 
     /**
      * Aplica la decisión final sobre la solicitud de edición (aprobada o rechazada).
      */
-    private ResponseEntity<?> applyFinalEditRequestDecision(
+    private Map<String, Object> applyFinalEditRequestDecision(
             DocumentEditRequest editRequest,
             StudentDocument document,
             StudentModality studentModality,
@@ -708,7 +660,7 @@ public class DocumentEditRequestService {
                 documentEditRequestVoteRepository.findByEditRequestId(editRequest.getId())
         );
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "editRequestId", editRequest.getId(),
                 "documentId", document.getId(),
@@ -721,7 +673,7 @@ public class DocumentEditRequestService {
                 "message", approved
                         ? "Solicitud aprobada. El estudiante puede resubir el documento con los cambios."
                         : "Solicitud rechazada. El documento permanece en estado aprobado."
-        ));
+        );
     }
 
     /**
@@ -751,7 +703,7 @@ public class DocumentEditRequestService {
      * Visible para todos los estados (PENDING, TIEBREAKER_REQUIRED, APPROVED, REJECTED).
      */
     @Transactional
-    public ResponseEntity<?> getAllEditRequestsForExaminer(Long studentModalityId) {
+    public Map<String, Object> getAllEditRequestsForExaminer(Long studentModalityId) {
 
         User examiner = SecurityUtils.getCurrentUser();
 
@@ -760,10 +712,7 @@ public class DocumentEditRequestService {
                 .orElse(null);
 
         if (defenseExaminer == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No estás asignado como jurado a esta modalidad"
-            ));
+            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
         }
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
@@ -887,7 +836,7 @@ public class DocumentEditRequestService {
         long approvedCount = allRequests.stream().filter(r -> r.getStatus() == DocumentEditRequestStatus.APPROVED).count();
         long rejectedCount = allRequests.stream().filter(r -> r.getStatus() == DocumentEditRequestStatus.REJECTED).count();
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "examiner", examinerContext,
                 "modality", modalityInfo,
@@ -899,7 +848,7 @@ public class DocumentEditRequestService {
                         "rejected", rejectedCount
                 ),
                 "editRequests", requestDTOs
-        ));
+        );
     }
 
     /**
@@ -907,8 +856,8 @@ public class DocumentEditRequestService {
      * para que el jurado autenticado pueda revisarlas.
      * Incluye el estado de votación actual y los votos ya registrados.
      */
-    @Transactional
-    public ResponseEntity<?> getPendingEditRequestsForExaminer(Long studentModalityId) {
+@Transactional
+    public Map<String, Object> getPendingEditRequestsForExaminer(Long studentModalityId) {
 
         User examiner = SecurityUtils.getCurrentUser();
 
@@ -916,10 +865,7 @@ public class DocumentEditRequestService {
                 .findByStudentModalityIdAndExaminerId(studentModalityId, examiner.getId())
                 .orElse(null);
         if (defenseExaminer == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No estás asignado como jurado a esta modalidad"
-            ));
+            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
         }
 
         boolean isTiebreaker = defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER;
@@ -991,13 +937,13 @@ public class DocumentEditRequestService {
             }
         }
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "studentModalityId", studentModalityId,
                 "examinerType", defenseExaminer.getExaminerType().name(),
                 "isTiebreaker", isTiebreaker,
                 "pendingEditRequests", result
-        ));
+        );
     }
 
     // =========================================================================
@@ -1009,7 +955,7 @@ public class DocumentEditRequestService {
      * agrupadas por modalidad, con el estado de votación de cada una.
      */
     @Transactional
-    public ResponseEntity<?> getMyDocumentEditRequests() {
+    public Map<String, Object> getMyDocumentEditRequests() {
 
         User student = SecurityUtils.getCurrentUser();
 
@@ -1019,11 +965,11 @@ public class DocumentEditRequestService {
                 .map(req -> buildEditRequestResponseDTO(req))
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "totalRequests", result.size(),
                 "editRequests", result
-        ));
+        );
     }
 
     /**
@@ -1032,17 +978,14 @@ public class DocumentEditRequestService {
      * Útil para ver el estado actualizado de sus solicitudes en la modalidad actual.
      */
     @Transactional
-    public ResponseEntity<?> getMyDocumentEditRequestsByModality(Long studentModalityId) {
+    public Map<String, Object> getMyDocumentEditRequestsByModality(Long studentModalityId) {
 
         User student = SecurityUtils.getCurrentUser();
 
         // Validar que el estudiante sea miembro activo de la modalidad
         boolean isActiveMember = studentModalityMemberRepository.isActiveMember(studentModalityId, student.getId());
         if (!isActiveMember) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No eres miembro activo de esta modalidad"
-            ));
+            throw new ForbiddenException("No eres miembro activo de esta modalidad");
         }
 
         List<DocumentEditRequest> requests = documentEditRequestRepository
@@ -1052,19 +995,19 @@ public class DocumentEditRequestService {
                 .map(req -> buildEditRequestResponseDTO(req))
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "studentModalityId", studentModalityId,
                 "totalRequests", result.size(),
                 "editRequests", result
-        ));
+        );
     }
 
     /**
      * El estudiante autenticado obtiene el detalle de una solicitud de edición específica por ID.
      */
     @Transactional
-    public ResponseEntity<?> getDocumentEditRequestDetail(Long editRequestId) {
+    public Map<String, Object> getDocumentEditRequestDetail(Long editRequestId) {
 
         User student = SecurityUtils.getCurrentUser();
 
@@ -1077,18 +1020,15 @@ public class DocumentEditRequestService {
         boolean isActiveMember = studentModalityMemberRepository.isActiveMember(
                 studentModality.getId(), student.getId());
         if (!isActiveMember && !request.getRequester().getId().equals(student.getId())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No tienes permiso para ver esta solicitud de edición"
-            ));
+            throw new ForbiddenException("No tienes permiso para ver esta solicitud de edición");
         }
 
         DocumentEditRequestResponseDTO dto = buildEditRequestResponseDTO(request);
 
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "success", true,
                 "editRequest", dto
-        ));
+        );
     }
 
     /**
@@ -1141,9 +1081,10 @@ public class DocumentEditRequestService {
      * Retorna información detallada de cada jurado incluyendo su tipo (primario 1, primario 2, desempate).
      *
      * @param studentModalityId ID de la modalidad del estudiante
-     * @return ResponseEntity con lista de jurados o error si la modalidad no existe
+     * @return lista de jurados o error si la modalidad no existe
      */
-    public ResponseEntity<?> getExaminersForModality(Long studentModalityId) {
+    @Transactional(readOnly = true)
+    public Map<String, Object> getExaminersForModality(Long studentModalityId) {
         try {
             StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                     .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
@@ -1152,12 +1093,12 @@ public class DocumentEditRequestService {
                     .findByStudentModalityId(studentModalityId);
 
             if (examiners.isEmpty()) {
-                return ResponseEntity.ok(Map.of(
+                return Map.of(
                         "success", true,
                         "studentModalityId", studentModalityId,
                         "examiners", List.of(),
                         "message", "No hay jurados asignados a esta modalidad"
-                ));
+                );
             }
 
             List<Map<String, Object>> examinersList = examiners.stream()
@@ -1172,25 +1113,21 @@ public class DocumentEditRequestService {
                     ))
                     .collect(Collectors.toList());
 
-            return ResponseEntity.ok(Map.of(
+            return Map.of(
                     "success", true,
                     "studentModalityId", studentModalityId,
                     "modalityName", studentModality.getProgramDegreeModality().getDegreeModality().getName(),
                     "modalityStatus", studentModality.getStatus().name(),
                     "examinersCount", examinersList.size(),
                     "examiners", examinersList
-            ));
+            );
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", e.getMessage()
-            ));
+            throw new ValidationException(e.getMessage());
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Error al obtener los jurados: " + e.getMessage()
-            ));
+            throw new RuntimeException("Error al obtener los jurados: " + e.getMessage());
         }
     }
 }

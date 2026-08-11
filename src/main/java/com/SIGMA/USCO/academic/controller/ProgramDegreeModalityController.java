@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -35,25 +36,15 @@ public class ProgramDegreeModalityController {
     })
     @PostMapping("/create")
     @PreAuthorize("hasAuthority('PERM_CREATE_PROGRAM_DEGREE_MODALITY')")
-    public ResponseEntity<?> createProgramDegreeModality(@RequestBody ProgramDegreeModalityRequest request) {
-        try {
-            ProgramDegreeModalityDTO dto = programDegreeModalityService.createProgramModality(request);
-            return ResponseEntity.status(HttpStatus.CREATED).body(
-                    Map.of(
-                            "success", true,
-                            "message", "Modalidad de grado del programa creada exitosamente.",
-                            "data", dto
-                    )
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false, "error", e.getMessage())
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(
-                    Map.of("success", false, "error", "Ocurrió un error al crear la modalidad de grado del programa.")
-            );
-        }
+    public ResponseEntity<?> createProgramDegreeModality(@RequestBody @Valid ProgramDegreeModalityRequest request) {
+        ProgramDegreeModalityDTO dto = programDegreeModalityService.createProgramModality(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                Map.of(
+                        "success", true,
+                        "message", "Modalidad de grado del programa creada exitosamente.",
+                        "data", dto
+                )
+        );
     }
 
     @Operation(summary = "Obtener configuración por ID", description = "Retorna la configuración de una modalidad específica")
@@ -65,23 +56,13 @@ public class ProgramDegreeModalityController {
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyAuthority('PERM_VIEW_PROGRAM_DEGREE_MODALITY', 'PERM_CREATE_PROGRAM_DEGREE_MODALITY', 'PERM_UPDATE_PROGRAM_DEGREE_MODALITY')")
     public ResponseEntity<?> getProgramModalityById(@Parameter(description = "ID de la configuración") @PathVariable Long id) {
-        try {
-            ProgramDegreeModalityDTO dto = programDegreeModalityService.getProgramModalityById(id);
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "data", dto
-                    )
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false, "error", e.getMessage())
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(
-                    Map.of("success", false, "error", "Ocurrió un error al obtener la configuración.")
-            );
-        }
+        ProgramDegreeModalityDTO dto = programDegreeModalityService.getProgramModalityById(id);
+        return ResponseEntity.ok(
+                Map.of(
+                        "success", true,
+                        "data", dto
+                )
+        );
     }
 
     @Operation(summary = "Obtener todas las configuraciones", description = "Retorna todas las configuraciones de modalidades con filtros opcionales")
@@ -94,22 +75,16 @@ public class ProgramDegreeModalityController {
             @Parameter(description = "ID de facultad") @RequestParam(required = false) Long facultyId,
             @Parameter(description = "ID de programa académico") @RequestParam(required = false) Long academicProgramId
     ) {
-        try {
-            List<ProgramDegreeModalityDTO> list = programDegreeModalityService.getAllProgramModalities(
-                    active, degreeModalityId, facultyId, academicProgramId
-            );
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "data", list,
-                            "count", list.size()
-                    )
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(
-                    Map.of("success", false, "error", "Ocurrió un error al obtener las configuraciones.")
-            );
-        }
+        List<ProgramDegreeModalityDTO> list = programDegreeModalityService.getAllProgramModalities(
+                active, degreeModalityId, facultyId, academicProgramId
+        );
+        return ResponseEntity.ok(
+                Map.of(
+                        "success", true,
+                        "data", list,
+                        "count", list.size()
+                )
+        );
     }
 
     @Operation(summary = "Actualizar configuración de modalidad", description = "Actualiza la configuración de una modalidad de grado existente")
@@ -120,25 +95,15 @@ public class ProgramDegreeModalityController {
     })
     @PutMapping("/update/{id}")
     @PreAuthorize("hasAnyAuthority('PERM_VIEW_PROGRAM_DEGREE_MODALITY', 'PERM_CREATE_PROGRAM_DEGREE_MODALITY')")
-    public ResponseEntity<?> updateProgramModality(@Parameter(description = "ID de la configuración") @PathVariable Long id, @RequestBody ProgramDegreeModalityRequest request) {
-        try {
-            ProgramDegreeModalityDTO dto = programDegreeModalityService.updateProgramModality(id, request);
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "message", "Configuración de modalidad actualizada exitosamente.",
-                            "data", dto
-                    )
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false, "error", e.getMessage())
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(
-                    Map.of("success", false, "error", "Ocurrió un error al actualizar la configuración.")
-            );
-        }
+    public ResponseEntity<?> updateProgramModality(@Parameter(description = "ID de la configuración") @PathVariable Long id, @RequestBody @Valid ProgramDegreeModalityRequest request) {
+        ProgramDegreeModalityDTO dto = programDegreeModalityService.updateProgramModality(id, request);
+        return ResponseEntity.ok(
+                Map.of(
+                        "success", true,
+                        "message", "Configuración de modalidad actualizada exitosamente.",
+                        "data", dto
+                )
+        );
     }
 
     @Operation(summary = "Desactivar configuración de modalidad", description = "Desactiva una configuración de modalidad de grado")
@@ -150,23 +115,13 @@ public class ProgramDegreeModalityController {
     @PutMapping("/desactivate/{id}")
     @PreAuthorize("hasAnyAuthority('PERM_VIEW_PROGRAM_DEGREE_MODALITY', 'PERM_CREATE_PROGRAM_DEGREE_MODALITY')")
     public ResponseEntity<?> deactivateProgramModality(@Parameter(description = "ID de la configuración") @PathVariable Long id) {
-        try {
-            programDegreeModalityService.deactivateProgramModality(id);
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "message", "Configuración de modalidad desactivada exitosamente."
-                    )
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false, "error", e.getMessage())
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(
-                    Map.of("success", false, "error", "Ocurrió un error al desactivar la configuración.")
-            );
-        }
+        programDegreeModalityService.deactivateProgramModality(id);
+        return ResponseEntity.ok(
+                Map.of(
+                        "success", true,
+                        "message", "Configuración de modalidad desactivada exitosamente."
+                )
+        );
     }
 
     @Operation(summary = "Activar configuración de modalidad", description = "Activa una configuración de modalidad de grado previamente desactivada")
@@ -178,23 +133,13 @@ public class ProgramDegreeModalityController {
     @PutMapping("/activate/{id}")
     @PreAuthorize("hasAnyAuthority('PERM_VIEW_PROGRAM_DEGREE_MODALITY', 'PERM_CREATE_PROGRAM_DEGREE_MODALITY')")
     public ResponseEntity<?> activateProgramModality(@Parameter(description = "ID de la configuración") @PathVariable Long id) {
-        try {
-            programDegreeModalityService.activateProgramModality(id);
-            return ResponseEntity.ok(
-                    Map.of(
-                            "success", true,
-                            "message", "Configuración de modalidad activada exitosamente."
-                    )
-            );
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("success", false, "error", e.getMessage())
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(
-                    Map.of("success", false, "error", "Ocurrió un error al activar la configuración.")
-            );
-        }
+        programDegreeModalityService.activateProgramModality(id);
+        return ResponseEntity.ok(
+                Map.of(
+                        "success", true,
+                        "message", "Configuración de modalidad activada exitosamente."
+                )
+        );
     }
 
 

@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 
 @Configuration
 @EnableAsync
@@ -24,15 +25,21 @@ public class AsyncEventConfig {
         executor.setThreadNamePrefix("sigma-notif-");
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(15);
+        // ponytail: CallerRunsPolicy = backpressure en vez de RejectedExecutionException;
+        // el email se envía en el hilo publicador cuando la cola está llena (bloqueo aceptable).
+        // Subir a cola por destinatario/mensajería si el volumen masivo lo exige.
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
     }
 
+    // ponytail: multicaster síncrono para que @TransactionalEventListener(AFTER_COMMIT)
+    // se ejecute en el hilo del publicador con transacción activa; el envío de correo
+    // sigue siendo async en el NotificationDispatcherService (@Async).
     @Bean(name = "applicationEventMulticaster")
-    public ApplicationEventMulticaster applicationEventMulticaster(Executor notificationTaskExecutor) {
+    public ApplicationEventMulticaster applicationEventMulticaster() {
         SimpleApplicationEventMulticaster multicaster = new SimpleApplicationEventMulticaster();
-        multicaster.setTaskExecutor(notificationTaskExecutor);
-        multicaster.setErrorHandler(ex -> log.error("Error procesando evento asíncrono", ex));
+        multicaster.setErrorHandler(ex -> log.error("Error procesando evento", ex));
         return multicaster;
     }
 }

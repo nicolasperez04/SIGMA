@@ -7,7 +7,8 @@ import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
 import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
 import com.SIGMA.USCO.Modalities.Entity.enums.CertificateStatus;
 import com.SIGMA.USCO.Modalities.Repository.AcademicCertificateRepository;
-import com.SIGMA.USCO.notifications.listeners.TranslationUtils;
+import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
@@ -152,14 +153,14 @@ public class AcademicCertificatePdfService {
 
     public Path getCertificatePath(Long studentModalityId) {
         AcademicCertificate cert = certificateRepository.findByStudentModalityId(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Certificado no encontrado para la modalidad " + studentModalityId));
+                .orElseThrow(() -> new NotFoundException("Certificado no encontrado para la modalidad " + studentModalityId));
         return Paths.get(cert.getFilePath());
     }
 
     @Transactional
     public void updateCertificateStatus(Long certificateId, CertificateStatus status) {
         AcademicCertificate cert = certificateRepository.findById(certificateId)
-                .orElseThrow(() -> new RuntimeException("Certificado no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Certificado no encontrado"));
         cert.setStatus(status);
         certificateRepository.save(cert);
     }

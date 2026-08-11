@@ -37,13 +37,13 @@ import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
-import com.SIGMA.USCO.notifications.listeners.ExaminerNotificationListener;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.security.SecurityUtils;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -71,37 +71,24 @@ public class DefenseModalityService {
     private final StudentDocumentRepository studentDocumentRepository;
     private final StudentProfileRepository studentProfileRepository;
     private final UserRepository userRepository;
-    private final ExaminerNotificationListener examinerNotificationListener;
     private final ApplicationEventPublisher applicationEventPublisher;
 
     @Transactional
-    public ResponseEntity<?> scheduleDefense(Long studentModalityId, ScheduleDefenseDTO request) {
+    public Map<String, Object> scheduleDefense(Long studentModalityId, ScheduleDefenseDTO request) {
         User projectDirector = SecurityUtils.getCurrentUser();
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         if (studentModality.getProjectDirector() == null ||
                 !studentModality.getProjectDirector().getId().equals(projectDirector.getId())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para proponer sustentación. No es el director asignado a esta modalidad");
+            throw new ForbiddenException("No tiene permiso para proponer sustentación. No es el director asignado a esta modalidad");
         }
         if (studentModality.getStatus() != ModalityProcessStatus.FINAL_REVIEW_COMPLETED) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no se encuentra en estado válido para proponer sustentación",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("La modalidad no se encuentra en estado válido para proponer sustentación");
         }
         if (request.getDefenseDate() == null ||
                 request.getDefenseLocation() == null ||
                 request.getDefenseLocation().isBlank()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Debe ingresar fecha y lugar válidos para la sustentación propuesta"
-                    )
-            );
+            throw new ValidationException("Debe ingresar fecha y lugar válidos para la sustentación propuesta");
         }
         studentModality.setDefenseDate(request.getDefenseDate());
         studentModality.setDefenseLocation(request.getDefenseLocation());
@@ -148,7 +135,7 @@ public class DefenseModalityService {
                         ModalityEvent.KEY_DEFENSE_LOCATION, request.getDefenseLocation()
                 ))
         );
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "studentModalityId", studentModalityId,
@@ -161,7 +148,7 @@ public class DefenseModalityService {
     }
 
     @Transactional
-    public ResponseEntity<?> getPendingDefenseProposals() {
+    public Map<String, Object> getPendingDefenseProposals() {
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
@@ -173,8 +160,7 @@ public class DefenseModalityService {
                 .toList();
 
         if (academicProgramIds.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("El usuario no tiene el rol de PROGRAM_CURRICULUM_COMMITTEE");
+            throw new ForbiddenException("El usuario no tiene el rol de PROGRAM_CURRICULUM_COMMITTEE");
         }
 
         List<StudentModality> pendingProposals = studentModalityRepository
@@ -214,7 +200,7 @@ public class DefenseModalityService {
                 })
                 .toList();
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "totalProposals", proposals.size(),
@@ -224,12 +210,12 @@ public class DefenseModalityService {
     }
 
     @Transactional
-    public ResponseEntity<?> approveDefenseProposal(Long studentModalityId) {
+    public Map<String, Object> approveDefenseProposal(Long studentModalityId) {
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         Long academicProgramId = studentModality
                 .getProgramDegreeModality()
@@ -243,29 +229,17 @@ public class DefenseModalityService {
         );
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para aprobar sustentaciones en este programa académico");
+            throw new ForbiddenException("No tiene permiso para aprobar sustentaciones en este programa académico");
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no tiene una propuesta de sustentación pendiente de aprobación",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("La modalidad no tiene una propuesta de sustentación pendiente de aprobación");
         }
 
         if (studentModality.getDefenseDate() == null ||
                 studentModality.getDefenseLocation() == null ||
                 studentModality.getDefenseLocation().isBlank()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "No hay fecha y lugar propuestos para aprobar"
-                    )
-            );
+            throw new ValidationException("No hay fecha y lugar propuestos para aprobar");
         }
 
         LocalDateTime approvedDate = studentModality.getDefenseDate();
@@ -299,7 +273,7 @@ public class DefenseModalityService {
                 ))
         );
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "studentModalityId", studentModalityId,
@@ -313,12 +287,12 @@ public class DefenseModalityService {
     }
 
     @Transactional
-    public ResponseEntity<?> rescheduleDefense(Long studentModalityId, ScheduleDefenseDTO request) {
+    public Map<String, Object> rescheduleDefense(Long studentModalityId, ScheduleDefenseDTO request) {
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         Long academicProgramId = studentModality
                 .getProgramDegreeModality()
@@ -332,31 +306,19 @@ public class DefenseModalityService {
         );
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para reprogramar sustentaciones en este programa académico");
+            throw new ForbiddenException("No tiene permiso para reprogramar sustentaciones en este programa académico");
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR &&
                 studentModality.getStatus() != ModalityProcessStatus.PROPOSAL_APPROVED) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no se encuentra en estado válido para reprogramar sustentación",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("La modalidad no se encuentra en estado válido para reprogramar sustentación");
         }
 
         if (request.getDefenseDate() == null ||
                 request.getDefenseLocation() == null ||
                 request.getDefenseLocation().isBlank()) {
 
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Debe ingresar fecha y lugar válidos para la reprogramación"
-                    )
-            );
+            throw new ValidationException("Debe ingresar fecha y lugar válidos para la reprogramación");
         }
 
         LocalDateTime originalProposedDate = studentModality.getDefenseDate();
@@ -405,7 +367,7 @@ public class DefenseModalityService {
                 ))
         );
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "studentModalityId", studentModalityId,
@@ -420,12 +382,12 @@ public class DefenseModalityService {
     }
 
     @Transactional
-    public ResponseEntity<?> assignExaminers(Long studentModalityId, ScheduleDefenseDTO request) {
+    public Map<String, Object> assignExaminers(Long studentModalityId, ScheduleDefenseDTO request) {
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         Long academicProgramId = studentModality
                 .getProgramDegreeModality()
@@ -439,32 +401,17 @@ public class DefenseModalityService {
         );
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of(
-                            "success", false,
-                            "message", "No tiene permiso para asignar jurados en este programa académico"
-                    ));
+            throw new ForbiddenException("No tiene permiso para asignar jurados en este programa académico");
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.READY_FOR_EXAMINERS) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad debe estar en estado 'Listo para jurados' para asignar jurados",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("La modalidad debe estar en estado 'Listo para jurados' para asignar jurados"); 
         }
 
         if (request.getPrimaryExaminer1Id() == null &&
                 request.getPrimaryExaminer2Id() == null &&
                 request.getTiebreakerExaminerId() == null) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Debe proporcionar al menos un jurado para asignar"
-                    )
-            );
+            throw new ValidationException("Debe proporcionar al menos un jurado para asignar");
         }
 
         List<Long> examinerIds = new ArrayList<>();
@@ -474,40 +421,25 @@ public class DefenseModalityService {
 
         Set<Long> uniqueIds = new HashSet<>(examinerIds);
         if (uniqueIds.size() != examinerIds.size()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "No se pueden asignar el mismo jurado más de una vez"
-                    )
-            );
+            throw new ValidationException("No se pueden asignar el mismo jurado más de una vez");
         }
 
         List<String> examinerAssignmentMessages = new ArrayList<>();
 
         if (request.getPrimaryExaminer1Id() != null) {
             User examiner1 = userRepository.findById(request.getPrimaryExaminer1Id())
-                    .orElseThrow(() -> new RuntimeException("Jurado principal 1 no encontrado"));
+                    .orElseThrow(() -> new NotFoundException("Jurado principal 1 no encontrado"));
 
             boolean hasExaminerRole = examiner1.getRoles().stream()
                     .anyMatch(role -> role.getName().equals("EXAMINER"));
 
             if (!hasExaminerRole) {
-                return ResponseEntity.badRequest().body(
-                        Map.of(
-                                "success", false,
-                                "message", "El usuario seleccionado como jurado principal 1 no tiene el rol EXAMINER"
-                        )
-                );
+                throw new ValidationException("El usuario seleccionado como jurado principal 1 no tiene el rol EXAMINER");
             }
 
             if (studentModality.getProjectDirector() != null &&
                     studentModality.getProjectDirector().getId().equals(examiner1.getId())) {
-                return ResponseEntity.badRequest().body(
-                        Map.of(
-                                "success", false,
-                                "message", "El director del proyecto no puede ser jurado de la misma modalidad"
-                        )
-                );
+                throw new ValidationException("El director del proyecto no puede ser jurado de la misma modalidad");
             }
 
             defenseExaminerRepository
@@ -528,28 +460,18 @@ public class DefenseModalityService {
 
         if (request.getPrimaryExaminer2Id() != null) {
             User examiner2 = userRepository.findById(request.getPrimaryExaminer2Id())
-                    .orElseThrow(() -> new RuntimeException("Jurado principal 2 no encontrado"));
+                    .orElseThrow(() -> new NotFoundException("Jurado principal 2 no encontrado"));
 
             boolean hasExaminerRole = examiner2.getRoles().stream()
                     .anyMatch(role -> role.getName().equals("EXAMINER"));
 
             if (!hasExaminerRole) {
-                return ResponseEntity.badRequest().body(
-                        Map.of(
-                                "success", false,
-                                "message", "El usuario seleccionado como jurado principal 2 no tiene el rol EXAMINER"
-                        )
-                );
+                throw new ValidationException("El usuario seleccionado como jurado principal 2 no tiene el rol EXAMINER");
             }
 
             if (studentModality.getProjectDirector() != null &&
                     studentModality.getProjectDirector().getId().equals(examiner2.getId())) {
-                return ResponseEntity.badRequest().body(
-                        Map.of(
-                                "success", false,
-                                "message", "El director del proyecto no puede ser jurado de la misma modalidad"
-                        )
-                );
+                throw new ValidationException("El director del proyecto no puede ser jurado de la misma modalidad");
             }
 
             defenseExaminerRepository
@@ -570,28 +492,18 @@ public class DefenseModalityService {
 
         if (request.getTiebreakerExaminerId() != null) {
             User examiner3 = userRepository.findById(request.getTiebreakerExaminerId())
-                    .orElseThrow(() -> new RuntimeException("Jurado de desempate no encontrado"));
+                    .orElseThrow(() -> new NotFoundException("Jurado de desempate no encontrado"));
 
             boolean hasExaminerRole = examiner3.getRoles().stream()
                     .anyMatch(role -> role.getName().equals("EXAMINER"));
 
             if (!hasExaminerRole) {
-                return ResponseEntity.badRequest().body(
-                        Map.of(
-                                "success", false,
-                                "message", "El usuario seleccionado como jurado de desempate no tiene el rol EXAMINER"
-                        )
-                );
+                throw new ValidationException("El usuario seleccionado como jurado de desempate no tiene el rol EXAMINER");
             }
 
             if (studentModality.getProjectDirector() != null &&
                     studentModality.getProjectDirector().getId().equals(examiner3.getId())) {
-                return ResponseEntity.badRequest().body(
-                        Map.of(
-                                "success", false,
-                                "message", "El director del proyecto no puede ser jurado de la misma modalidad"
-                        )
-                );
+                throw new ValidationException("El director del proyecto no puede ser jurado de la misma modalidad");
             }
 
             defenseExaminerRepository
@@ -627,13 +539,10 @@ public class DefenseModalityService {
                         .build()
         );
 
-        // Notificar a los jurados asignados
-        examinerNotificationListener.notifyExaminersAssignment(studentModalityId);
-
-        // Publicar evento para notificar a estudiantes y director
+        // Notificar a los jurados asignados, estudiantes y director
         applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.EXAMINER_ASSIGNED, studentModalityId, committeeMember.getId(), Map.of()));
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "studentModalityId", studentModalityId,
@@ -645,26 +554,21 @@ public class DefenseModalityService {
     }
 
     @Transactional
-    public ResponseEntity<?> registerFinalDefenseEvaluation(Long studentModalityId, ExaminerEvaluationDTO evaluationDTO) {
+    public Map<String, Object> registerFinalDefenseEvaluation(Long studentModalityId, ExaminerEvaluationDTO evaluationDTO) {
 
         User examiner = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         DefenseExaminer defenseExaminer = defenseExaminerRepository
                 .findByStudentModalityIdAndExaminerId(studentModalityId, examiner.getId())
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new NotFoundException(
                         "No está asignado como jurado de esta sustentación"
                 ));
 
         if (defenseEvaluationCriteriaRepository.existsByDefenseExaminerId(defenseExaminer.getId())) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Ya ha registrado su evaluación para esta sustentación"
-                    )
-            );
+            throw new ValidationException("Ya ha registrado su evaluación para esta sustentación");
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.DEFENSE_COMPLETED &&
@@ -675,45 +579,24 @@ public class DefenseModalityService {
                 studentModality.getStatus() != ModalityProcessStatus.DEFENSE_SCHEDULED &&
                 studentModality.getStatus() != ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER) {
 
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no está en estado válido para registrar evaluaciones",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("La modalidad no está en estado válido para registrar evaluaciones");
         }
 
         // Punto 3: El jurado de desempate SOLO puede evaluar si hay desacuerdo entre primarios
         if (defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER &&
                 studentModality.getStatus() != ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "El jurado de desempate solo puede evaluar cuando existe desacuerdo entre los jurados principales (un jurado aprueba y el otro rechaza).",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("El jurado de desempate solo puede evaluar cuando existe desacuerdo entre los jurados principales (un jurado aprueba y el otro rechaza).");
         }
 
         // Los jurados primarios no pueden evaluar si ya hay desacuerdo resuelto al desempate
         if (defenseExaminer.getExaminerType() != ExaminerType.TIEBREAKER_EXAMINER &&
                 studentModality.getStatus() == ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Existe desacuerdo entre los jurados principales. Solo el jurado de desempate puede evaluar en este momento.",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("Existe desacuerdo entre los jurados principales. Solo el jurado de desempate puede evaluar en este momento.");
         }
 
         // Validar nota
         if (evaluationDTO.getGrade() == null || evaluationDTO.getGrade() < 0.0 || evaluationDTO.getGrade() > 5.0) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "La calificación debe estar entre 0.0 y 5.0"
-            ));
+            throw new ValidationException("La calificación debe estar entre 0.0 y 5.0");
         }
 
         // Construir la entidad DefenseEvaluationCriteria con toda la información
@@ -729,20 +612,11 @@ public class DefenseModalityService {
         DefenseEvaluationCriteriaDTO criteriaDTO = evaluationDTO.getEvaluationCriteria();
 
         if (criteriaDTO == null) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Debe enviar la rúbrica de evaluación en el campo evaluationCriteria.",
-                    "expectedRubricType", expectedRubricType.name()
-            ));
+            throw new ValidationException("Debe enviar la rúbrica de evaluación en el campo evaluationCriteria.");
         }
 
         if (criteriaDTO.getRubricType() != null && criteriaDTO.getRubricType() != expectedRubricType) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "El tipo de rúbrica enviado no coincide con la modalidad evaluada.",
-                    "expectedRubricType", expectedRubricType.name(),
-                    "receivedRubricType", criteriaDTO.getRubricType().name()
-            ));
+            throw new ValidationException("El tipo de rúbrica enviado no coincide con la modalidad evaluada.");
         }
 
         if (expectedRubricType == DefenseRubricType.ENTREPRENEURSHIP) {
@@ -751,11 +625,7 @@ public class DefenseModalityService {
                     || criteriaDTO.getEntrepreneurshipMethodologyTechnicalApproach() == null
                     || criteriaDTO.getEntrepreneurshipAnalyticalCreativeCapacity() == null
                     || criteriaDTO.getEntrepreneurshipDefenseSustentation() == null) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "success", false,
-                        "message", "Para la modalidad de Emprendimiento y fortalecimiento de empresa debe enviar los 5 criterios específicos de la rúbrica empresarial.",
-                        "expectedRubricType", expectedRubricType.name()
-                ));
+                throw new ValidationException("Para la modalidad de Emprendimiento y fortalecimiento de empresa debe enviar los 5 criterios específicos de la rúbrica empresarial.");
             }
 
             criteriaBuilder
@@ -781,11 +651,7 @@ public class DefenseModalityService {
                     || criteriaDTO.getArgumentationAndResponse() == null
                     || criteriaDTO.getInnovationAndImpact() == null
                     || criteriaDTO.getProfessionalPresentation() == null) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "success", false,
-                        "message", "Para esta modalidad debe enviar los 5 criterios estándar de la rúbrica.",
-                        "expectedRubricType", expectedRubricType.name()
-                ));
+                throw new ValidationException("Para esta modalidad debe enviar los 5 criterios estándar de la rúbrica.");
             }
 
             criteriaBuilder
@@ -812,15 +678,15 @@ public class DefenseModalityService {
     }
 
     @Transactional
-    public ResponseEntity<?> getFinalDefenseEvaluationForExaminer(Long studentModalityId) {
+    public Map<String, Object> getFinalDefenseEvaluationForExaminer(Long studentModalityId) {
         User examiner = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         DefenseExaminer defenseExaminer = defenseExaminerRepository
                 .findByStudentModalityIdAndExaminerId(studentModalityId, examiner.getId())
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new NotFoundException(
                         "No está asignado como jurado de esta sustentación"
                 ));
 
@@ -829,7 +695,7 @@ public class DefenseModalityService {
                 .orElse(null);
 
         if (evaluation == null) {
-            return ResponseEntity.ok(
+            return (
                     Map.of(
                             "success", false,
                             "message", "No hay evaluación registrada para este jurado en esta modalidad"
@@ -849,10 +715,10 @@ public class DefenseModalityService {
 
         response.put("evaluationCriteria", buildDefenseCriteriaResponse(evaluation));
 
-        return ResponseEntity.ok(response);
+        return (response);
     }
 
-    private ResponseEntity<?> processPrimaryExaminerEvaluation(StudentModality studentModality, DefenseEvaluationCriteria currentEvaluation, User examiner) {
+    private Map<String, Object> processPrimaryExaminerEvaluation(StudentModality studentModality, DefenseEvaluationCriteria currentEvaluation, User examiner) {
 
         if (studentModality.getStatus() == ModalityProcessStatus.DEFENSE_COMPLETED) {
             studentModality.setStatus(ModalityProcessStatus.UNDER_EVALUATION_PRIMARY_EXAMINERS);
@@ -865,7 +731,7 @@ public class DefenseModalityService {
 
         if (!bothEvaluated) {
 
-            return ResponseEntity.ok(
+            return (
                     Map.of(
                             "success", true,
                             "message", "Evaluación registrada correctamente. Esperando evaluación del otro jurado principal.",
@@ -889,7 +755,7 @@ public class DefenseModalityService {
         }
     }
 
-    private ResponseEntity<?> applyFinalResultWithConsensus(StudentModality studentModality, List<DefenseEvaluationCriteria> primaryEvaluations, User examiner) {
+    private Map<String, Object> applyFinalResultWithConsensus(StudentModality studentModality, List<DefenseEvaluationCriteria> primaryEvaluations, User examiner) {
 
         // La nota final es el promedio de las dos notas de los jurados principales (punto 4)
         Double averageGrade = defenseEvaluationCriteriaRepository
@@ -994,7 +860,7 @@ public class DefenseModalityService {
             message = approved ? "¡Felicitaciones! Tu modalidad de grado ha sido aprobada por consenso de los jurados." : "Tu modalidad de grado ha sido reprobada por consenso de los jurados.";
         }
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "exito", true,
                         "consenso", true,
@@ -1007,7 +873,7 @@ public class DefenseModalityService {
         );
     }
 
-    private ResponseEntity<?> requestTiebreakerExaminer(StudentModality studentModality, List<DefenseEvaluationCriteria> primaryEvaluations, User examiner) {
+    private Map<String, Object> requestTiebreakerExaminer(StudentModality studentModality, List<DefenseEvaluationCriteria> primaryEvaluations, User examiner) {
 
         studentModality.setStatus(ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER);
         studentModality.setAcademicDistinction(AcademicDistinction.DISAGREEMENT_PENDING_TIEBREAKER);
@@ -1033,7 +899,7 @@ public class DefenseModalityService {
                         .build()
         );
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "hasConsensus", false,
@@ -1044,7 +910,7 @@ public class DefenseModalityService {
         );
     }
 
-    private ResponseEntity<?> processTiebreakerEvaluation(StudentModality studentModality, DefenseEvaluationCriteria tiebreakerEvaluation, User examiner) {
+    private Map<String, Object> processTiebreakerEvaluation(StudentModality studentModality, DefenseEvaluationCriteria tiebreakerEvaluation, User examiner) {
 
         tiebreakerEvaluation.setIsFinalDecision(true);
         defenseEvaluationCriteriaRepository.save(tiebreakerEvaluation);
@@ -1137,7 +1003,7 @@ public class DefenseModalityService {
                     : "Modalidad REPROBADA por decisión del jurado de desempate";
         }
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "isTiebreaker", true,
@@ -1150,12 +1016,13 @@ public class DefenseModalityService {
         );
     }
 
-    public ResponseEntity<?> getFinalDefenseResult(Long studentModalityId) {
+    @Transactional(readOnly = true)
+    public FinalDefenseResponse getFinalDefenseResult(Long studentModalityId) {
 
         User user = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         Long academicProgramId =
                 studentModality
@@ -1175,20 +1042,13 @@ public class DefenseModalityService {
                         );
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para consultar el resultado final de esta modalidad");
+            throw new ForbiddenException("No tiene permiso para consultar el resultado final de esta modalidad");
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.GRADED_APPROVED &&
                 studentModality.getStatus() != ModalityProcessStatus.GRADED_FAILED) {
 
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad aún no tiene un resultado final registrado",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("La modalidad aún no tiene un resultado final registrado");
         }
 
         ModalityProcessStatus finalStatus = studentModality.getStatus();
@@ -1200,7 +1060,7 @@ public class DefenseModalityService {
                                 finalStatus
                         )
                         .orElseThrow(() ->
-                                new RuntimeException("No se encontró historial de evaluación final")
+                                new NotFoundException("No se encontró historial de evaluación final")
                         );
 
         List<DefenseExaminer> defenseExaminers = defenseExaminerRepository
@@ -1239,7 +1099,7 @@ public class DefenseModalityService {
         boolean wasTiebreaker = studentModality.getAcademicDistinction() != null &&
                                (studentModality.getAcademicDistinction().name().startsWith("TIEBREAKER_"));
 
-        return ResponseEntity.ok(
+        return (
                 FinalDefenseResponse.builder()
                         .studentModalityId(studentModality.getId())
                         .studentName(
@@ -1328,20 +1188,21 @@ public class DefenseModalityService {
                 .build();
     }
 
-    public ResponseEntity<?> getMyFinalDefenseResult() {
+    @Transactional(readOnly = true)
+    public Object getMyFinalDefenseResult() {
 
         User student = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository
                 .findByStudent(student)
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new NotFoundException(
                         "No se encontró una modalidad asociada al estudiante"
                 ));
 
         if (studentModality.getStatus() != ModalityProcessStatus.GRADED_APPROVED &&
                 studentModality.getStatus() != ModalityProcessStatus.GRADED_FAILED) {
 
-            return ResponseEntity.ok(
+            return (
                     Map.of(
                             "hasResult", false,
                             "message", "Tu modalidad aún no tiene un resultado final"
@@ -1356,7 +1217,7 @@ public class DefenseModalityService {
                         studentModality,
                         finalStatus
                 )
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new NotFoundException(
                         "No se encontró historial de evaluación final"
                 ));
 
@@ -1394,7 +1255,7 @@ public class DefenseModalityService {
         boolean wasTiebreaker = studentModality.getAcademicDistinction() != null &&
                                (studentModality.getAcademicDistinction().name().startsWith("TIEBREAKER_"));
 
-        return ResponseEntity.ok(
+        return (
                 FinalDefenseResponse.builder()
                         .studentModalityId(studentModality.getId())
                         .studentName(student.getName() + " " + student.getLastName())
@@ -1428,7 +1289,8 @@ public class DefenseModalityService {
      *
      * Solo el comité del programa académico correspondiente puede ver estas modalidades.
      */
-    public ResponseEntity<?> getPendingDistinctionProposals() {
+    @Transactional(readOnly = true)
+    public Map<String, Object> getPendingDistinctionProposals() {
         User committeeMember = SecurityUtils.getCurrentUser();
 
         List<Long> programIds = programAuthorityRepository
@@ -1439,10 +1301,7 @@ public class DefenseModalityService {
                 .toList();
 
         if (programIds.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "El usuario no tiene el rol de Comité de Currículo en ningún programa académico."
-            ));
+            throw new ForbiddenException("El usuario no tiene el rol de Comité de Currículo en ningún programa académico.");
         }
 
         // Buscar modalidades con estado PENDING_DISTINCTION_COMMITTEE_REVIEW en los programas del comité
@@ -1500,7 +1359,7 @@ public class DefenseModalityService {
                 })
                 .collect(Collectors.toList());
 
-        return ResponseEntity.ok(Map.of(
+        return (Map.of(
                 "success", true,
                 "totalPending", result.size(),
                 "pendingDistinctionProposals", result
@@ -1515,11 +1374,11 @@ public class DefenseModalityService {
      * @param notes             Notas/observaciones del comité al aceptar (opcional)
      */
     @Transactional
-    public ResponseEntity<?> acceptDistinctionProposal(Long studentModalityId, String notes) {
+    public Map<String, Object> acceptDistinctionProposal(Long studentModalityId, String notes) {
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         Long academicProgramId = studentModality.getProgramDegreeModality().getAcademicProgram().getId();
 
@@ -1527,18 +1386,11 @@ public class DefenseModalityService {
                 committeeMember.getId(), academicProgramId, ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No tiene permiso para revisar distinciones en este programa académico."
-            ));
+            throw new ForbiddenException("No tiene permiso para revisar distinciones en este programa académico.");
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.PENDING_DISTINCTION_COMMITTEE_REVIEW) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "La modalidad no está en estado de revisión de distinción por el comité.",
-                    "currentStatus", studentModality.getStatus()
-            ));
+            throw new ValidationException("La modalidad no está en estado de revisión de distinción por el comité.");
         }
 
         // Convertir la distinción propuesta en la distinción definitiva aceptada
@@ -1546,10 +1398,7 @@ public class DefenseModalityService {
         AcademicDistinction confirmedDistinction = resolveAcceptedDistinction(proposedDistinction);
 
         if (confirmedDistinction == null) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "No se puede determinar la distinción a confirmar. Estado de distinción inválido: " + proposedDistinction
-            ));
+            throw new ValidationException("No se puede determinar la distinción a confirmar. Estado de distinción inválido: " + proposedDistinction);
         }
 
         studentModality.setStatus(ModalityProcessStatus.GRADED_APPROVED);
@@ -1580,7 +1429,7 @@ public class DefenseModalityService {
                 ModalityEvent.KEY_OBSERVATIONS, observations
         )));
 
-        return ResponseEntity.ok(Map.of(
+        return (Map.of(
                 "success", true,
                 "studentModalityId", studentModalityId,
                 "newStatus", ModalityProcessStatus.GRADED_APPROVED,
@@ -1598,18 +1447,15 @@ public class DefenseModalityService {
      * @param reason            Razón del rechazo (obligatorio)
      */
     @Transactional
-    public ResponseEntity<?> rejectDistinctionProposal(Long studentModalityId, String reason) {
+    public Map<String, Object> rejectDistinctionProposal(Long studentModalityId, String reason) {
         if (reason == null || reason.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "Debe proporcionar una razón para rechazar la distinción propuesta."
-            ));
+            throw new ValidationException("Debe proporcionar una razón para rechazar la distinción propuesta.");
         }
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         Long academicProgramId = studentModality.getProgramDegreeModality().getAcademicProgram().getId();
 
@@ -1617,18 +1463,11 @@ public class DefenseModalityService {
                 committeeMember.getId(), academicProgramId, ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                    "success", false,
-                    "message", "No tiene permiso para revisar distinciones en este programa académico."
-            ));
+            throw new ForbiddenException("No tiene permiso para revisar distinciones en este programa académico.");
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.PENDING_DISTINCTION_COMMITTEE_REVIEW) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "success", false,
-                    "message", "La modalidad no está en estado de revisión de distinción por el comité.",
-                    "currentStatus", studentModality.getStatus()
-            ));
+            throw new ValidationException("La modalidad no está en estado de revisión de distinción por el comité.");
         }
 
         // Al rechazar, la distinción se convierte en aprobada sin mención especial
@@ -1664,7 +1503,7 @@ public class DefenseModalityService {
                 ModalityEvent.KEY_OBSERVATIONS, observations
         )));
 
-        return ResponseEntity.ok(Map.of(
+        return (Map.of(
                 "success", true,
                 "studentModalityId", studentModalityId,
                 "newStatus", ModalityProcessStatus.GRADED_APPROVED,
@@ -1702,11 +1541,11 @@ public class DefenseModalityService {
     }
 
     @Transactional
-    public ResponseEntity<?> modalityReadyForDefenseByDirector(Long studentModalityId) {
+    public Map<String, Object> modalityReadyForDefenseByDirector(Long studentModalityId) {
         User projectDirector = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         // Validación de documentos subidos (excepto para "Emprendimiento y fortalecimiento de empresa")
         String modalidadNombre = studentModality.getProgramDegreeModality().getDegreeModality().getName();
@@ -1725,35 +1564,20 @@ public class DefenseModalityService {
                     .orElse(null);
                 // Si no existe documento o está vacío (por ejemplo, fileName es null o vacío)
                 if (doc == null || doc.getFileName() == null || doc.getFileName().isBlank()) {
-                    return ResponseEntity.badRequest().body(
-                        Map.of(
-                            "success", false,
-                            "message", "El estudiante debe subir todos los documentos para marcar la modalidad como lista para defensa"
-                        )
-                    );
+                    throw new ValidationException("El estudiante debe subir todos los documentos para marcar la modalidad como lista para defensa");
                 }
             }
         }
 
         if (studentModality.getProjectDirector() == null ||
                 !studentModality.getProjectDirector().getId().equals(projectDirector.getId())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of(
-                            "success", false,
-                            "message", "No tiene permiso para marcar la modalidad como lista para defensa. No es el director asignado a esta modalidad"
-                    ));
+            throw new ForbiddenException("No tiene permiso para marcar la modalidad como lista para defensa. No es el director asignado a esta modalidad");
         }
 
         // Validar estado actual
         if (studentModality.getStatus() != ModalityProcessStatus.PROPOSAL_APPROVED &&
             studentModality.getStatus() != ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no se encuentra en estado válido para notificar a jefatura de programa",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("La modalidad no se encuentra en estado válido para notificar a jefatura de programa");
         }
 
         // Cambiar estado al paso intermedio: jefatura debe revisar antes de notificar a jurados
@@ -1776,7 +1600,7 @@ public class DefenseModalityService {
             new ModalityEvent(NotificationType.DIRECTOR_NOTIFIES_PROGRAM_HEAD_FINAL_REVIEW, studentModality.getId(), projectDirector.getId(), Map.of())
         );
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "studentModalityId", studentModalityId,
@@ -1791,34 +1615,23 @@ public class DefenseModalityService {
      * Paso intermedio entre la notificación del director y la revisión de jurados.
      */
     @Transactional
-    public ResponseEntity<?> programHeadApprovesAndNotifiesExaminers(Long studentModalityId) {
+    public Map<String, Object> programHeadApprovesAndNotifiesExaminers(Long studentModalityId) {
         User programHead = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         // Validar que sea jefatura de programa
         Long academicProgramId = studentModality.getAcademicProgram().getId();
         boolean isProgramHead = programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRole(
                 programHead.getId(), academicProgramId, ProgramRole.PROGRAM_HEAD);
         if (!isProgramHead) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
-                    Map.of(
-                            "success", false,
-                            "message", "Solo jefatura de programa puede aprobar y notificar a los jurados en este paso"
-                    )
-            );
+            throw new ForbiddenException("Solo jefatura de programa puede aprobar y notificar a los jurados en este paso");
         }
 
         // Validar estado actual
         if (studentModality.getStatus() != ModalityProcessStatus.PENDING_PROGRAM_HEAD_FINAL_REVIEW) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no está en espera de revisión de jefatura de programa",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("La modalidad no está en espera de revisión de jefatura de programa");
         }
 
         // Validar que TODOS los documentos SECONDARY estén aprobados por jefatura o en estado superior
@@ -1868,14 +1681,7 @@ public class DefenseModalityService {
 
             // Si hay documentos inválidos, retornar error sin permitir avanzar
             if (!invalidDocuments.isEmpty()) {
-                return ResponseEntity.badRequest().body(
-                        Map.of(
-                                "success", false,
-                                "message", "No se puede notificar a los jurados. Existen documentos que no están aprobados por jefatura o requieren correcciones:",
-                                "invalidDocuments", invalidDocuments,
-                                "totalInvalid", invalidDocuments.size()
-                        )
-                );
+                throw new ValidationException("No se puede notificar a los jurados. Existen documentos que no están aprobados por jefatura o requieren correcciones:");
             }
         }
 
@@ -1907,7 +1713,7 @@ public class DefenseModalityService {
             );
         }
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "studentModalityId", studentModalityId,
@@ -1918,11 +1724,11 @@ public class DefenseModalityService {
     }
 
     @Transactional
-    public ResponseEntity<?> examinerFinalReviewCompleted(Long studentModalityId) {
+    public Map<String, Object> examinerFinalReviewCompleted(Long studentModalityId) {
         User examiner = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         Long academicProgramId = studentModality.getAcademicProgram().getId();
 
@@ -1934,23 +1740,12 @@ public class DefenseModalityService {
                 );
 
         if (!isAuthorized) {
-            return ResponseEntity.status(403).body(
-                    Map.of(
-                            "success", false,
-                            "message", "No tienes permisos para finalizar la revisión como jurado en este programa académico"
-                    )
-            );
+            throw new ForbiddenException("No tienes permisos para finalizar la revisión como jurado en este programa académico");
         }
 
         // Validar estado actual
         if (studentModality.getStatus() != ModalityProcessStatus.READY_FOR_DEFENSE) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no está en estado válido para finalizar revisión de jurado",
-                            "currentStatus", studentModality.getStatus()
-                    )
-            );
+            throw new ValidationException("La modalidad no está en estado válido para finalizar revisión de jurado");
         }
 
         // Validar que todos los documentos que requieren evaluación de propuesta estén aceptados por el jurado
@@ -2003,13 +1798,7 @@ public class DefenseModalityService {
             }
         }
         if (!invalidDocuments.isEmpty()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Para finalizar la revisión, todos los documentos que requieren evaluación deben estar aceptados por los jurados",
-                            "documents", invalidDocuments
-                    )
-            );
+            throw new ValidationException("Para finalizar la revisión, todos los documentos que requieren evaluación deben estar aceptados por los jurados");
         }
 
         // Cambiar estado
@@ -2038,7 +1827,7 @@ public class DefenseModalityService {
             );
         }
 
-        return ResponseEntity.ok(
+        return (
                 Map.of(
                         "success", true,
                         "studentModalityId", studentModalityId,
@@ -2052,7 +1841,8 @@ public class DefenseModalityService {
      * Devuelve un calendario de próximas sustentaciones para el jurado autenticado.
      * Solo incluye modalidades en estado DEFENSE_SCHEDULED, ordenadas por fecha de defensa ascendente.
      */
-    public ResponseEntity<?> getExaminerDefenseCalendar() {
+    @Transactional(readOnly = true)
+    public List<ModalityListDTO> getExaminerDefenseCalendar() {
         User examiner = SecurityUtils.getCurrentUser();
 
         // Buscar todas las modalidades asignadas al jurado en estado DEFENSE_SCHEDULED
@@ -2088,11 +1878,11 @@ public class DefenseModalityService {
                             .build();
                 })
                 .toList();
-        return ResponseEntity.ok(calendar);
+        return (calendar);
     }
 
     @Transactional
-    public ResponseEntity<?> getExaminerTypeForModality(Long studentModalityId) {
+    public Map<String, Object> getExaminerTypeForModality(Long studentModalityId) {
         User examiner = SecurityUtils.getCurrentUser();
 
         DefenseExaminer defenseExaminer = defenseExaminerRepository
@@ -2100,21 +1890,17 @@ public class DefenseModalityService {
                 .orElse(null);
 
         if (defenseExaminer == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of(
-                        "success", false,
-                        "message", "No está asignado como jurado a esta modalidad"
-                    ));
+            throw new ForbiddenException("No está asignado como jurado a esta modalidad");
         }
 
-        return ResponseEntity.ok(Map.of(
+        return (Map.of(
             "success", true,
             "examinerType", defenseExaminer.getExaminerType().name()
         ));
     }
 
     @Transactional
-    public ResponseEntity<?> getExaminerEvaluationForModality(Long studentModalityId) {
+    public Map<String, Object> getExaminerEvaluationForModality(Long studentModalityId) {
         User examiner = SecurityUtils.getCurrentUser();
 
         DefenseExaminer defenseExaminer = defenseExaminerRepository
@@ -2122,11 +1908,7 @@ public class DefenseModalityService {
                 .orElse(null);
 
         if (defenseExaminer == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of(
-                        "success", false,
-                        "message", "No está asignado como jurado a esta modalidad"
-                    ));
+            throw new ForbiddenException("No está asignado como jurado a esta modalidad");
         }
 
         DefenseEvaluationCriteria evaluation = defenseEvaluationCriteriaRepository
@@ -2134,7 +1916,7 @@ public class DefenseModalityService {
                 .orElse(null);
 
         if (evaluation == null) {
-            return ResponseEntity.ok(Map.of(
+            return (Map.of(
                 "success", false,
                 "message", "No ha registrado evaluación para esta modalidad"
             ));
@@ -2146,7 +1928,7 @@ public class DefenseModalityService {
                 .evaluationDate(evaluation.getEvaluatedAt())
                 .build();
 
-        return ResponseEntity.ok(Map.of(
+        return (Map.of(
             "success", true,
             "evaluation", dto
         ));

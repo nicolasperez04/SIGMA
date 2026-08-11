@@ -66,9 +66,15 @@ public class StudentReportService {
         String academicPeriod = year + "-" + semester;
 
         // Obtener todas las modalidades activas del período
-        // Nota: Necesitarás agregar el filtro por período en el repositorio
         List<StudentModality> modalities = studentModalityRepository
-                .findByStatusIn(ReportUtils.getActiveStatuses());
+                .findByStatusIn(ReportUtils.getActiveStatuses())
+                .stream()
+                .filter(m -> m.getSelectionDate() != null)
+                .filter(m -> year == null ||
+                        m.getSelectionDate().getYear() == year)
+                .filter(m -> semester == null ||
+                        ReportUtils.getSemesterFromDate(m.getSelectionDate()) == semester)
+                .collect(Collectors.toList());
 
         // Obtener estudiantes
         List<StudentInfoDTO> students = modalities.stream()
@@ -101,30 +107,35 @@ public class StudentReportService {
 
 
     private StudentStatisticsDTO generateStudentStatistics(List<StudentModality> modalities) {
-        long totalActive = modalities.size();
-        // Aquí puedes agregar más lógica según los estados específicos
-
         return StudentStatisticsDTO.builder()
-                .totalActive((int) totalActive)
-                .totalInProgress((int) totalActive)
-                .totalCompleted(0) // Calcular según estados
-                .totalCancelled(0) // Calcular según estados
-                .totalPendingApproval(0) // Calcular según estados
-                .averageProgress(0.0) // Calcular promedio
+                .totalActive(modalities.size())
+                .totalInProgress(modalities.size())
+                .totalCompleted(null) // No calculable: la consulta solo trae estados activos
+                .totalCancelled(null) // No calculable: la consulta solo trae estados activos
+                .totalPendingApproval(null) // No calculable: la consulta solo trae estados activos
+                .averageProgress(null) // No se cuenta con medición de progreso
                 .build();
     }
 
 
     private SemesterStatisticsDTO generateSemesterStatistics(List<StudentModality> modalities) {
-        int totalEnrolled = modalities.size();
+        String mostPopularModality = modalities.stream()
+                .collect(Collectors.groupingBy(
+                        m -> m.getProgramDegreeModality().getDegreeModality().getName(),
+                        Collectors.counting()
+                ))
+                .entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
 
         return SemesterStatisticsDTO.builder()
-                .totalEnrolled(totalEnrolled)
-                .totalInProgress(totalEnrolled)
-                .totalCompleted(0) // Calcular según estados
-                .totalCancelled(0) // Calcular según estados
-                .completionRate(0.0) // Calcular tasa
-                .mostPopularModality("N/A") // Calcular la más popular
+                .totalEnrolled(modalities.size())
+                .totalInProgress(modalities.size())
+                .totalCompleted(null) // No calculable: la consulta solo trae estados activos
+                .totalCancelled(null) // No calculable: la consulta solo trae estados activos
+                .completionRate(null) // No calculable: requiere conteo de completadas
+                .mostPopularModality(mostPopularModality)
                 .build();
     }
 }

@@ -1,25 +1,22 @@
 package com.SIGMA.USCO.Users.controller;
 
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.dto.StudentModalityDTO;
 import com.SIGMA.USCO.Modalities.service.CancellationService;
 import com.SIGMA.USCO.Modalities.service.StudentModalityListingService;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.repository.UserRepository;
+import com.SIGMA.USCO.Users.dto.response.StudentResponse;
 import com.SIGMA.USCO.Users.service.StudentService;
 import com.SIGMA.USCO.academic.dto.StudentProfileRequest;
-import com.SIGMA.USCO.documents.entity.StudentDocument;
-import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
+import com.SIGMA.USCO.documents.dto.StatusHistoryDTO;
 import com.SIGMA.USCO.documents.service.DocumentService;
-import com.SIGMA.USCO.security.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -30,8 +27,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @Tag(name = "Estudiantes", description = "Operaciones para estudiantes: perfil, documentos, modalidades y cancelaciones")
 @RestController
@@ -44,9 +41,6 @@ public class StudentController {
     private final StudentModalityListingService modalityListingService;
     private final CancellationService cancellationService;
     private final DocumentService documentService;
-    private final StudentDocumentRepository studentDocumentRepository;
-    private final UserRepository userRepository;
-    private final StudentModalityMemberRepository studentModalityMemberRepository;
 
     @Operation(summary = "Actualizar perfil del estudiante", description = "Actualiza la información del perfil del estudiante autenticado")
     @ApiResponses(value = {
@@ -56,8 +50,8 @@ public class StudentController {
     })
     @PostMapping("/profile")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> updateStudentProfile(@RequestBody StudentProfileRequest request){
-        return studentService.updateStudentProfile(request);
+    public ResponseEntity<String> updateStudentProfile(@RequestBody @Valid StudentProfileRequest request){
+        return ResponseEntity.ok(studentService.updateStudentProfile(request));
     }
 
     @Operation(summary = "Crear perfil desde historial académico", description = "Carga un archivo de historial académico para crear/actualizar el perfil del estudiante")
@@ -68,32 +62,32 @@ public class StudentController {
     })
     @PostMapping("/profile/from-academic-history")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> updateStudentProfileFromAcademicHistory(
+    public ResponseEntity<Map<String, Object>> updateStudentProfileFromAcademicHistory(
             @Parameter(description = "Archivo PDF del historial académico") @RequestParam("file") MultipartFile file
     ) {
-        return studentService.updateStudentProfileFromAcademicHistory(file);
+        return ResponseEntity.ok(studentService.updateStudentProfileFromAcademicHistory(file));
     }
 
     @Operation(summary = "Obtener perfil del estudiante", description = "Retorna la información completa del perfil del estudiante autenticado")
     @ApiResponse(responseCode = "200", description = "Perfil obtenido exitosamente")
     @GetMapping("/profile")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> getStudentInfo() {
-        return studentService.getStudentProfile();
+    public ResponseEntity<StudentResponse> getStudentInfo() {
+        return ResponseEntity.ok(studentService.getStudentProfile());
     }
 
     @Operation(summary = "Obtener modalidad actual", description = "Retorna la modalidad de grado activa del estudiante autenticado")
     @ApiResponse(responseCode = "200", description = "Modalidad obtenida exitosamente")
     @GetMapping("/modality/current")
-    public ResponseEntity<?> getCurrentStudentModality() {
-        return modalityListingService.getCurrentStudentModality();
+    public ResponseEntity<StudentModalityDTO> getCurrentStudentModality() {
+        return ResponseEntity.ok(modalityListingService.getCurrentStudentModality());
     }
 
     @Operation(summary = "Obtener historial de documento", description = "Retorna el historial de cambios y estados de un documento específico")
     @ApiResponse(responseCode = "200", description = "Historial obtenido exitosamente")
     @GetMapping("/documents/{studentDocumentId}/history")
-    public ResponseEntity<?> getDocumentHistory(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) {
-        return documentService.getDocumentHistory(studentDocumentId);
+    public ResponseEntity<List<StatusHistoryDTO>> getDocumentHistory(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) {
+        return ResponseEntity.ok(documentService.getDocumentHistory(studentDocumentId));
     }
 
     @Operation(summary = "Solicitar cancelación de modalidad", description = "El estudiante solicita cancelar su inscripción en una modalidad de grado")
@@ -103,16 +97,16 @@ public class StudentController {
             @ApiResponse(responseCode = "404", description = "Modalidad no encontrada")
     })
     @PostMapping("/{studentModalityId}/request-cancellation")
-    public ResponseEntity<?> requestCancellation(@Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId) {
-        return cancellationService.requestCancellation(studentModalityId);
+    public ResponseEntity<Map<String, Object>> requestCancellation(@Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(cancellationService.requestCancellation(studentModalityId));
     }
 
     @Operation(summary = "Obtener mis documentos", description = "Retorna la lista de documentos requeridos y su estado para la modalidad actual del estudiante")
     @ApiResponse(responseCode = "200", description = "Lista de documentos obtenida")
     @GetMapping("/my-documents")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> getMyDocuments() {
-        return studentService.getMyDocuments();
+    public ResponseEntity<List<Map<String, Object>>> getMyDocuments() {
+        return ResponseEntity.ok(studentService.getMyDocuments());
     }
 
     @Operation(summary = "Cargar documento de cancelación", description = "Carga el documento de justificación para la solicitud de cancelación de una modalidad")
@@ -142,53 +136,23 @@ public class StudentController {
     })
     @GetMapping("/documents/{studentDocumentId}/view")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<?> viewMyDocument(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) {
-        // Obtener el usuario actual autenticado
-        User currentUser = SecurityUtils.getCurrentUser();
+    public ResponseEntity<Resource> viewMyDocument(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) throws java.net.MalformedURLException {
+        Resource resource = studentService.viewMyDocument(studentDocumentId);
 
-        // Buscar el documento
-        Optional<StudentDocument> docOpt = studentDocumentRepository.findById(studentDocumentId);
-        if (docOpt.isEmpty()) {
-            return ResponseEntity.status(404).body("Documento no encontrado");
-        }
-
-        StudentDocument document = docOpt.get();
-
-        // Verificar que el usuario sea un miembro activo de la modalidad
-        Long studentModalityId = document.getStudentModality().getId();
-        boolean isActiveMember = studentModalityMemberRepository.isActiveMember(
-                studentModalityId,
-                currentUser.getId()
-        );
-
-        if (!isActiveMember) {
-            return ResponseEntity.status(403).body("No tienes permiso para ver este documento");
-        }
-
-        // Leer el archivo desde el sistema de archivos
+        String contentType = "application/octet-stream";
         try {
-            Path filePath = Paths.get(document.getFilePath());
-            Resource resource = new UrlResource(filePath.toUri());
-
-            if (!resource.exists() || !resource.isReadable()) {
-                return ResponseEntity.status(404).body("Archivo no encontrado o no legible");
+            Path filePath = Paths.get(resource.getURI());
+            String probed = Files.probeContentType(filePath);
+            if (probed != null) {
+                contentType = probed;
             }
-
-            // Detectar tipo de contenido
-            String contentType = Files.probeContentType(filePath);
-            if (contentType == null) {
-                contentType = "application/octet-stream";
-            }
-
-            // Retornar el archivo como blob
-            return ResponseEntity.ok()
-                    .contentType(MediaType.parseMediaType(contentType))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
-                    .body(resource);
-
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body("Error al leer el archivo: " + e.getMessage());
+        } catch (Exception ignored) {
         }
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
+                .body(resource);
     }
 
 

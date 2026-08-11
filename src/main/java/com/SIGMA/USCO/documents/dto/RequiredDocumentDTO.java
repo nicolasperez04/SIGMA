@@ -1,6 +1,8 @@
 package com.SIGMA.USCO.documents.dto;
 
 import com.SIGMA.USCO.documents.entity.enums.DocumentType;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,10 +15,12 @@ import lombok.NoArgsConstructor;
 public class RequiredDocumentDTO {
 
 
+    @NotNull
     private Long modalityId;
 
     private Long id;
 
+    @NotBlank
     private String documentName;
     private String allowedFormat;
     private Integer maxFileSizeMB;

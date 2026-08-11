@@ -1,13 +1,14 @@
 package com.SIGMA.USCO.Modalities.Controller;
 
 import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.DegreeModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
 import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.dto.*;
+import com.SIGMA.USCO.Modalities.dto.response.FinalDefenseResponse;
 import com.SIGMA.USCO.Modalities.dto.response.ProjectDirectorResponse;
+import com.SIGMA.USCO.Modalities.dto.response.StudentModalityExaminerDTO;
 import com.SIGMA.USCO.Modalities.service.CancellationService;
 import com.SIGMA.USCO.Modalities.service.DefenseModalityService;
 import com.SIGMA.USCO.Modalities.service.DocumentEditRequestService;
@@ -44,6 +45,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 
 import java.io.IOException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -80,27 +82,13 @@ public class ModalityController {
     })
     @PostMapping("/create")
     @PreAuthorize("hasAuthority('PERM_CREATE_MODALITY') or hasAuthority('PERM_UPDATE_MODALITY')")
-    public ResponseEntity<?> createModality(@RequestBody ModalityDTO request) {
-
-        try {
-            DegreeModality program = modalityCatalogService.createModality(request);
-
-            return ResponseEntity.status(HttpStatus.CREATED).body(
-                    Map.of(
-                            "message", " Modalidad creada exitosamente."
-                    )
-            );
-
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(
-                    Map.of("error", e.getMessage())
-            );
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    Map.of("error", "Ocurrió un error al crear la modalidad.")
-            );
-        }
-
+    public ResponseEntity<?> createModality(@RequestBody @Valid ModalityDTO request) {
+        modalityCatalogService.createModality(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                Map.of(
+                        "message", " Modalidad creada exitosamente."
+                )
+        );
     }
 
     @Operation(summary = "Actualizar configuración de modalidad", description = "Modifica los parámetros de una modalidad existente: requisitos, plazos, condiciones de aprobación, etc.")
@@ -112,8 +100,8 @@ public class ModalityController {
     })
     @PutMapping("/update/{modalityId}")
     @PreAuthorize("hasAuthority('PERM_CREATE_MODALITY') or hasAuthority('PERM_UPDATE_MODALITY')")
-    public ResponseEntity<?> updateModality(@PathVariable Long modalityId, @RequestBody ModalityDTO request) {
-        return modalityCatalogService.updateModality(modalityId, request);
+    public ResponseEntity<String> updateModality(@PathVariable Long modalityId, @RequestBody @Valid ModalityDTO request) {
+        return ResponseEntity.ok(modalityCatalogService.updateModality(modalityId, request));
     }
 
     @Operation(summary = "Desactivar modalidad", description = "Desactiva una modalidad de grado (eliminación lógica). La modalidad no aparecerá en nuevas inscripciones pero se mantiene para consulta histórica.")
@@ -124,8 +112,8 @@ public class ModalityController {
     })
     @PutMapping("delete/{modalityId}")
     @PreAuthorize("hasAuthority('PERM_DESACTIVE_MODALITY')")
-    public ResponseEntity<?> deactivateModality(@PathVariable Long modalityId) {
-        return modalityCatalogService.desactiveModality(modalityId);
+    public ResponseEntity<String> deactivateModality(@PathVariable Long modalityId) {
+        return ResponseEntity.ok(modalityCatalogService.desactiveModality(modalityId));
     }
 
 
@@ -138,7 +126,7 @@ public class ModalityController {
     })
     @PostMapping("/requirements/create/{modalityId}")
     @PreAuthorize("hasAuthority('PERM_CREATE_MODALITY') or hasAuthority('PERM_UPDATE_MODALITY')")
-    public ResponseEntity<?> createModalityRequirements(@PathVariable Long modalityId, @RequestBody List<RequirementDTO> requirements) {
+    public ResponseEntity<?> createModalityRequirements(@PathVariable Long modalityId, @RequestBody @Valid List<@Valid RequirementDTO> requirements) {
         modalityCatalogService.createModalityRequirements(modalityId, requirements);
         return ResponseEntity.ok("Requisitos creados correctamente");
     }
@@ -152,7 +140,7 @@ public class ModalityController {
     })
     @PutMapping("/requirements/{modalityId}/update/{requirementId}")
     @PreAuthorize("hasAuthority('PERM_CREATE_MODALITY') or hasAuthority('PERM_UPDATE_MODALITY')")
-    public ResponseEntity<?> updateRequirement(@PathVariable Long modalityId, @PathVariable Long requirementId, @RequestBody RequirementDTO request) {
+    public ResponseEntity<?> updateRequirement(@PathVariable Long modalityId, @PathVariable Long requirementId, @RequestBody @Valid RequirementDTO request) {
         modalityCatalogService.updateModalityRequirement(modalityId, requirementId, request);
         return ResponseEntity.ok("Requisito actualizado correctamente");
     }
@@ -162,7 +150,7 @@ public class ModalityController {
     @ApiResponse(responseCode = "200", description = "Lista de requisitos obtenida")
     @GetMapping("/{modalityId}/requirements")
     public ResponseEntity<List<RequirementDTO>> listRequirements(@PathVariable Long modalityId, @RequestParam(required = false) Boolean active) {
-        return modalityCatalogService.getModalityRequirements(modalityId, active);
+        return ResponseEntity.ok(modalityCatalogService.getModalityRequirements(modalityId, active));
     }
 
     @Operation(summary = "Eliminar requisito de modalidad", description = "Desactiva un requisito documental de la modalidad (eliminación lógica). No afecta documentos ya entregados.")
@@ -173,22 +161,22 @@ public class ModalityController {
     })
     @PutMapping("/requirements/delete/{requirementId}")
     @PreAuthorize("hasAuthority('PERM_DELETE_MODALITY_REQUIREMENT')")
-    public ResponseEntity<?> desactiveRequirements(@PathVariable Long requirementId) {
-        return modalityCatalogService.deleteRequirement(requirementId);
+    public ResponseEntity<String> desactiveRequirements(@PathVariable Long requirementId) {
+        return ResponseEntity.ok(modalityCatalogService.deleteRequirement(requirementId));
     }
 
     @PutMapping("/requirements/active/{requirementId}")
     @PreAuthorize("hasAuthority('PERM_DELETE_MODALITY_REQUIREMENT')")
-    public ResponseEntity<?> activeRequirements(@PathVariable Long requirementId) {
-        return modalityCatalogService.activeRequirement(requirementId);
+    public ResponseEntity<String> activeRequirements(@PathVariable Long requirementId) {
+        return ResponseEntity.ok(modalityCatalogService.activeRequirement(requirementId));
     }
 
 
     @Operation(summary = "Obtener todas las modalidades", description = "Retorna una lista completa de todas las modalidades de grado disponibles en el sistema, incluyendo activas e inactivas.")
     @ApiResponse(responseCode = "200", description = "Lista completa de modalidades obtenida")
     @GetMapping
-    public ResponseEntity<?> getAllModalities() {
-        return modalityCatalogService.getAllModalities();
+    public ResponseEntity<List<ModalityDTO>> getAllModalities() {
+        return ResponseEntity.ok(modalityCatalogService.getAllModalities());
     }
 
     @Operation(summary = "Obtener detalle de modalidad", description = "Retorna la información completa de una modalidad específica: configuración, requisitos, estudiantes inscritos, estado actual.")
@@ -197,8 +185,8 @@ public class ModalityController {
             @ApiResponse(responseCode = "404", description = "Modalidad no encontrada")
     })
     @GetMapping("/{id}")
-    public ResponseEntity<?> getModalityById(@PathVariable Long id) {
-        return modalityCatalogService.getModalityDetail(id);
+    public ResponseEntity<ModalityDTO> getModalityById(@PathVariable Long id) {
+        return ResponseEntity.ok(modalityCatalogService.getModalityDetail(id));
     }
 
     @Operation(summary = "Cargar documento requerido", description = "Permite al estudiante o director cargar un documento obligatorio para la modalidad de grado. Valida tipo de archivo, tamaño y formato.")
@@ -212,174 +200,174 @@ public class ModalityController {
             value = "/{studentModalityId}/documents/{requiredDocumentId}",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
     )
-    public ResponseEntity<?> uploadDocument(
+    public ResponseEntity<Map<String, Object>> uploadDocument(
             @PathVariable Long studentModalityId,
             @PathVariable Long requiredDocumentId,
             @RequestPart("file") MultipartFile file
     ) throws IOException {
 
-        return documentModalityService.uploadRequiredDocument(
+        return ResponseEntity.ok(documentModalityService.uploadRequiredDocument(
                 studentModalityId,
                 requiredDocumentId,
                 file
-        );
+        ));
 
 
     }
 
 
     @PostMapping("/{modalityId}/start")
-    public ResponseEntity<?> startModality(@PathVariable Long modalityId) {
-        return documentModalityService.startStudentModalityIndividual(modalityId);
+    public ResponseEntity<Map<String, Object>> startModality(@PathVariable Long modalityId) {
+        return ResponseEntity.ok(documentModalityService.startStudentModalityIndividual(modalityId));
     }
 
     @GetMapping("/{id}/validate-documents")
-    public ResponseEntity<?> validateDocuments(@PathVariable Long id) {
-        return documentModalityService.validateAllDocumentsUploaded(id);
+    public ResponseEntity<Map<String, Object>> validateDocuments(@PathVariable Long id) {
+        return ResponseEntity.ok(documentModalityService.validateAllDocumentsUploaded(id));
     }
 
     @GetMapping("/my-available-documents")
-    public ResponseEntity<?> getMyAvailableDocuments() {
-        return documentModalityService.getAvailableDocumentsForStudent();
+    public ResponseEntity<Map<String, Object>> getMyAvailableDocuments() {
+        return ResponseEntity.ok(documentModalityService.getAvailableDocumentsForStudent());
     }
 
     @GetMapping("/{studentModalityId}/documents")
     @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
-    public ResponseEntity<?> listStudentDocuments(@PathVariable Long studentModalityId) {
-        return documentModalityService.getStudentDocuments(studentModalityId);
+    public ResponseEntity<List<Map<String, Object>>> listStudentDocuments(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(documentModalityService.getStudentDocuments(studentModalityId));
     }
 
     @GetMapping("/student/{studentDocumentId}/view")
     @PreAuthorize("hasAuthority('PERM_VIEW_DOCUMENTS')")
-    public ResponseEntity<?> viewStudentDocument(@PathVariable Long studentDocumentId) throws MalformedURLException {
-        return documentModalityService.viewStudentDocument(studentDocumentId);
+    public ResponseEntity<Resource> viewStudentDocument(@PathVariable Long studentDocumentId) throws MalformedURLException {
+        return ResponseEntity.ok(documentModalityService.viewStudentDocument(studentDocumentId));
     }
 
     @PutMapping("/documents/{studentDocumentId}/review")
     @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
-    public ResponseEntity<?> reviewDocument(@PathVariable Long studentDocumentId, @RequestBody DocumentReviewDTO request) {
-        return documentModalityService.reviewStudentDocument(studentDocumentId, request);
+    public ResponseEntity<Map<String, Object>> reviewDocument(@PathVariable Long studentDocumentId, @Valid @RequestBody DocumentReviewDTO request) {
+        return ResponseEntity.ok(documentModalityService.reviewStudentDocument(studentDocumentId, request));
     }
 
     @PostMapping("/{studentModalityId}/approve-program-head")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
-    public ResponseEntity<?> approveByProgramHead(@PathVariable Long studentModalityId) {
-        return documentModalityService.approveModalityByProgramHead(studentModalityId);
+    public ResponseEntity<Map<String, Object>> approveByProgramHead(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(documentModalityService.approveModalityByProgramHead(studentModalityId));
     }
 
     @PostMapping("/{studentModalityId}/approve-committee")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
-    public ResponseEntity<?> approveByCommittee(@PathVariable Long studentModalityId) {
-        return documentModalityService.approveModalityByCommittee(studentModalityId);
+    public ResponseEntity<Map<String, Object>> approveByCommittee(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(documentModalityService.approveModalityByCommittee(studentModalityId));
     }
 
     @PostMapping("/{studentModalityId}/approve-examiners")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY_BY_EXAMINER')")
-    public ResponseEntity<?> approveByExaminer(@PathVariable Long studentModalityId) {
-        return documentModalityService.approveModalityByExaminers(studentModalityId);
+    public ResponseEntity<Map<String, Object>> approveByExaminer(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(documentModalityService.approveModalityByExaminers(studentModalityId));
     }
 
     @PostMapping("/documents/{studentDocumentId}/review-committee")
     @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
-    public ResponseEntity<?> reviewDocumentCommittee(@PathVariable Long studentDocumentId, @RequestBody DocumentReviewDTO request) {
-        return documentModalityService.reviewStudentDocumentByCommittee(studentDocumentId, request);
+    public ResponseEntity<Map<String, Object>> reviewDocumentCommittee(@PathVariable Long studentDocumentId, @Valid @RequestBody DocumentReviewDTO request) {
+        return ResponseEntity.ok(documentModalityService.reviewStudentDocumentByCommittee(studentDocumentId, request));
     }
 
     @PutMapping("/documents/{studentDocumentId}/review-examiner")
     @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
-    public ResponseEntity<?> reviewDocumentExaminer(@PathVariable Long studentDocumentId, @RequestBody DocumentReviewDTO request) {
-        return documentModalityService.reviewStudentDocumentByExaminer(studentDocumentId, request);
+    public ResponseEntity<Map<String, Object>> reviewDocumentExaminer(@PathVariable Long studentDocumentId, @Valid @RequestBody DocumentReviewDTO request) {
+        return ResponseEntity.ok(documentModalityService.reviewStudentDocumentByExaminer(studentDocumentId, request));
     }
 
     @PutMapping("/documents/{studentDocumentId}/review-examiner-final-document")
     @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
-    public ResponseEntity<?> reviewSecondaryDocumentExaminer(@PathVariable Long studentDocumentId, @RequestBody DocumentReviewDTO request) {
-        return documentModalityService.reviewFinalDocumentByExaminer(studentDocumentId, request);
+    public ResponseEntity<Map<String, Object>> reviewSecondaryDocumentExaminer(@PathVariable Long studentDocumentId, @Valid @RequestBody DocumentReviewDTO request) {
+        return ResponseEntity.ok(documentModalityService.reviewFinalDocumentByExaminer(studentDocumentId, request));
     }
 
     @GetMapping("/students")
     @PreAuthorize("hasAuthority('PERM_VIEW_ALL_MODALITIES')")
-    public ResponseEntity<?> listAllModalitiesForProgramHead(@RequestParam(required = false)
+    public ResponseEntity<List<ModalityListDTO>> listAllModalitiesForProgramHead(@RequestParam(required = false)
                                                              List<ModalityProcessStatus> statuses, @RequestParam(required = false)
                                                              String name) {
-        return modalityListingService.getAllStudentModalitiesForProgramHead(statuses, name);
+        return ResponseEntity.ok(modalityListingService.getAllStudentModalitiesForProgramHead(statuses, name));
     }
 
     @GetMapping("/students/committee")
     @PreAuthorize("hasAuthority('PERM_VIEW_ALL_MODALITIES')")
-    public ResponseEntity<?> listAllModalitiesForCommittee(@RequestParam(required = false)
+    public ResponseEntity<List<ModalityListDTO>> listAllModalitiesForCommittee(@RequestParam(required = false)
                                                            List<ModalityProcessStatus> statuses, @RequestParam(required = false)
                                                            String name) {
-        return modalityListingService.getAllStudentModalitiesForProgramCurriculumCommittee(statuses, name);
+        return ResponseEntity.ok(modalityListingService.getAllStudentModalitiesForProgramCurriculumCommittee(statuses, name));
     }
 
     @GetMapping("/students/director")
     @PreAuthorize("hasAuthority('PERM_VIEW_MODALITY')")
-    public ResponseEntity<?> listAllModalitiesForProjectDirector(@RequestParam(required = false)
+    public ResponseEntity<List<ModalityListDTO>> listAllModalitiesForProjectDirector(@RequestParam(required = false)
                                                                  List<ModalityProcessStatus> statuses,
                                                                  @RequestParam(required = false) String name) {
-        return modalityListingService.getAllStudentModalitiesForProjectDirector(statuses, name);
+        return ResponseEntity.ok(modalityListingService.getAllStudentModalitiesForProjectDirector(statuses, name));
     }
 
     @GetMapping("/students/examiner")
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
-    public ResponseEntity<?> listAllModalitiesForExaminer(@RequestParam(required = false)
+    public ResponseEntity<List<ModalityListDTO>> listAllModalitiesForExaminer(@RequestParam(required = false)
                                                           List<ModalityProcessStatus> statuses,
                                                           @RequestParam(required = false) String name) {
-        return modalityListingService.getAllStudentModalitiesForExaminer(statuses, name);
+        return ResponseEntity.ok(modalityListingService.getAllStudentModalitiesForExaminer(statuses, name));
     }
 
     @GetMapping("/students/{studentModalityId}")
     @PreAuthorize("hasAuthority('PERM_VIEW_ALL_MODALITIES')")
-    public ResponseEntity<?> getModalityDetailForProgramHead(@PathVariable Long studentModalityId) {
-        return modalityListingService.getStudentModalityDetailForProgramHead(studentModalityId);
+    public ResponseEntity<StudentModalityDTO> getModalityDetailForProgramHead(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(modalityListingService.getStudentModalityDetailForProgramHead(studentModalityId));
     }
 
     @GetMapping("/students/{studentModalityId}/committee")
     @PreAuthorize("hasAuthority('PERM_VIEW_ALL_MODALITIES')")
-    public ResponseEntity<?> getModalityDetailForCommittee(@PathVariable Long studentModalityId) {
-        return modalityListingService.getStudentModalityDetailForCommittee(studentModalityId);
+    public ResponseEntity<StudentModalityDTO> getModalityDetailForCommittee(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(modalityListingService.getStudentModalityDetailForCommittee(studentModalityId));
     }
 
     @GetMapping("/students/{studentModalityId}/director")
     @PreAuthorize("hasAuthority('PERM_VIEW_MODALITY')")
-    public ResponseEntity<?> getModalityDetailForProjectDirector(@PathVariable Long studentModalityId) {
-        return modalityListingService.getStudentModalityDetailForProjectDirector(studentModalityId);
+    public ResponseEntity<StudentModalityDTO> getModalityDetailForProjectDirector(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(modalityListingService.getStudentModalityDetailForProjectDirector(studentModalityId));
     }
 
     @GetMapping("/students/{studentModalityId}/examiner")
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
-    public ResponseEntity<?> getModalityDetailForExaminer(@PathVariable Long studentModalityId) {
-        return modalityListingService.getStudentModalityDetailForExaminer(studentModalityId);
+    public ResponseEntity<StudentModalityExaminerDTO> getModalityDetailForExaminer(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(modalityListingService.getStudentModalityDetailForExaminer(studentModalityId));
     }
 
     @PostMapping("/{studentModalityId}/cancellation/director/approve")
     @PreAuthorize("hasAuthority('PERM_APPROVE_CANCELLATION_DIRECTOR')")
-    public ResponseEntity<?> approveModalityCancellationByDirector(@PathVariable Long studentModalityId) {
-        return cancellationService.approveModalityCancellationByDirector(studentModalityId);
+    public ResponseEntity<Map<String, Object>> approveModalityCancellationByDirector(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(cancellationService.approveModalityCancellationByDirector(studentModalityId));
     }
 
     @PostMapping("/{studentModalityId}/cancellation/director/reject")
     @PreAuthorize("hasAuthority('PERM_APPROVE_CANCELLATION_DIRECTOR')")
-    public ResponseEntity<?> rejectModalityCancellationByDirector(
+    public ResponseEntity<Map<String, Object>> rejectModalityCancellationByDirector(
             @PathVariable Long studentModalityId,
-            @RequestBody Map<String, String> body
+            @Valid @RequestBody ReasonRequest body
     ) {
-        String reason = body.get("reason");
-        return cancellationService.rejectModalityCancellationByDirector(studentModalityId, reason);
+        String reason = body.getReason();
+        return ResponseEntity.ok(cancellationService.rejectModalityCancellationByDirector(studentModalityId, reason));
     }
 
     @PostMapping("/{studentModalityId}/cancellation/approve")
     @PreAuthorize("hasAuthority('PERM_APPROVE_CANCELLATION')")
-    public ResponseEntity<?> approveCancellation(@PathVariable Long studentModalityId) {
-        return cancellationService.approveCancellation(studentModalityId);
+    public ResponseEntity<Map<String, Object>> approveCancellation(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(cancellationService.approveCancellation(studentModalityId));
     }
 
     @PostMapping("/{studentModalityId}/cancellation/reject")
     @PreAuthorize("hasAuthority('PERM_REJECT_CANCELLATION')")
-    public ResponseEntity<?> rejectCancellation(@PathVariable Long studentModalityId, @RequestBody String reason
+    public ResponseEntity<Map<String, Object>> rejectCancellation(@PathVariable Long studentModalityId, @Valid @RequestBody ReasonRequest body
     ) {
-        return cancellationService.rejectCancellation(studentModalityId, reason);
+        return ResponseEntity.ok(cancellationService.rejectCancellation(studentModalityId, body.getReason()));
     }
 
     @GetMapping("/cancellation-request")
@@ -402,7 +390,7 @@ public class ModalityController {
         Resource resource = new UrlResource(filePath.toUri());
 
         if (!resource.exists() || !resource.isReadable()) {
-            throw new RuntimeException("No se pudo leer el archivo");
+            throw new NotFoundException("No se pudo leer el archivo");
         }
 
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF)
@@ -415,54 +403,54 @@ public class ModalityController {
 
     @PostMapping("/{studentModalityId}/assign-director/{directorId}")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_PROJECT_DIRECTOR')")
-    public ResponseEntity<?> assignProjectDirector(@PathVariable Long studentModalityId, @PathVariable Long directorId) {
-        return cancellationService.assignProjectDirector(studentModalityId, directorId);
+    public ResponseEntity<Map<String, Object>> assignProjectDirector(@PathVariable Long studentModalityId, @PathVariable Long directorId) {
+        return ResponseEntity.ok(cancellationService.assignProjectDirector(studentModalityId, directorId));
     }
 
 
     @PutMapping("/{studentModalityId}/change-director")
     @PreAuthorize("hasAuthority('PERM_ASSIGN_PROJECT_DIRECTOR')")
-    public ResponseEntity<?> changeProjectDirector(@PathVariable Long studentModalityId, @RequestBody @Valid ChangeDirectorDTO request) {
-        return cancellationService.changeProjectDirector(studentModalityId, request.getNewDirectorId(), request.getReason());
+    public ResponseEntity<Map<String, Object>> changeProjectDirector(@PathVariable Long studentModalityId, @RequestBody @Valid ChangeDirectorDTO request) {
+        return ResponseEntity.ok(cancellationService.changeProjectDirector(studentModalityId, request.getNewDirectorId(), request.getReason()));
     }
 
     @PostMapping("/{studentModalityId}/propose-defense-director")
     @PreAuthorize("hasAuthority('PERM_PROPOSE_DEFENSE')")
-    public ResponseEntity<?> proposeDefenseByDirector(@PathVariable Long studentModalityId, @RequestBody ScheduleDefenseDTO request) {
-        return defenseModalityService.scheduleDefense(studentModalityId, request);
+    public ResponseEntity<Map<String, Object>> proposeDefenseByDirector(@PathVariable Long studentModalityId, @RequestBody ScheduleDefenseDTO request) {
+        return ResponseEntity.ok(defenseModalityService.scheduleDefense(studentModalityId, request));
     }
 
 
     @GetMapping("/defense-proposals/pending")
     @PreAuthorize("hasAuthority('PERM_SCHEDULE_DEFENSE')")
-    public ResponseEntity<?> getPendingDefenseProposals() {
-        return defenseModalityService.getPendingDefenseProposals();
+    public ResponseEntity<Map<String, Object>> getPendingDefenseProposals() {
+        return ResponseEntity.ok(defenseModalityService.getPendingDefenseProposals());
     }
 
     @PostMapping("/{studentModalityId}/defense-proposals/approve")
     @PreAuthorize("hasAuthority('PERM_SCHEDULE_DEFENSE')")
-    public ResponseEntity<?> approveDefenseProposal(@PathVariable Long studentModalityId) {
-        return defenseModalityService.approveDefenseProposal(studentModalityId);
+    public ResponseEntity<Map<String, Object>> approveDefenseProposal(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(defenseModalityService.approveDefenseProposal(studentModalityId));
     }
 
     @PostMapping("/{studentModalityId}/defense-proposals/reschedule")
     @PreAuthorize("hasAuthority('PERM_SCHEDULE_DEFENSE')")
-    public ResponseEntity<?> rescheduleDefense(@PathVariable Long studentModalityId, @RequestBody ScheduleDefenseDTO request) {
-        return defenseModalityService.rescheduleDefense(studentModalityId, request);
+    public ResponseEntity<Map<String, Object>> rescheduleDefense(@PathVariable Long studentModalityId, @RequestBody ScheduleDefenseDTO request) {
+        return ResponseEntity.ok(defenseModalityService.rescheduleDefense(studentModalityId, request));
     }
 
     @PostMapping("/{studentModalityId}/examiners/assign")
     @PreAuthorize("hasAuthority('PERM_SCHEDULE_DEFENSE')")
-    public ResponseEntity<?> assignExaminers(@PathVariable Long studentModalityId, @RequestBody ScheduleDefenseDTO request) {
-        return defenseModalityService.assignExaminers(studentModalityId, request);
+    public ResponseEntity<Map<String, Object>> assignExaminers(@PathVariable Long studentModalityId, @RequestBody ScheduleDefenseDTO request) {
+        return ResponseEntity.ok(defenseModalityService.assignExaminers(studentModalityId, request));
     }
 
     @PostMapping("/{studentModalityId}/final-evaluation/register")
     @PreAuthorize("hasAuthority('PERM_EVALUATE_DEFENSE')")
-    public ResponseEntity<?> registerFinalDefenseEvaluation(
+    public ResponseEntity<Map<String, Object>> registerFinalDefenseEvaluation(
             @PathVariable Long studentModalityId,
-            @RequestBody ExaminerEvaluationDTO evaluationDTO) {
-        return defenseModalityService.registerFinalDefenseEvaluation(studentModalityId, evaluationDTO);
+            @Valid @RequestBody ExaminerEvaluationDTO evaluationDTO) {
+        return ResponseEntity.ok(defenseModalityService.registerFinalDefenseEvaluation(studentModalityId, evaluationDTO));
     }
 
     @GetMapping("/project-directors")
@@ -504,167 +492,159 @@ public class ModalityController {
 
     @PreAuthorize("hasAuthority('PERM_VIEW_FINAL_DEFENSE_RESULT')")
     @GetMapping("/final-evaluation/{studentModalityId}/result")
-    public ResponseEntity<?> getFinalDefenseResult(@PathVariable Long studentModalityId) {
-        return defenseModalityService.getFinalDefenseResult(studentModalityId);
+    public ResponseEntity<FinalDefenseResponse> getFinalDefenseResult(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(defenseModalityService.getFinalDefenseResult(studentModalityId));
     }
 
     @GetMapping("/final-evaluation/my-result")
-    public ResponseEntity<?> getMyFinalDefenseResult() {
-        return defenseModalityService.getMyFinalDefenseResult();
+    public ResponseEntity<Object> getMyFinalDefenseResult() {
+        return ResponseEntity.ok(defenseModalityService.getMyFinalDefenseResult());
     }
 
 
     @PostMapping("/{studentModalityId}/documents/{documentId}/resubmit-correction")
-    public ResponseEntity<?> resubmitCorrectedDocument(
+    public ResponseEntity<Map<String, Object>> resubmitCorrectedDocument(
             @PathVariable Long studentModalityId,
             @PathVariable Long documentId,
-            @RequestParam("file") MultipartFile file) {
-        try {
-            return documentModalityService.resubmitCorrectedDocument(studentModalityId, documentId, file);
-        } catch (IOException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of(
-                            "success", false,
-                            "message", "Error al procesar el archivo: " + e.getMessage()
-                    ));
-        }
+            @RequestParam("file") MultipartFile file) throws IOException {
+        return ResponseEntity.ok(documentModalityService.resubmitCorrectedDocument(studentModalityId, documentId, file));
     }
 
     @PostMapping("/documents/{documentId}/approve-correction")
     @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
-    public ResponseEntity<?> approveCorrectedDocument(@PathVariable Long documentId) {
-        return documentModalityService.approveCorrectedDocument(documentId);
+    public ResponseEntity<Map<String, Object>> approveCorrectedDocument(@PathVariable Long documentId) {
+        return ResponseEntity.ok(documentModalityService.approveCorrectedDocument(documentId));
     }
 
     @PostMapping("/documents/{documentId}/reject-correction-final")
     @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
-    public ResponseEntity<?> rejectCorrectedDocumentFinal(
+    public ResponseEntity<Map<String, Object>> rejectCorrectedDocumentFinal(
             @PathVariable Long documentId,
-            @RequestBody Map<String, String> request) {
-        String reason = request.get("reason");
-        return documentModalityService.rejectCorrectedDocumentFinal(documentId, reason);
+            @Valid @RequestBody ReasonRequest request) {
+        String reason = request.getReason();
+        return ResponseEntity.ok(documentModalityService.rejectCorrectedDocumentFinal(documentId, reason));
     }
 
     @GetMapping("/{studentModalityId}/correction-deadline-status")
-    public ResponseEntity<?> getCorrectionDeadlineStatus(@PathVariable Long studentModalityId) {
-        return documentModalityService.getCorrectionDeadlineStatus(studentModalityId);
+    public ResponseEntity<Map<String, Object>> getCorrectionDeadlineStatus(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(documentModalityService.getCorrectionDeadlineStatus(studentModalityId));
     }
 
 
     @PostMapping("/{studentModalityId}/close-by-committee")
     @PreAuthorize("hasAuthority('PERM_APPROVE_CANCELLATION') or hasAuthority('PERM_REVIEW_DOCUMENT_COMMITTEE')")
-    public ResponseEntity<?> closeModalityByCommittee(
+    public ResponseEntity<Map<String, Object>> closeModalityByCommittee(
             @PathVariable Long studentModalityId,
-            @RequestBody Map<String, String> request
+            @Valid @RequestBody ReasonRequest request
     ) {
-        String reason = request.get("reason");
-        return documentModalityService.closeModalityByCommittee(studentModalityId, reason);
+        String reason = request.getReason();
+        return ResponseEntity.ok(documentModalityService.closeModalityByCommittee(studentModalityId, reason));
     }
 
 
     @PostMapping("/{studentModalityId}/approve-final-by-committee")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY_BY_COMMITTEE')")
-    public ResponseEntity<?> approveFinalModalityByCommittee(@PathVariable Long studentModalityId, @RequestBody(required = false) Map<String, String> request) {
+    public ResponseEntity<Map<String, Object>> approveFinalModalityByCommittee(@PathVariable Long studentModalityId, @RequestBody(required = false) Map<String, String> request) {
         String observations = request != null ? request.get("observations") : null;
-        return documentModalityService.approveFinalModalityByCommittee(studentModalityId, observations);
+        return ResponseEntity.ok(documentModalityService.approveFinalModalityByCommittee(studentModalityId, observations));
     }
 
     @PostMapping("/{studentModalityId}/reject-final-by-committee")
     @PreAuthorize("hasAuthority('PERM_REJECT_MODALITY_BY_COMMITTEE')")
-    public ResponseEntity<?> rejectFinalModalityByCommittee(@PathVariable Long studentModalityId, @RequestBody Map<String, String> request) {
-        String reason = request.get("reason");
-        return documentModalityService.rejectFinalModalityByCommittee(studentModalityId, reason);
+    public ResponseEntity<Map<String, Object>> rejectFinalModalityByCommittee(@PathVariable Long studentModalityId, @Valid @RequestBody ReasonRequest request) {
+        String reason = request.getReason();
+        return ResponseEntity.ok(documentModalityService.rejectFinalModalityByCommittee(studentModalityId, reason));
     }
 
 
     @PostMapping("/seminar/create")
     @PreAuthorize("hasAuthority('PERM_CREATE_SEMINAR')")
-    public ResponseEntity<?> createSeminar(@Valid @RequestBody SeminarDTO request) {
-        return seminarModalityService.createSeminar(request);
+    public ResponseEntity<Map<String, Object>> createSeminar(@Valid @RequestBody SeminarDTO request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(seminarModalityService.createSeminar(request));
     }
 
     @GetMapping("/seminar/{seminarId}/detail")
-    public ResponseEntity<?> getSeminarDetail(@PathVariable Long seminarId) {
-        return seminarModalityService.FgetSeminarDetailForProgramHead(seminarId);
+    public ResponseEntity<Map<String, Object>> getSeminarDetail(@PathVariable Long seminarId) {
+        return ResponseEntity.ok(seminarModalityService.FgetSeminarDetailForProgramHead(seminarId));
     }
 
     @GetMapping("/seminar/available")
     @PreAuthorize("hasRole('ROLE_STUDENT')")
-    public ResponseEntity<?> listActiveSeminarsWithSeats() {
-        return seminarModalityService.listActiveSeminarsWithSeats();
+    public ResponseEntity<Map<String, Object>> listActiveSeminarsWithSeats() {
+        return ResponseEntity.ok(seminarModalityService.listActiveSeminarsWithSeats());
     }
 
 
     @PostMapping("/seminar/{seminarId}/enroll")
     @PreAuthorize("hasRole('ROLE_STUDENT')")
-    public ResponseEntity<?> enrollInSeminar(@PathVariable Long seminarId) {
-        return seminarModalityService.enrollInSeminar(seminarId);
+    public ResponseEntity<Map<String, Object>> enrollInSeminar(@PathVariable Long seminarId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(seminarModalityService.enrollInSeminar(seminarId));
     }
 
 
     @GetMapping("/seminars")
     @PreAuthorize("hasAuthority('PERM_CREATE_SEMINAR')")
-    public ResponseEntity<?> listSeminars(
+    public ResponseEntity<Map<String, Object>> listSeminars(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean active) {
-        return seminarModalityService.listSeminarsForProgramHead(status, active);
+        return ResponseEntity.ok(seminarModalityService.listSeminarsForProgramHead(status, active));
     }
 
 
     @PostMapping("/seminar/{seminarId}/start")
     @PreAuthorize("hasAuthority('PERM_CREATE_SEMINAR')")
-    public ResponseEntity<?> startSeminar(@PathVariable Long seminarId) {
-        return seminarModalityService.startSeminar(seminarId);
+    public ResponseEntity<Map<String, Object>> startSeminar(@PathVariable Long seminarId) {
+        return ResponseEntity.ok(seminarModalityService.startSeminar(seminarId));
     }
 
     @PostMapping("/seminar/{seminarId}/cancel")
     @PreAuthorize("hasAuthority('PERM_CREATE_SEMINAR')")
-    public ResponseEntity<?> cancelSeminar(@PathVariable Long seminarId, @RequestBody(required = false) Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> cancelSeminar(@PathVariable Long seminarId, @RequestBody(required = false) Map<String, String> body) {
         String reason = body != null ? body.get("reason") : null;
-        return seminarModalityService.cancelSeminar(seminarId, reason);
+        return ResponseEntity.ok(seminarModalityService.cancelSeminar(seminarId, reason));
     }
 
     @PutMapping("/seminar/{seminarId}")
     @PreAuthorize("hasAuthority('PERM_CREATE_SEMINAR')")
-    public ResponseEntity<?> updateSeminar(@PathVariable Long seminarId, @Valid @RequestBody SeminarDTO request) {
-        return seminarModalityService.updateSeminar(seminarId, request);
+    public ResponseEntity<Map<String, Object>> updateSeminar(@PathVariable Long seminarId, @Valid @RequestBody SeminarDTO request) {
+        return ResponseEntity.ok(seminarModalityService.updateSeminar(seminarId, request));
     }
 
     @PostMapping("/seminar/{seminarId}/close-registrations")
     @PreAuthorize("hasAuthority('PERM_CREATE_SEMINAR')")
-    public ResponseEntity<?> closeRegistrations(@PathVariable Long seminarId) {
-        return seminarModalityService.closeRegistrations(seminarId);
+    public ResponseEntity<Map<String, Object>> closeRegistrations(@PathVariable Long seminarId) {
+        return ResponseEntity.ok(seminarModalityService.closeRegistrations(seminarId));
     }
 
     @PostMapping("/seminar/{seminarId}/complete")
     @PreAuthorize("hasAuthority('PERM_CREATE_SEMINAR')")
-    public ResponseEntity<?> completeSeminar(@PathVariable Long seminarId) {
-        return seminarModalityService.completeSeminar(seminarId);
+    public ResponseEntity<Map<String, Object>> completeSeminar(@PathVariable Long seminarId) {
+        return ResponseEntity.ok(seminarModalityService.completeSeminar(seminarId));
     }
 
     @PostMapping("/{studentModalityId}/ready-for-defense")
     @PreAuthorize("hasAuthority('PERM_PROPOSE_DEFENSE')")
-    public ResponseEntity<?> modalityReadyForDefenseByDirector(@PathVariable Long studentModalityId) {
-        return defenseModalityService.modalityReadyForDefenseByDirector(studentModalityId);
+    public ResponseEntity<Map<String, Object>> modalityReadyForDefenseByDirector(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(defenseModalityService.modalityReadyForDefenseByDirector(studentModalityId));
     }
 
     @PostMapping("/{studentModalityId}/program-head/approve-final-and-notify-examiners")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
-    public ResponseEntity<?> programHeadApprovesAndNotifiesExaminers(@PathVariable Long studentModalityId) {
-        return defenseModalityService.programHeadApprovesAndNotifiesExaminers(studentModalityId);
+    public ResponseEntity<Map<String, Object>> programHeadApprovesAndNotifiesExaminers(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(defenseModalityService.programHeadApprovesAndNotifiesExaminers(studentModalityId));
     }
 
     @PostMapping("/{studentModalityId}/final-review-completed")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY_BY_EXAMINER')")
-    public ResponseEntity<?> examinerFinalReviewCompleted(@PathVariable Long studentModalityId) {
-        return defenseModalityService.examinerFinalReviewCompleted(studentModalityId);
+    public ResponseEntity<Map<String, Object>> examinerFinalReviewCompleted(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(defenseModalityService.examinerFinalReviewCompleted(studentModalityId));
     }
 
 
     @GetMapping("/{studentModalityId}/examiner-evaluation")
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
-    public ResponseEntity<?> getFinalDefenseEvaluationForExaminer(@PathVariable Long studentModalityId) {
-        return defenseModalityService.getFinalDefenseEvaluationForExaminer(studentModalityId);
+    public ResponseEntity<Map<String, Object>> getFinalDefenseEvaluationForExaminer(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(defenseModalityService.getFinalDefenseEvaluationForExaminer(studentModalityId));
     }
 
     /**
@@ -673,20 +653,20 @@ public class ModalityController {
      */
     @GetMapping("/examiner/defense-calendar")
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
-    public ResponseEntity<?> getExaminerDefenseCalendar() {
-        return defenseModalityService.getExaminerDefenseCalendar();
+    public ResponseEntity<List<ModalityListDTO>> getExaminerDefenseCalendar() {
+        return ResponseEntity.ok(defenseModalityService.getExaminerDefenseCalendar());
     }
 
     @GetMapping("/examiner-type/{studentModalityId}")
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
-    public ResponseEntity<?> getExaminerTypeForModality(@PathVariable Long studentModalityId) {
-        return defenseModalityService.getExaminerTypeForModality(studentModalityId);
+    public ResponseEntity<Map<String, Object>> getExaminerTypeForModality(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(defenseModalityService.getExaminerTypeForModality(studentModalityId));
     }
 
     @GetMapping("/examiner-evaluation/{studentModalityId}")
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
-    public ResponseEntity<?> getExaminerEvaluationForModality(@PathVariable Long studentModalityId) {
-        return defenseModalityService.getExaminerEvaluationForModality(studentModalityId);
+    public ResponseEntity<Map<String, Object>> getExaminerEvaluationForModality(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(defenseModalityService.getExaminerEvaluationForModality(studentModalityId));
     }
 
     /**
@@ -696,14 +676,14 @@ public class ModalityController {
      */
     @GetMapping("/documents/{studentDocumentId}/examiner-proposal-evaluation")
 
-    public ResponseEntity<?> getMyProposalEvaluation(@PathVariable Long studentDocumentId) {
-        return documentEditRequestService.getMyProposalEvaluation(studentDocumentId);
+    public ResponseEntity<Map<String, Object>> getMyProposalEvaluation(@PathVariable Long studentDocumentId) {
+        return ResponseEntity.ok(documentEditRequestService.getMyProposalEvaluation(studentDocumentId));
     }
 
     @GetMapping("/documents/{studentDocumentId}/examiner-final-evaluation")
 
-    public ResponseEntity<?> getMyFinalDocumentEvaluation(@PathVariable Long studentDocumentId) {
-        return documentEditRequestService.getMyFinalDocumentEvaluation(studentDocumentId);
+    public ResponseEntity<Map<String, Object>> getMyFinalDocumentEvaluation(@PathVariable Long studentDocumentId) {
+        return ResponseEntity.ok(documentEditRequestService.getMyFinalDocumentEvaluation(studentDocumentId));
     }
 
     // =========================================================================
@@ -715,10 +695,10 @@ public class ModalityController {
      * Body: { "reason": "motivo justificado de la solicitud (mínimo 20 caracteres)" }
      */
     @PostMapping("/documents/{studentDocumentId}/request-edit")
-    public ResponseEntity<?> requestDocumentEdit(
+    public ResponseEntity<Map<String, Object>> requestDocumentEdit(
             @PathVariable Long studentDocumentId,
-            @RequestBody com.SIGMA.USCO.documents.dto.DocumentEditRequestDTO request) {
-        return documentEditRequestService.requestDocumentEdit(studentDocumentId, request);
+            @Valid @RequestBody com.SIGMA.USCO.documents.dto.DocumentEditRequestDTO request) {
+        return ResponseEntity.ok(documentEditRequestService.requestDocumentEdit(studentDocumentId, request));
     }
 
     /**
@@ -729,10 +709,10 @@ public class ModalityController {
      */
     @PostMapping("/document-edit-requests/{editRequestId}/resolve")
     @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
-    public ResponseEntity<?> resolveDocumentEditRequest(
+    public ResponseEntity<Map<String, Object>> resolveDocumentEditRequest(
             @PathVariable Long editRequestId,
-            @RequestBody com.SIGMA.USCO.documents.dto.DocumentEditResolutionDTO request) {
-        return documentEditRequestService.resolveDocumentEditRequest(editRequestId, request);
+            @Valid @RequestBody com.SIGMA.USCO.documents.dto.DocumentEditResolutionDTO request) {
+        return ResponseEntity.ok(documentEditRequestService.resolveDocumentEditRequest(editRequestId, request));
     }
 
     /**
@@ -741,8 +721,8 @@ public class ModalityController {
      */
     @GetMapping("/{studentModalityId}/document-edit-requests/pending")
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
-    public ResponseEntity<?> getPendingEditRequestsForExaminer(@PathVariable Long studentModalityId) {
-        return documentEditRequestService.getPendingEditRequestsForExaminer(studentModalityId);
+    public ResponseEntity<Map<String, Object>> getPendingEditRequestsForExaminer(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(documentEditRequestService.getPendingEditRequestsForExaminer(studentModalityId));
     }
 
     /**
@@ -753,8 +733,8 @@ public class ModalityController {
      */
     @GetMapping("/{studentModalityId}/document-edit-requests/all")
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
-    public ResponseEntity<?> getAllEditRequestsForExaminer(@PathVariable Long studentModalityId) {
-        return documentEditRequestService.getAllEditRequestsForExaminer(studentModalityId);
+    public ResponseEntity<Map<String, Object>> getAllEditRequestsForExaminer(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(documentEditRequestService.getAllEditRequestsForExaminer(studentModalityId));
     }
 
     // =========================================================================
@@ -766,8 +746,8 @@ public class ModalityController {
      * en todas sus modalidades, con el estado de votación de cada una.
      */
     @GetMapping("/my-document-edit-requests")
-    public ResponseEntity<?> getMyDocumentEditRequests() {
-        return documentEditRequestService.getMyDocumentEditRequests();
+    public ResponseEntity<Map<String, Object>> getMyDocumentEditRequests() {
+        return ResponseEntity.ok(documentEditRequestService.getMyDocumentEditRequests());
     }
 
     /**
@@ -775,16 +755,16 @@ public class ModalityController {
      * a una modalidad específica (por studentModalityId).
      */
     @GetMapping("/{studentModalityId}/my-document-edit-requests")
-    public ResponseEntity<?> getMyDocumentEditRequestsByModality(@PathVariable Long studentModalityId) {
-        return documentEditRequestService.getMyDocumentEditRequestsByModality(studentModalityId);
+    public ResponseEntity<Map<String, Object>> getMyDocumentEditRequestsByModality(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(documentEditRequestService.getMyDocumentEditRequestsByModality(studentModalityId));
     }
 
     /**
      * El estudiante autenticado obtiene el detalle de una solicitud de edición específica.
      */
     @GetMapping("/document-edit-requests/{editRequestId}")
-    public ResponseEntity<?> getDocumentEditRequestDetail(@PathVariable Long editRequestId) {
-        return documentEditRequestService.getDocumentEditRequestDetail(editRequestId);
+    public ResponseEntity<Map<String, Object>> getDocumentEditRequestDetail(@PathVariable Long editRequestId) {
+        return ResponseEntity.ok(documentEditRequestService.getDocumentEditRequestDetail(editRequestId));
     }
 
     /**
@@ -795,8 +775,8 @@ public class ModalityController {
      */
     @GetMapping("/{studentModalityId}/examiners")
     @PreAuthorize("hasAuthority('PERM_VIEW_EXAMINER_MODALITIES')")
-    public ResponseEntity<?> getExaminersForModality(@PathVariable Long studentModalityId) {
-        return documentEditRequestService.getExaminersForModality(studentModalityId);
+    public ResponseEntity<Map<String, Object>> getExaminersForModality(@PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(documentEditRequestService.getExaminersForModality(studentModalityId));
     }
 
     /**
@@ -807,8 +787,8 @@ public class ModalityController {
      */
     @GetMapping("/committee/program-students")
     @PreAuthorize("hasAuthority('PERM_STUDENT_LIST')")
-    public ResponseEntity<?> getProgramStudentsForCommittee(@RequestParam(required = false) String studentName) {
-        return modalityListingService.getProgramStudentsForCommittee(studentName);
+    public ResponseEntity<Map<String, Object>> getProgramStudentsForCommittee(@RequestParam(required = false) String studentName) {
+        return ResponseEntity.ok(modalityListingService.getProgramStudentsForCommittee(studentName));
     }
 
     // =========================================================================
@@ -826,8 +806,8 @@ public class ModalityController {
      */
     @GetMapping("/committee/pending-distinction-proposals")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
-    public ResponseEntity<?> getPendingDistinctionProposals() {
-        return defenseModalityService.getPendingDistinctionProposals();
+    public ResponseEntity<Map<String, Object>> getPendingDistinctionProposals() {
+        return ResponseEntity.ok(defenseModalityService.getPendingDistinctionProposals());
     }
 
     /**
@@ -840,11 +820,11 @@ public class ModalityController {
      */
     @PostMapping("/{studentModalityId}/committee/accept-distinction")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
-    public ResponseEntity<?> acceptDistinctionProposal(
+    public ResponseEntity<Map<String, Object>> acceptDistinctionProposal(
             @PathVariable Long studentModalityId,
             @RequestBody(required = false) Map<String, String> body) {
         String notes = body != null ? body.get("notes") : null;
-        return defenseModalityService.acceptDistinctionProposal(studentModalityId, notes);
+        return ResponseEntity.ok(defenseModalityService.acceptDistinctionProposal(studentModalityId, notes));
     }
 
     /**
@@ -857,11 +837,11 @@ public class ModalityController {
      */
     @PostMapping("/{studentModalityId}/committee/reject-distinction")
     @PreAuthorize("hasAuthority('PERM_APPROVE_MODALITY')")
-    public ResponseEntity<?> rejectDistinctionProposal(
+    public ResponseEntity<Map<String, Object>> rejectDistinctionProposal(
             @PathVariable Long studentModalityId,
-            @RequestBody Map<String, String> body) {
-        String reason = body != null ? body.get("reason") : null;
-        return defenseModalityService.rejectDistinctionProposal(studentModalityId, reason);
+            @Valid @RequestBody ReasonRequest body) {
+        String reason = body.getReason();
+        return ResponseEntity.ok(defenseModalityService.rejectDistinctionProposal(studentModalityId, reason));
     }
 
 }

@@ -6,9 +6,12 @@ import com.SIGMA.USCO.Users.dto.request.AuthRequest;
 import com.SIGMA.USCO.Users.dto.request.ResetPasswordRequest;
 import com.SIGMA.USCO.Users.repository.*;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
+import com.SIGMA.USCO.common.exception.UnauthorizedException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.config.EmailService;
 import com.SIGMA.USCO.security.JwtService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -16,6 +19,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -33,6 +37,9 @@ public class AuthService {
     private final RoleRepository roleRepository;
     private final BlackListedTokenRepository blackListedTokenRepository;
     private final StudentProfileRepository studentProfileRepository;
+
+    @Value("${frontend.url}")
+    private String frontendUrl;
 
     public ResponseEntity<?> register(AuthRequest request) {
 
@@ -113,49 +120,49 @@ public class AuthService {
     }
 
     public void sendResetPasswordLink(AuthRequest request){
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("No se encontró un usuario con el correo proporcionado."));
+        userRepository.findByEmail(request.getEmail()).ifPresent(user -> {
 
-        String token = UUID.randomUUID().toString();
+            String token = UUID.randomUUID().toString();
 
-        PasswordResetToken resetToken = PasswordResetToken.builder()
-                .token(token)
-                .user(user)
-                .expiryDate(LocalDateTime.now().plusMinutes(10))
-                .used(false)
-                .build();
-        tokenRepository.save(resetToken);
+            PasswordResetToken resetToken = PasswordResetToken.builder()
+                    .token(token)
+                    .user(user)
+                    .expiryDate(LocalDateTime.now().plusMinutes(10))
+                    .used(false)
+                    .build();
+            tokenRepository.save(resetToken);
 
-        String resetLink = "http://localhost:5173/reset-password";
+            String resetLink = frontendUrl + "/reset-password";
 
 
-        String subject = "Restablecimiento de contraseña - SIGMA USCO";
-        String message = """
-                Hola %s,
-                
-                Recibimos una solicitud para restablecer tu contraseña.
-                
-                Haz clic en el siguiente enlace para continuar:
-                %s
-                Tu token de restablecimiento de contraseña es: %s
-                
-                Este enlace expirará en 15 minutos.
-                
-                Si no fuiste tú, ignora este mensaje.
-                
-                Equipo SIGMA
-                """.formatted(user.getName(), resetLink, token);
+            String subject = "Restablecimiento de contraseña - SIGMA USCO";
+            String message = """
+                    Hola %s,
 
-        emailService.sendEmail(user.getEmail(), subject, message);
+                    Recibimos una solicitud para restablecer tu contraseña.
 
+                    Haz clic en el siguiente enlace para continuar:
+                    %s
+                    Tu token de restablecimiento de contraseña es: %s
+
+                    Este enlace expirará en 10 minutos.
+
+                    Si no fuiste tú, ignora este mensaje.
+
+                    Equipo SIGMA
+                    """.formatted(user.getName(), resetLink, token);
+
+            emailService.sendEmail(user.getEmail(), subject, message);
+        });
     }
 
+    @Transactional
     public void resetPassword(ResetPasswordRequest request){
         PasswordResetToken resetToken = tokenRepository.findByTokenAndUsedFalse(request.getToken())
-                .orElseThrow(() -> new RuntimeException("El token es inválido o ya ha sido utilizado."));
+                .orElseThrow(() -> new UnauthorizedException("El token es inválido o ya ha sido utilizado."));
 
         if (resetToken.isExpired()){
-            throw new RuntimeException("El token ha expirado. Por favor, solicita un nuevo restablecimiento de contraseña.");
+            throw new UnauthorizedException("El token ha expirado. Por favor, solicita un nuevo restablecimiento de contraseña.");
         }
 
         User user = resetToken.getUser();
@@ -166,9 +173,9 @@ public class AuthService {
         tokenRepository.save(resetToken);
     }
 
-    public ResponseEntity<?> logout(String token){
+    public String logout(String token){
         if (token == null || token.isEmpty()) {
-            return ResponseEntity.badRequest().body("Token no proporcionado.");
+            throw new ValidationException("Token no proporcionado.");
         }
 
         if (!blackListedTokenRepository.existsByToken(token)) {
@@ -176,9 +183,9 @@ public class AuthService {
                     .token(token)
                     .build();
             blackListedTokenRepository.save(blackListedToken);
-            return ResponseEntity.ok("Cierre de sesión exitoso.");
+            return "Cierre de sesión exitoso.";
         } else {
-            return ResponseEntity.badRequest().body("El token ya ha sido invalidado.");
+            throw new ValidationException("El token ya ha sido invalidado.");
         }
     }
     public User getCurrentUser() {

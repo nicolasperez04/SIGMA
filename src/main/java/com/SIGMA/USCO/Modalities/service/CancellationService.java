@@ -14,6 +14,9 @@ import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
+import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
 import com.SIGMA.USCO.documents.entity.enums.DocumentType;
@@ -21,11 +24,9 @@ import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import com.SIGMA.USCO.security.SecurityUtils;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -45,12 +46,13 @@ public class CancellationService {
     private final ProgramAuthorityRepository programAuthorityRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
 
-    public ResponseEntity<?> requestCancellation(Long studentModalityId) {
+    @Transactional
+    public Map<String, Object> requestCancellation(Long studentModalityId) {
 
         User student = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         // Validar que el usuario sea miembro activo de la modalidad
         boolean isActiveMember = studentModalityMemberRepository.isActiveMember(
@@ -59,16 +61,13 @@ public class CancellationService {
         );
 
         if (!isActiveMember) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("No autorizado para solicitar cancelación de esta modalidad");
+            throw new ForbiddenException("No autorizado para solicitar cancelación de esta modalidad");
         }
 
         // Validar que tenga director de proyecto asignado
         if (studentModality.getProgramDegreeModality().isRequiresDefenseProcess() &&  studentModality.getProjectDirector() == null) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "No puede solicitar la cancelación aún. Debe tener un director de proyecto asignado a su modalidad antes de solicitar la cancelación."
-                    )
+            throw new ValidationException(
+                    "No puede solicitar la cancelación aún. Debe tener un director de proyecto asignado a su modalidad antes de solicitar la cancelación."
             );
         }
 
@@ -76,11 +75,8 @@ public class CancellationService {
         if (studentModality.getStatus() == ModalityProcessStatus.CANCELLATION_REQUESTED ||
                 studentModality.getStatus() == ModalityProcessStatus.MODALITY_CANCELLED) {
 
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad ya tiene una solicitud de cancelación"
-                    )
+            throw new ValidationException(
+                    "La modalidad ya tiene una solicitud de cancelación"
             );
         }
 
@@ -92,11 +88,8 @@ public class CancellationService {
                 .anyMatch(doc -> doc.getDocumentConfig().getDocumentType() == DocumentType.CANCELLATION);
 
         if (!hasCancellationDocument) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Debe subir el documento de justificación de cancelación antes de solicitar la cancelación de la modalidad"
-                    )
+            throw new ValidationException(
+                    "Debe subir el documento de justificación de cancelación antes de solicitar la cancelación de la modalidad"
             );
         }
 
@@ -109,11 +102,8 @@ public class CancellationService {
             DocumentStatus docStatus = cancellationDoc.get().getStatus();
             if (docStatus == DocumentStatus.REJECTED_FOR_PROGRAM_HEAD_REVIEW ||
                 docStatus == DocumentStatus.REJECTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW) {
-                return ResponseEntity.badRequest().body(
-                        Map.of(
-                                "success", false,
-                                "message", "El documento de cancelación fue rechazado. Debe subir una nueva versión antes de solicitar la cancelación."
-                        )
+                throw new ValidationException(
+                        "El documento de cancelación fue rechazado. Debe subir una nueva versión antes de solicitar la cancelación."
                 );
             }
         }
@@ -139,37 +129,30 @@ public class CancellationService {
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_REQUESTED, studentModality.getId(), student.getId(), Map.of(ModalityEvent.KEY_STUDENT_ID, student.getId()))
         );
 
-        return ResponseEntity.ok(
-                Map.of(
+        return Map.of(
                         "success", true,
                         "message", "Solicitud de cancelación enviada correctamente",
                         "studentModalityId", studentModalityId,
                         "newStatus", ModalityProcessStatus.CANCELLATION_REQUESTED
-                )
-        );
+                );
     }
 
     @Transactional
-    public ResponseEntity<?> approveModalityCancellationByDirector(Long studentModalityId) {
+    public Map<String, Object> approveModalityCancellationByDirector(Long studentModalityId) {
 
         User projectDirector = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         if (studentModality.getProjectDirector() == null ||
                 !studentModality.getProjectDirector().getId().equals(projectDirector.getId())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para aprobar la cancelación. No es el director asignado a esta modalidad");
+            throw new ForbiddenException("No tiene permiso para aprobar la cancelación. No es el director asignado a esta modalidad");
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.CANCELLATION_REQUESTED) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no tiene una solicitud de cancelación pendiente",
-                            "currentStatus", studentModality.getStatus()
-                    )
+            throw new ValidationException(
+                    "La modalidad no tiene una solicitud de cancelación pendiente"
             );
         }
 
@@ -191,44 +174,34 @@ public class CancellationService {
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_APPROVED, studentModality.getId(), projectDirector.getId(), Map.of(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, projectDirector.getId()))
         );
 
-        return ResponseEntity.ok(
-                Map.of(
+        return Map.of(
                         "success", true,
                         "message", "Solicitud de cancelación aprobada. Será enviada al comité de currículo para aprobación final"
-                )
-        );
+                );
     }
 
     @Transactional
-    public ResponseEntity<?> rejectModalityCancellationByDirector(Long studentModalityId, String reason) {
+    public Map<String, Object> rejectModalityCancellationByDirector(Long studentModalityId, String reason) {
 
         if (reason == null || reason.isBlank()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Debe indicar el motivo del rechazo de la cancelación"
-                    )
+            throw new ValidationException(
+                    "Debe indicar el motivo del rechazo de la cancelación"
             );
         }
 
         User projectDirector = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         if (studentModality.getProjectDirector() == null ||
                 !studentModality.getProjectDirector().getId().equals(projectDirector.getId())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para rechazar la cancelación. No es el director asignado a esta modalidad");
+            throw new ForbiddenException("No tiene permiso para rechazar la cancelación. No es el director asignado a esta modalidad");
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.CANCELLATION_REQUESTED) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no tiene una solicitud de cancelación pendiente",
-                            "currentStatus", studentModality.getStatus()
-                    )
+            throw new ValidationException(
+                    "La modalidad no tiene una solicitud de cancelación pendiente"
             );
         }
 
@@ -274,22 +247,20 @@ public class CancellationService {
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_REJECTED, studentModality.getId(), projectDirector.getId(), Map.of(ModalityEvent.KEY_REASON, reason, ModalityEvent.KEY_COMMITTEE_MEMBER_ID, projectDirector.getId()))
         );
 
-        return ResponseEntity.ok(
-                Map.of(
+        return Map.of(
                         "success", true,
                         "message", "Solicitud de cancelación rechazada. La modalidad continúa en proceso normal",
                         "restoredStatus", previousStatus
-                )
-        );
+                );
     }
 
     @Transactional
-    public ResponseEntity<?> approveCancellation(Long studentModalityId) {
+    public Map<String, Object> approveCancellation(Long studentModalityId) {
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality modality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         AcademicProgram academicProgram = modality.getProgramDegreeModality().getAcademicProgram();
 
@@ -301,17 +272,12 @@ public class CancellationService {
                 );
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para aprobar la cancelación de esta modalidad");
+            throw new ForbiddenException("No tiene permiso para aprobar la cancelación de esta modalidad");
         }
 
         if (modality.getStatus() != ModalityProcessStatus.CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La cancelación debe ser aprobada primero por el director de proyecto",
-                            "currentStatus", modality.getStatus()
-                    )
+            throw new ValidationException(
+                    "La cancelación debe ser aprobada primero por el director de proyecto"
             );
         }
 
@@ -333,30 +299,25 @@ public class CancellationService {
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_APPROVED, modality.getId(), committeeMember.getId(), Map.of(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, committeeMember.getId()))
         );
 
-        return ResponseEntity.ok(
-                Map.of(
+        return Map.of(
                         "success", true,
                         "message", "La modalidad fue cancelada correctamente"
-                )
-        );
+                );
     }
 
     @Transactional
-    public ResponseEntity<?> rejectCancellation(Long studentModalityId, String reason) {
+    public Map<String, Object> rejectCancellation(Long studentModalityId, String reason) {
 
         if (reason == null || reason.isBlank()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Debe indicar el motivo del rechazo"
-                    )
+            throw new ValidationException(
+                    "Debe indicar el motivo del rechazo"
             );
         }
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality modality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         AcademicProgram academicProgram =
                 modality
@@ -371,17 +332,12 @@ public class CancellationService {
                 );
 
         if (!authorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para rechazar la cancelación de esta modalidad");
+            throw new ForbiddenException("No tiene permiso para rechazar la cancelación de esta modalidad");
         }
 
         if (modality.getStatus() != ModalityProcessStatus.CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Solo se pueden rechazar cancelaciones aprobadas por el director de proyecto",
-                            "currentStatus", modality.getStatus()
-                    )
+            throw new ValidationException(
+                    "Solo se pueden rechazar cancelaciones aprobadas por el director de proyecto"
             );
         }
 
@@ -447,16 +403,15 @@ public class CancellationService {
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_REJECTED, modality.getId(), committeeMember.getId(), Map.of(ModalityEvent.KEY_REASON, reason, ModalityEvent.KEY_COMMITTEE_MEMBER_ID, committeeMember.getId()))
         );
 
-        return ResponseEntity.ok(
-                Map.of(
+        return Map.of(
                         "success", true,
                         "message", "Solicitud de cancelación rechazada. La modalidad ha sido restaurada a su estado previo.",
                         "restoredStatus", stateToRestore.name(),
                         "restoredStatusDescription", ModalityServiceUtils.describeModalityStatus(stateToRestore)
-                )
-        );
+                );
     }
 
+    @Transactional(readOnly = true)
     public List<CancellationList> getPendingCancellations() {
 
         User committeeMember = SecurityUtils.getCurrentUser();
@@ -502,15 +457,15 @@ public class CancellationService {
     }
 
     @Transactional
-    public ResponseEntity<?> assignProjectDirector(Long studentModalityId, Long directorId) {
+    public Map<String, Object> assignProjectDirector(Long studentModalityId, Long directorId) {
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad del estudiante no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad del estudiante no encontrada"));
 
         User director = userRepository.findById(directorId)
-                .orElseThrow(() -> new RuntimeException("Director no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Director no encontrado"));
 
         Long academicProgramId =
                 studentModality
@@ -526,8 +481,7 @@ public class CancellationService {
                 );
 
         if (!committeeAuthorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body("No tiene permiso para asignar director en este programa académico");
+            throw new ForbiddenException("No tiene permiso para asignar director en este programa académico");
         }
 
         boolean hasDirectorRole =
@@ -535,11 +489,8 @@ public class CancellationService {
                         .anyMatch(role -> role.getName().equalsIgnoreCase("PROJECT_DIRECTOR"));
 
         if (!hasDirectorRole) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "El usuario seleccionado no tiene rol de Director de Proyecto"
-                    )
+            throw new ValidationException(
+                    "El usuario seleccionado no tiene rol de Director de Proyecto"
             );
         }
 
@@ -551,25 +502,17 @@ public class CancellationService {
                 );
 
         if (!directorAuthorized) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "El director no pertenece a este programa académico"
-                    )
+            throw new ValidationException(
+                    "El director no pertenece a este programa académico"
             );
         }
 
         if (studentModality.getStatus() != ModalityProcessStatus.READY_FOR_DIRECTOR_ASSIGNMENT &&
                 studentModality.getStatus() != ModalityProcessStatus.CANCELLATION_REJECTED) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "No se puede asignar un Director de Proyecto en este momento. " +
-                                       "La modalidad debe estar en estado 'Listo para asignar Director' " +
-                                       "(todos los documentos obligatorios aprobados por el Comité de Currículo).",
-                            "currentStatus", studentModality.getStatus().name(),
-                            "requiredStatus", ModalityProcessStatus.READY_FOR_DIRECTOR_ASSIGNMENT.name()
-                    )
+            throw new ValidationException(
+                    "No se puede asignar un Director de Proyecto en este momento. " +
+                               "La modalidad debe estar en estado 'Listo para asignar Director' " +
+                               "(todos los documentos obligatorios aprobados por el Comité de Currículo)."
             );
         }
 
@@ -605,53 +548,41 @@ public class CancellationService {
                 ))
         );
 
-        return ResponseEntity.ok(
-                Map.of(
+        return Map.of(
                         "success", true,
                         "studentModalityId", studentModality.getId(),
                         "directorAssigned", director.getEmail(),
                         "message", "Director asignado correctamente a la modalidad"
-                )
-        );
+                );
     }
 
     @Transactional
-    public ResponseEntity<?> changeProjectDirector(Long studentModalityId, Long newDirectorId, String reason) {
+    public Map<String, Object> changeProjectDirector(Long studentModalityId, Long newDirectorId, String reason) {
 
         if (reason == null || reason.isBlank()) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "Debe proporcionar una razón para el cambio de director"
-                    )
+            throw new ValidationException(
+                    "Debe proporcionar una razón para el cambio de director"
             );
         }
 
         User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad del estudiante no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad del estudiante no encontrada"));
 
         User newDirector = userRepository.findById(newDirectorId)
-                .orElseThrow(() -> new RuntimeException("Director no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Director no encontrado"));
 
         User currentDirector = studentModality.getProjectDirector();
         if (currentDirector == null) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "La modalidad no tiene un director asignado actualmente. Use el método de asignación inicial."
-                    )
+            throw new ValidationException(
+                    "La modalidad no tiene un director asignado actualmente. Use el método de asignación inicial."
             );
         }
 
         if (currentDirector.getId().equals(newDirectorId)) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "El director seleccionado ya está asignado a esta modalidad",
-                            "currentDirector", currentDirector.getEmail()
-                    )
+            throw new ValidationException(
+                    "El director seleccionado ya está asignado a esta modalidad"
             );
         }
 
@@ -661,22 +592,15 @@ public class CancellationService {
                 ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
 
         if (!committeeAuthorized) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of(
-                            "success", false,
-                            "message", "No tiene permiso para cambiar director en este programa académico"
-                    ));
+            throw new ForbiddenException("No tiene permiso para cambiar director en este programa académico");
         }
 
         boolean hasDirectorRole = newDirector.getRoles().stream()
                 .anyMatch(role -> role.getName().equalsIgnoreCase("PROJECT_DIRECTOR"));
 
         if (!hasDirectorRole) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "El usuario seleccionado no tiene rol de Director de Proyecto"
-                    )
+            throw new ValidationException(
+                    "El usuario seleccionado no tiene rol de Director de Proyecto"
             );
         }
 
@@ -687,11 +611,8 @@ public class CancellationService {
         );
 
         if (!newDirectorAuthorized) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "El nuevo director no pertenece a este programa académico"
-                    )
+            throw new ValidationException(
+                    "El nuevo director no pertenece a este programa académico"
             );
         }
 
@@ -702,12 +623,8 @@ public class CancellationService {
                 studentModality.getStatus() == ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL ||
                 studentModality.getStatus() == ModalityProcessStatus.CANCELLATION_REJECTED) {
 
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "success", false,
-                            "message", "No se puede cambiar el director en modalidades finalizadas, cerradas o canceladas",
-                            "currentStatus", studentModality.getStatus()
-                    )
+            throw new ValidationException(
+                    "No se puede cambiar el director en modalidades finalizadas, cerradas o canceladas"
             );
         }
 
@@ -749,8 +666,7 @@ public class CancellationService {
             /* DEAD: DirectorChangedEvent has no listener — no-op */
         }
 
-        return ResponseEntity.ok(
-                Map.of(
+        return Map.of(
                         "success", true,
                         "studentModalityId", studentModality.getId(),
                         "previousDirector", Map.of(
@@ -765,7 +681,6 @@ public class CancellationService {
                         ),
                         "reason", reason,
                         "message", "Director de proyecto cambiado exitosamente"
-                )
-        );
+                );
     }
 }

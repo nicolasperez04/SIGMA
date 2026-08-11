@@ -15,6 +15,7 @@ import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.Notification;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
@@ -24,8 +25,11 @@ import com.SIGMA.USCO.notifications.service.NotificationDispatcherService;
 import com.SIGMA.USCO.notifications.service.NotificationFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -45,9 +49,11 @@ public class StudentNotificationListener {
     private final StudentDocumentRepository studentDocumentRepository;
     private final AcademicCertificatePdfService certificatePdfService;
 
-    @EventListener
+@Transactional(propagation = Propagation.REQUIRES_NEW)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void handleEvent(ModalityEvent event) {
-        switch (event.getType()) {
+        try {
+            switch (event.getType()) {
             case MODALITY_STARTED -> handleModalityStarted(event);
             case DOCUMENT_CORRECTIONS_REQUESTED -> handleDocumentCorrectionsRequested(event);
             case MODALITY_CANCELLATION_REQUESTED -> handleCancellationRequested(event);
@@ -75,6 +81,11 @@ public class StudentNotificationListener {
             case EXAMINER_ASSIGNED -> handleExaminersAssigned(event);
             case DOCUMENT_EDIT_APPROVED, DOCUMENT_EDIT_REJECTED -> handleDocumentEditResolved(event);
             default -> log.warn("Unhandled notification type: {}", event.getType());
+            }
+        } catch (Exception e) {
+            log.error("Error en StudentNotificationListener procesando evento {} (studentModalityId={})",
+                    event.getType(), event.getStudentModalityId(), e);
+            throw e;
         }
     }
 
@@ -394,18 +405,14 @@ public class StudentNotificationListener {
                     NotificationType.DEFENSE_COMPLETED, NotificationRecipientType.STUDENT,
                     leader, null, modality, studentSubject, leaderMessage);
 
-            if (shouldSendCertificate && pdfPath != null) {
-                try {
-                    dispatcher.dispatchWithAttachment(
-                            leaderNotification,
-                            pdfPath,
-                            "ACTA_DE_APROBACION.pdf"
-                    );
-                    log.info("Acta enviada al líder {} (modalidad ID {})", leader.getId(), modality.getId());
-                } catch (Exception e) {
-                    log.error("Error enviando acta al líder {}: {}", leader.getId(), e.getMessage());
-                    dispatcher.dispatch(leaderNotification);
-                }
+if (shouldSendCertificate && pdfPath != null) {
+                // dispatchWithAttachment es @Async; fallos de email se manejan dentro (emailSent=false + log)
+                dispatcher.dispatchWithAttachment(
+                        leaderNotification,
+                        pdfPath,
+                        "ACTA_DE_APROBACION.pdf"
+                );
+                log.info("Acta enviada al líder {} (modalidad ID {})", leader.getId(), modality.getId());
             } else {
                 dispatcher.dispatch(leaderNotification);
             }
@@ -1072,15 +1079,11 @@ public class StudentNotificationListener {
                     NotificationType.MODALITY_FINAL_APPROVED_BY_COMMITTEE, NotificationRecipientType.STUDENT,
                     student, committeeMember, modality, subject, message);
 
-            if (pdfPath != null) {
-                try {
-                    dispatcher.dispatchWithAttachment(notification, pdfPath, "ACTA_DE_APROBACION.pdf");
-                    log.info("Acta simplificada enviada al estudiante {} (modalidad ID {})",
-                            student.getId(), modality.getId());
-                } catch (Exception e) {
-                    log.error("Error enviando acta al estudiante {}: {}", student.getId(), e.getMessage());
-                    dispatcher.dispatch(notification);
-                }
+if (pdfPath != null) {
+                // dispatchWithAttachment es @Async; fallos de email se manejan dentro (emailSent=false + log)
+                dispatcher.dispatchWithAttachment(notification, pdfPath, "ACTA_DE_APROBACION.pdf");
+                log.info("Acta simplificada enviada al estudiante {} (modalidad ID {})",
+                        student.getId(), modality.getId());
             } else {
                 dispatcher.dispatch(notification);
             }

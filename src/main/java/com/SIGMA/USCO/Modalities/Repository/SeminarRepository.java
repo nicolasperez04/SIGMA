@@ -12,6 +12,9 @@ public interface SeminarRepository extends JpaRepository<Seminar, Long> {
 
     List<Seminar> findByAcademicProgramId(Long academicProgramId);
 
+    @Query("SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END FROM Seminar s WHERE LOWER(s.name) = LOWER(:name) AND s.academicProgram.id = :programId")
+    boolean existsByNameIgnoreCaseAndAcademicProgramId(@Param("name") String name, @Param("programId") Long programId);
+
     @Query("SELECT s FROM Seminar s WHERE s.active = true AND s.currentParticipants < s.maxParticipants AND s.academicProgram.id = :programId")
     List<Seminar> findActiveWithAvailableSeatsByProgram(@Param("programId") Long programId);
 

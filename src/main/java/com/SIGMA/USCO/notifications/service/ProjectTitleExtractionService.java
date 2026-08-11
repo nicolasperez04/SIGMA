@@ -7,8 +7,9 @@ import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 @Component
 @RequiredArgsConstructor
@@ -18,7 +19,7 @@ public class ProjectTitleExtractionService {
     private final ProjectTitleService projectTitleService;
     private final StudentDocumentRepository studentDocumentRepository;
 
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onStudentDocumentUpdated(ModalityEvent event) {
         if (event.getType() != NotificationType.DOCUMENT_UPLOADED) return;
         try {

@@ -4,8 +4,11 @@ import com.SIGMA.USCO.academic.dto.FacultyDTO;
 import com.SIGMA.USCO.academic.dto.ProgramDTO;
 import com.SIGMA.USCO.academic.entity.Faculty;
 import com.SIGMA.USCO.academic.repository.FacultyRepository;
+import com.SIGMA.USCO.common.exception.ConflictException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -17,24 +20,17 @@ public class FacultyService {
     private final FacultyRepository facultyRepository;
 
 
-    public Faculty createFaculty(FacultyDTO request){
+    @Transactional
+    public FacultyDTO createFaculty(FacultyDTO request){
 
-        if (request.getDescription() == null || request.getDescription().isBlank()
-        || request.getName() == null || request.getName().isBlank()) {
-            throw new IllegalArgumentException("Nombre y descripción no puede ser vacío o nulo.");
-        }
-
-        if (request.getCode() == null || request.getCode().isBlank()) {
-            throw new IllegalArgumentException("El código de la facultad es obligatorio.");
-        }
-
+        // ponytail: @Transactional only narrows the exists-check race; real fix is a unique constraint (deferred)
 
         if (facultyRepository.existsByCodeIgnoreCase(request.getCode())){
-            throw new IllegalArgumentException("El código de la facultad ya existe.");
+            throw new ConflictException("El código de la facultad ya existe.");
         }
 
         if (facultyRepository.existsByNameIgnoreCase(request.getName())){
-            throw new IllegalArgumentException("El nombre de la facultad ya existe.");
+            throw new ConflictException("El nombre de la facultad ya existe.");
         }
         Faculty faculty = Faculty.builder()
                 .name(request.getName().toUpperCase())
@@ -45,60 +41,43 @@ public class FacultyService {
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        return facultyRepository.save(faculty);
+        facultyRepository.save(faculty);
 
+        return toFacultyDTO(faculty, null);
 
     }
 
+    @Transactional(readOnly = true)
     public List<FacultyDTO> getAllFaculties() {
         return facultyRepository.findAll()
                 .stream()
-                .map(faculty -> FacultyDTO.builder()
-                        .id(faculty.getId())
-                        .name(faculty.getName())
-                        .code(faculty.getCode())
-                        .description(faculty.getDescription())
-                        .active(faculty.isActive())
-                        .build())
+                .map(faculty -> toFacultyDTO(faculty, null))
                 .toList();
 
     }
 
+    @Transactional(readOnly = true)
     public List<FacultyDTO> getActiveFaculties() {
         return facultyRepository.findByActiveTrue()
                 .stream()
-                .map(faculty -> FacultyDTO.builder()
-                        .id(faculty.getId())
-                        .name(faculty.getName())
-                        .code(faculty.getCode())
-                        .description(faculty.getDescription())
-                        .active(faculty.isActive())
-                        .build())
+                .map(faculty -> toFacultyDTO(faculty, null))
                 .toList();
     }
 
+    @Transactional
     public FacultyDTO updateFaculty(Long id, FacultyDTO request) {
 
-        if (request.getName() == null || request.getName().isBlank()
-                || request.getDescription() == null || request.getDescription().isBlank()) {
-            throw new IllegalArgumentException("Nombre y descripción no pueden ser nulos o vacíos.");
-        }
-
-        if (request.getCode() == null || request.getCode().isBlank()) {
-            throw new IllegalArgumentException("El código de la facultad es obligatorio.");
-        }
-
         Faculty faculty = facultyRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Facultad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Facultad no encontrada"));
 
         if (!faculty.getCode().equalsIgnoreCase(request.getCode())
                 && facultyRepository.existsByCodeIgnoreCase(request.getCode())) {
-            throw new IllegalArgumentException("El código de la facultad ya existe.");
+            throw new ConflictException("El código de la facultad ya existe.");
         }
 
         if (!faculty.getName().equalsIgnoreCase(request.getName())
                 && facultyRepository.existsByNameIgnoreCase(request.getName())) {
-            throw new IllegalArgumentException("El nombre de la facultad ya existe.");
+            throw new ConflictException("El nombre de la facultad ya existe.");
         }
 
         faculty.setName(request.getName().toUpperCase());
@@ -108,20 +87,13 @@ public class FacultyService {
 
         facultyRepository.save(faculty);
 
-        return FacultyDTO.builder()
-                .id(faculty.getId())
-                .name(faculty.getName())
-                .code(faculty.getCode())
-                .description(faculty.getDescription())
-                .active(faculty.isActive())
-                .build();
-
+        return toFacultyDTO(faculty, null);
 
     }
 
     public void deactivateFaculty(Long id) {
         Faculty faculty = facultyRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Facultad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Facultad no encontrada"));
 
         faculty.setActive(false);
         faculty.setUpdatedAt(LocalDateTime.now());
@@ -129,10 +101,11 @@ public class FacultyService {
         facultyRepository.save(faculty);
     }
 
+    @Transactional(readOnly = true)
     public FacultyDTO getFacultyDetail(Long facultyId) {
 
         Faculty faculty = facultyRepository.findById(facultyId)
-                .orElseThrow(() -> new RuntimeException("Facultad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Facultad no encontrada"));
 
         List<ProgramDTO> programs =
                 faculty.getPrograms()
@@ -147,6 +120,17 @@ public class FacultyService {
                         )
                         .toList();
 
+        return FacultyDTO.builder()
+                .id(faculty.getId())
+                .name(faculty.getName())
+                .code(faculty.getCode())
+                .description(faculty.getDescription())
+                .active(faculty.isActive())
+                .academicPrograms(programs)
+                .build();
+    }
+
+    private FacultyDTO toFacultyDTO(Faculty faculty, List<ProgramDTO> programs) {
         return FacultyDTO.builder()
                 .id(faculty.getId())
                 .name(faculty.getName())
