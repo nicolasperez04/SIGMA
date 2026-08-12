@@ -1,9 +1,15 @@
 package com.SIGMA.USCO.report.service;
 
+import com.SIGMA.USCO.Modalities.Entity.DefenseEvaluationCriteria;
+import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityType;
+import com.SIGMA.USCO.Modalities.Repository.DefenseEvaluationCriteriaRepository;
+import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
+import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
@@ -19,6 +25,7 @@ import com.itextpdf.text.BaseColor;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -106,9 +113,14 @@ public class ReportUtils {
     }
 
     public static List<StudentInfoDTO> buildStudentInfos(List<StudentModalityMember> members, StudentProfileRepository profileRepo) {
+        List<Long> userIds = members.stream().map(member -> member.getStudent().getId()).distinct().toList();
+        return buildStudentInfos(members, loadProfilesByUserIds(userIds, profileRepo));
+    }
+
+    public static List<StudentInfoDTO> buildStudentInfos(List<StudentModalityMember> members, Map<Long, StudentProfile> profilesByUserId) {
         return members.stream().map(member -> {
             User student = member.getStudent();
-            StudentProfile profile = profileRepo.findByUserId(student.getId()).orElse(null);
+            StudentProfile profile = profilesByUserId.get(student.getId());
             return StudentInfoDTO.builder()
                     .studentId(student.getId())
                     .fullName(student.getName() + " " + student.getLastName())
@@ -119,6 +131,33 @@ public class ReportUtils {
                     .isLeader(member.getIsLeader())
                     .build();
         }).collect(Collectors.toList());
+    }
+
+    public static Map<Long, StudentProfile> loadProfilesByUserIds(List<Long> userIds, StudentProfileRepository profileRepo) {
+        if (userIds == null || userIds.isEmpty()) return Map.of();
+        return profileRepo.findAllByUserIdIn(userIds).stream()
+                .collect(Collectors.toMap(StudentProfile::getId, p -> p));
+    }
+
+    public static Map<Long, List<StudentModalityMember>> loadActiveMembersByModalityIds(
+            List<Long> modalityIds, StudentModalityMemberRepository memberRepo) {
+        if (modalityIds == null || modalityIds.isEmpty()) return Map.of();
+        return memberRepo.findByStudentModalityIdInAndStatus(modalityIds, MemberStatus.ACTIVE).stream()
+                .collect(Collectors.groupingBy(m -> m.getStudentModality().getId()));
+    }
+
+    public static Map<Long, List<DefenseExaminer>> loadExaminersByModalityIds(
+            List<Long> modalityIds, DefenseExaminerRepository examinerRepo) {
+        if (modalityIds == null || modalityIds.isEmpty()) return Map.of();
+        return examinerRepo.findByStudentModalityIdIn(modalityIds).stream()
+                .collect(Collectors.groupingBy(de -> de.getStudentModality().getId()));
+    }
+
+    public static Map<Long, DefenseEvaluationCriteria> loadCriteriaByExaminerIds(
+            List<Long> examinerIds, DefenseEvaluationCriteriaRepository criteriaRepo) {
+        if (examinerIds == null || examinerIds.isEmpty()) return Map.of();
+        return criteriaRepo.findByDefenseExaminerIdIn(examinerIds).stream()
+                .collect(Collectors.toMap(c -> c.getDefenseExaminer().getId(), c -> c));
     }
 
     public static String translateSessionType(ModalityType type) {

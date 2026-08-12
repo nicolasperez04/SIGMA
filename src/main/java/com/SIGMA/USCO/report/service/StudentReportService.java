@@ -2,10 +2,8 @@ package com.SIGMA.USCO.report.service;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.report.dto.*;
 import lombok.RequiredArgsConstructor;
@@ -40,9 +38,11 @@ public class StudentReportService {
                 .collect(Collectors.toList());
 
         // Obtener todos los estudiantes de estas modalidades
+        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
+                modalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
         List<StudentInfoDTO> students = modalities.stream()
                 .flatMap(modality -> ReportUtils.buildStudentInfos(
-                        studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE),
+                        membersByModality.getOrDefault(modality.getId(), List.of()),
                         studentProfileRepository).stream())
                 .distinct()
                 .collect(Collectors.toList());
@@ -77,9 +77,11 @@ public class StudentReportService {
                 .collect(Collectors.toList());
 
         // Obtener estudiantes
+        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
+                modalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
         List<StudentInfoDTO> students = modalities.stream()
                 .flatMap(modality -> ReportUtils.buildStudentInfos(
-                        studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE),
+                        membersByModality.getOrDefault(modality.getId(), List.of()),
                         studentProfileRepository).stream())
                 .distinct()
                 .collect(Collectors.toList());

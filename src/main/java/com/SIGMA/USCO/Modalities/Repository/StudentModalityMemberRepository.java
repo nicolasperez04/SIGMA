@@ -34,6 +34,14 @@ public interface StudentModalityMemberRepository extends JpaRepository<StudentMo
     List<StudentModalityMember> findByStudentModalityId(Long modalityId);
 
     /**
+     * Encuentra los miembros con un estado específico de varias modalidades (batch)
+     * @param modalityIds IDs de las modalidades
+     * @param status Estado del miembro (ACTIVE, LEFT, REMOVED)
+     * @return Lista de miembros
+     */
+    List<StudentModalityMember> findByStudentModalityIdInAndStatus(List<Long> modalityIds, MemberStatus status);
+
+    /**
      * Cuenta la cantidad de miembros activos de una modalidad
      * @param modalityId ID de la modalidad
      * @param status Estado del miembro

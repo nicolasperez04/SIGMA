@@ -2,7 +2,6 @@ package com.SIGMA.USCO.report.service;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
@@ -52,6 +51,10 @@ public class DirectorAssignedModalitiesReportService {
         // Obtener modalidades del programa
         List<StudentModality> modalities = getModalitiesForDirectorReport(userProgram.getId(), filters);
 
+        // Cargar miembros activos en batch para evitar N+1
+        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
+                modalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
+
         // Agrupar modalidades por director
         Map<Long, List<StudentModality>> modalitiesByDirector = modalities.stream()
                 .filter(m -> m.getProjectDirector() != null)
@@ -59,11 +62,11 @@ public class DirectorAssignedModalitiesReportService {
 
         // Generar información de cada director con sus modalidades
         List<DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO> directors =
-                generateDirectorWithModalitiesList(modalitiesByDirector, filters);
+                generateDirectorWithModalitiesList(modalitiesByDirector, filters, membersByModality);
 
         // Generar resumen general
         DirectorAssignedModalitiesReportDTO.DirectorSummaryDTO summary =
-                generateDirectorSummary(directors, modalities);
+                generateDirectorSummary(directors, modalities, membersByModality);
 
         // Generar distribución por estado y tipo
         Map<String, Integer> byStatus = modalities.stream()
@@ -139,7 +142,7 @@ public class DirectorAssignedModalitiesReportService {
         if (filters != null && Boolean.TRUE.equals(filters.getOnlyActiveModalities())) {
             modalities = studentModalityRepository.findByStatusIn(ReportUtils.getActiveStatuses());
         } else {
-            modalities = studentModalityRepository.findAll();
+            modalities = studentModalityRepository.findForProgramHead(List.of(programId));
         }
 
         // Filtrar por programa
@@ -177,7 +180,8 @@ public class DirectorAssignedModalitiesReportService {
      * Genera la lista de directores con sus modalidades
      */
     private List<DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO> generateDirectorWithModalitiesList(
-            Map<Long, List<StudentModality>> modalitiesByDirector, DirectorReportFilterDTO filters) {
+            Map<Long, List<StudentModality>> modalitiesByDirector, DirectorReportFilterDTO filters,
+            Map<Long, List<StudentModalityMember>> membersByModality) {
 
         return modalitiesByDirector.entrySet().stream()
                 .map(entry -> {
@@ -205,7 +209,7 @@ public class DirectorAssignedModalitiesReportService {
                     // Generar detalles de las modalidades
                     List<DirectorAssignedModalitiesReportDTO.ModalityDetailDTO> modalityDetails =
                             directorModalities.stream()
-                                    .map(this::buildModalityDetailForDirector)
+                                    .map(modality -> buildModalityDetailForDirector(modality, membersByModality))
                                     .sorted(Comparator.comparing(
                                             DirectorAssignedModalitiesReportDTO.ModalityDetailDTO::getStartDate).reversed())
                                     .collect(Collectors.toList());
@@ -243,15 +247,18 @@ public class DirectorAssignedModalitiesReportService {
     /**
      * Construye el detalle de una modalidad para el reporte de directores
      */
-    private DirectorAssignedModalitiesReportDTO.ModalityDetailDTO buildModalityDetailForDirector(StudentModality modality) {
+    private DirectorAssignedModalitiesReportDTO.ModalityDetailDTO buildModalityDetailForDirector(
+            StudentModality modality, Map<Long, List<StudentModalityMember>> membersByModality) {
         // Obtener estudiantes
-        List<StudentModalityMember> members = studentModalityMemberRepository
-                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+        List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
+
+        Map<Long, StudentProfile> profilesByUserId = ReportUtils.loadProfilesByUserIds(
+                members.stream().map(m -> m.getStudent().getId()).toList(), studentProfileRepository);
 
         List<DirectorAssignedModalitiesReportDTO.StudentBasicInfoDTO> students = members.stream()
                 .map(member -> {
                     User student = member.getStudent();
-                    StudentProfile profile = studentProfileRepository.findByUserId(student.getId()).orElse(null);
+                    StudentProfile profile = profilesByUserId.get(student.getId());
 
                     return DirectorAssignedModalitiesReportDTO.StudentBasicInfoDTO.builder()
                             .studentId(student.getId())
@@ -350,7 +357,8 @@ public class DirectorAssignedModalitiesReportService {
      */
     private DirectorAssignedModalitiesReportDTO.DirectorSummaryDTO generateDirectorSummary(
             List<DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO> directors,
-            List<StudentModality> allModalities) {
+            List<StudentModality> allModalities,
+            Map<Long, List<StudentModalityMember>> membersByModality) {
 
         int totalDirectors = directors.size();
         int totalModalitiesAssigned = allModalities.size();
@@ -363,9 +371,8 @@ public class DirectorAssignedModalitiesReportService {
         // Contar estudiantes únicos
         Set<Long> uniqueStudents = new HashSet<>();
         for (StudentModality modality : allModalities) {
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-            members.forEach(member -> uniqueStudents.add(member.getStudent().getId()));
+            membersByModality.getOrDefault(modality.getId(), List.of())
+                    .forEach(member -> uniqueStudents.add(member.getStudent().getId()));
         }
 
         // Calcular promedios

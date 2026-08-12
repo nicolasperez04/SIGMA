@@ -2,7 +2,6 @@ package com.SIGMA.USCO.report.service;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
@@ -50,7 +49,7 @@ public class StudentListingReportService {
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
         // Obtener todas las modalidades del programa
-        List<StudentModality> allModalities = studentModalityRepository.findAll().stream()
+        List<StudentModality> allModalities = studentModalityRepository.findForProgramHead(List.of(userProgram.getId())).stream()
                 .filter(m -> m.getAcademicProgram().getId().equals(userProgram.getId()))
                 .collect(Collectors.toList());
 
@@ -229,16 +228,27 @@ public class StudentListingReportService {
     private List<StudentListingReportDTO.StudentDetailDTO> buildStudentDetails(List<StudentModality> modalities) {
         List<StudentListingReportDTO.StudentDetailDTO> details = new ArrayList<>();
 
+        List<Long> modalityIds = modalities.stream().map(StudentModality::getId).toList();
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(modalityIds, studentModalityMemberRepository);
+        List<Long> allUserIds = membersByModality.values().stream()
+                .flatMap(List::stream)
+                .map(StudentModalityMember::getStudent)
+                .filter(Objects::nonNull)
+                .map(User::getId)
+                .distinct()
+                .toList();
+        Map<Long, StudentProfile> profs = ReportUtils.loadProfilesByUserIds(allUserIds, studentProfileRepository);
+
         for (StudentModality modality : modalities) {
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+            List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
 
             for (StudentModalityMember member : members) {
                 User user = member.getStudent(); // getStudent() retorna User
                 if (user == null) continue;
 
                 // Buscar el perfil de estudiante
-                StudentProfile profile = studentProfileRepository.findById(user.getId()).orElse(null);
+                StudentProfile profile = profs.get(user.getId());
                 if (profile == null) continue;
 
                 // Obtener miembros del grupo
@@ -626,13 +636,23 @@ public class StudentListingReportService {
                             .orElse(0);
 
                     // Calcular GPA promedio de estudiantes en esta modalidad
+                    List<Long> typeModalityIds = typeModalities.stream().map(StudentModality::getId).toList();
+                    Map<Long, List<StudentModalityMember>> membersByType =
+                            ReportUtils.loadActiveMembersByModalityIds(typeModalityIds, studentModalityMemberRepository);
+                    List<Long> typeUserIds = membersByType.values().stream()
+                            .flatMap(List::stream)
+                            .map(StudentModalityMember::getStudent)
+                            .filter(Objects::nonNull)
+                            .map(User::getId)
+                            .distinct()
+                            .toList();
+                    Map<Long, StudentProfile> typeProfiles =
+                            ReportUtils.loadProfilesByUserIds(typeUserIds, studentProfileRepository);
+
                     List<Double> gpas = new ArrayList<>();
                     for (StudentModality modality : typeModalities) {
-                        List<StudentModalityMember> members = studentModalityMemberRepository
-                                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-
-                        for (StudentModalityMember member : members) {
-                            StudentProfile profile = studentProfileRepository.findById(member.getStudent().getId()).orElse(null);
+                        for (StudentModalityMember member : membersByType.getOrDefault(modality.getId(), List.of())) {
+                            StudentProfile profile = typeProfiles.get(member.getStudent().getId());
                             if (profile != null && profile.getGpa() != null) {
                                 gpas.add(profile.getGpa());
                             }
@@ -769,13 +789,23 @@ public class StudentListingReportService {
                             (completed * 100.0) / semesterModalities.size() : 0.0;
 
                     // Calcular GPA promedio de estudiantes en este semestre
+                    List<Long> semesterModalityIds = semesterModalities.stream().map(StudentModality::getId).toList();
+                    Map<Long, List<StudentModalityMember>> membersBySemester =
+                            ReportUtils.loadActiveMembersByModalityIds(semesterModalityIds, studentModalityMemberRepository);
+                    List<Long> semesterUserIds = membersBySemester.values().stream()
+                            .flatMap(List::stream)
+                            .map(StudentModalityMember::getStudent)
+                            .filter(Objects::nonNull)
+                            .map(User::getId)
+                            .distinct()
+                            .toList();
+                    Map<Long, StudentProfile> semesterProfiles =
+                            ReportUtils.loadProfilesByUserIds(semesterUserIds, studentProfileRepository);
+
                     List<Double> semesterGPAs = new ArrayList<>();
                     for (StudentModality modality : semesterModalities) {
-                        List<StudentModalityMember> members = studentModalityMemberRepository
-                                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-
-                        for (StudentModalityMember member : members) {
-                            StudentProfile profile = studentProfileRepository.findById(member.getStudent().getId()).orElse(null);
+                        for (StudentModalityMember member : membersBySemester.getOrDefault(modality.getId(), List.of())) {
+                            StudentProfile profile = semesterProfiles.get(member.getStudent().getId());
                             if (profile != null && profile.getGpa() != null) {
                                 semesterGPAs.add(profile.getGpa());
                             }

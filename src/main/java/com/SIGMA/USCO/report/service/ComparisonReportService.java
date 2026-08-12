@@ -2,7 +2,7 @@ package com.SIGMA.USCO.report.service;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
+import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.common.util.TranslationUtils;
@@ -43,8 +43,9 @@ public class ComparisonReportService {
         String userEmail = SecurityUtils.getCurrentUser().getEmail();
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
-        // Obtener modalidades según filtros
-        List<StudentModality> modalities = getModalitiesForComparison(userProgram.getId(), filters);
+        // Obtener modalidades según filtros (carga única del programa, filtros en memoria)
+        List<StudentModality> programModalities = studentModalityRepository.findForProgramHead(List.of(userProgram.getId()));
+        List<StudentModality> modalities = getModalitiesForComparison(programModalities, userProgram.getId(), filters);
 
         // Generar resumen general
         ModalityTypeComparisonReportDTO.ComparisonSummaryDTO summary = generateComparisonSummary(modalities);
@@ -60,7 +61,7 @@ public class ComparisonReportService {
         List<ModalityTypeComparisonReportDTO.PeriodComparisonDTO> historicalComparison = null;
         if (filters != null && Boolean.TRUE.equals(filters.getIncludeHistoricalComparison())) {
             int periodsCount = filters.getHistoricalPeriodsCount() != null ? filters.getHistoricalPeriodsCount() : 4;
-            historicalComparison = generateHistoricalComparison(userProgram.getId(), periodsCount, filters);
+            historicalComparison = generateHistoricalComparison(programModalities, userProgram.getId(), periodsCount, filters);
         }
 
         // Generar análisis de tendencias si se solicita
@@ -103,36 +104,38 @@ public class ComparisonReportService {
     /**
      * Obtiene las modalidades para la comparativa según los filtros
      */
-    private List<StudentModality> getModalitiesForComparison(Long programId, ModalityComparisonFilterDTO filters) {
-        List<StudentModality> allModalities;
-
-        // Filtrar por activas o todas
-        if (filters != null && Boolean.TRUE.equals(filters.getOnlyActiveModalities())) {
-            allModalities = studentModalityRepository.findByStatusIn(ReportUtils.getActiveStatuses());
-        } else {
-            allModalities = studentModalityRepository.findAll();
-        }
+    private List<StudentModality> getModalitiesForComparison(List<StudentModality> programModalities,
+                                                             Long programId, ModalityComparisonFilterDTO filters) {
+        List<StudentModality> filteredModalities = programModalities;
 
         // Filtrar por programa
-        allModalities = allModalities.stream()
+        filteredModalities = filteredModalities.stream()
                 .filter(m -> m.getAcademicProgram().getId().equals(programId))
                 .collect(Collectors.toList());
 
+        // Filtrar por activas o todas
+        if (filters != null && Boolean.TRUE.equals(filters.getOnlyActiveModalities())) {
+            List<ModalityProcessStatus> activeStatuses = ReportUtils.getActiveStatuses();
+            filteredModalities = filteredModalities.stream()
+                    .filter(m -> activeStatuses.contains(m.getStatus()))
+                    .collect(Collectors.toList());
+        }
+
         // Filtrar por año y semestre si se especificó
         if (filters != null && filters.getYear() != null) {
-            allModalities = allModalities.stream()
+            filteredModalities = filteredModalities.stream()
                     .filter(m -> m.getSelectionDate() != null &&
                                  m.getSelectionDate().getYear() == filters.getYear())
                     .collect(Collectors.toList());
 
             if (filters.getSemester() != null) {
-                allModalities = allModalities.stream()
+                filteredModalities = filteredModalities.stream()
                         .filter(m -> ReportUtils.getSemesterFromDate(m.getSelectionDate()) == filters.getSemester())
                         .collect(Collectors.toList());
             }
         }
 
-        return allModalities;
+        return filteredModalities;
     }
 
     /**
@@ -149,10 +152,13 @@ public class ComparisonReportService {
         int totalModalities = modalities.size();
 
         // Contar estudiantes únicos
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(
+                        modalities.stream().map(StudentModality::getId).toList(),
+                        studentModalityMemberRepository);
         Set<Long> uniqueStudents = new HashSet<>();
         for (StudentModality modality : modalities) {
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+            List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
             members.forEach(member -> uniqueStudents.add(member.getStudent().getId()));
         }
 
@@ -201,6 +207,11 @@ public class ComparisonReportService {
 
         int totalModalities = modalities.size();
 
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(
+                        modalities.stream().map(StudentModality::getId).toList(),
+                        studentModalityMemberRepository);
+
         return byTypeId.entrySet().stream()
                 .map(entry -> {
                     List<StudentModality> typeModalities = entry.getValue();
@@ -212,8 +223,7 @@ public class ComparisonReportService {
                     // Contar estudiantes únicos de este tipo
                     Set<Long> students = new HashSet<>();
                     for (StudentModality modality : typeModalities) {
-                        List<StudentModalityMember> members = studentModalityMemberRepository
-                                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+                        List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
                         members.forEach(member -> students.add(member.getStudent().getId()));
                     }
 
@@ -270,11 +280,14 @@ public class ComparisonReportService {
      */
     private Map<String, Integer> generateStudentDistribution(List<StudentModality> modalities) {
         Map<String, Set<Long>> studentsByType = new HashMap<>();
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(
+                        modalities.stream().map(StudentModality::getId).toList(),
+                        studentModalityMemberRepository);
 
         for (StudentModality modality : modalities) {
             String typeName = modality.getProgramDegreeModality().getDegreeModality().getName();
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+            List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
 
             studentsByType.computeIfAbsent(typeName, k -> new HashSet<>());
             members.forEach(member -> studentsByType.get(typeName).add(member.getStudent().getId()));
@@ -291,12 +304,19 @@ public class ComparisonReportService {
      * Genera la comparación histórica por periodos
      */
     private List<ModalityTypeComparisonReportDTO.PeriodComparisonDTO> generateHistoricalComparison(
-            Long programId, int periodsCount, ModalityComparisonFilterDTO baseFilters) {
+            List<StudentModality> programModalities, Long programId, int periodsCount,
+            ModalityComparisonFilterDTO baseFilters) {
 
         List<ModalityTypeComparisonReportDTO.PeriodComparisonDTO> periods = new ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
         int currentYear = now.getYear();
         int currentSemester = ReportUtils.getSemesterFromDate(now);
+
+        // Miembros activos de todas las modalidades del programa (una sola consulta)
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(
+                        programModalities.stream().map(StudentModality::getId).toList(),
+                        studentModalityMemberRepository);
 
         // Generar periodos hacia atrás
         for (int i = 0; i < periodsCount; i++) {
@@ -315,7 +335,7 @@ public class ComparisonReportService {
                     .onlyActiveModalities(baseFilters != null ? baseFilters.getOnlyActiveModalities() : false)
                     .build();
 
-            List<StudentModality> periodModalities = getModalitiesForComparison(programId, periodFilter);
+            List<StudentModality> periodModalities = getModalitiesForComparison(programModalities, programId, periodFilter);
 
             // Contar modalidades por tipo
             Map<String, Integer> modalitiesByType = periodModalities.stream()
@@ -328,8 +348,7 @@ public class ComparisonReportService {
             Map<String, Set<Long>> studentsSetByType = new HashMap<>();
             for (StudentModality modality : periodModalities) {
                 String typeName = modality.getProgramDegreeModality().getDegreeModality().getName();
-                List<StudentModalityMember> members = studentModalityMemberRepository
-                        .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+                List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
 
                 studentsSetByType.computeIfAbsent(typeName, k -> new HashSet<>());
                 members.forEach(member -> studentsSetByType.get(typeName).add(member.getStudent().getId()));

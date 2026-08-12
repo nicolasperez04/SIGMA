@@ -2,7 +2,6 @@ package com.SIGMA.USCO.report.service;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
@@ -49,11 +48,12 @@ public class HistoricalReportService {
         String userEmail = SecurityUtils.getCurrentUser().getEmail();
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
-        // Obtener todas las modalidades del tipo especificado en el programa
-        List<StudentModality> allModalitiesOfType = studentModalityRepository.findAll().stream()
+        // Obtener todas las modalidades del programa y filtrar por tipo
+        List<StudentModality> programModalities = studentModalityRepository.findForProgramHead(List.of(userProgram.getId()));
+        List<StudentModality> allModalitiesOfType = programModalities.stream()
                 .filter(m -> m.getAcademicProgram().getId().equals(userProgram.getId()))
                 .filter(m -> m.getProgramDegreeModality().getDegreeModality().getId().equals(modalityTypeId))
-                .collect(Collectors.toList());
+                .toList();
 
         if (allModalitiesOfType.isEmpty()) {
             throw new IllegalArgumentException("No se encontraron modalidades del tipo especificado en el programa");
@@ -63,7 +63,7 @@ public class HistoricalReportService {
         ModalityHistoricalReportDTO.ModalityInfoDTO modalityInfo = generateModalityInfo(allModalitiesOfType, modalityTypeId);
 
         // Generar estado actual
-        ModalityHistoricalReportDTO.CurrentStateDTO currentState = generateCurrentState(allModalitiesOfType, userProgram);
+        ModalityHistoricalReportDTO.CurrentStateDTO currentState = generateCurrentState(allModalitiesOfType, programModalities);
 
         // Generar análisis histórico por periodos
         int periods = periodsToAnalyze != null ? periodsToAnalyze : 8; // Por defecto 4 años (8 semestres)
@@ -196,7 +196,7 @@ public class HistoricalReportService {
      * Genera el estado actual de la modalidad
      */
     private ModalityHistoricalReportDTO.CurrentStateDTO generateCurrentState(
-            List<StudentModality> allModalities, AcademicProgram program) {
+            List<StudentModality> allModalities, List<StudentModality> programModalities) {
 
         LocalDateTime now = LocalDateTime.now();
         int currentYear = now.getYear();
@@ -216,10 +216,11 @@ public class HistoricalReportService {
 
         // Contar estudiantes
         Set<Long> students = new HashSet<>();
+        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
+                currentPeriodModalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
         for (StudentModality modality : currentPeriodModalities) {
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-            members.forEach(member -> students.add(member.getStudent().getId()));
+            membersByModality.getOrDefault(modality.getId(), List.of())
+                    .forEach(member -> students.add(member.getStudent().getId()));
         }
 
         // Contar directores únicos
@@ -255,7 +256,7 @@ public class HistoricalReportService {
         String popularity = determinePopularity(currentPeriodModalities.size(), allModalities);
 
         // Calcular posición en ranking (comparar con otras modalidades del programa)
-        int position = calculateRankingPosition(program, currentPeriodModalities.size());
+        int position = calculateRankingPosition(programModalities, currentPeriodModalities.size());
 
         return ModalityHistoricalReportDTO.CurrentStateDTO.builder()
                 .currentPeriodYear(currentYear)
@@ -318,10 +319,11 @@ public class HistoricalReportService {
 
         // Contar estudiantes únicos
         Set<Long> students = new HashSet<>();
+        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
+                periodModalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
         for (StudentModality modality : periodModalities) {
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-            members.forEach(member -> students.add(member.getStudent().getId()));
+            membersByModality.getOrDefault(modality.getId(), List.of())
+                    .forEach(member -> students.add(member.getStudent().getId()));
         }
 
         // Contar por tipo
@@ -465,14 +467,13 @@ public class HistoricalReportService {
     /**
      * Calcula la posición en el ranking del programa
      */
-    private int calculateRankingPosition(AcademicProgram program, int currentInstances) {
+    private int calculateRankingPosition(List<StudentModality> programModalities, int currentInstances) {
         // Obtener todas las modalidades del periodo actual del programa
         LocalDateTime now = LocalDateTime.now();
         int currentYear = now.getYear();
         int currentSemester = ReportUtils.getSemesterFromDate(now);
 
-        Map<Long, Long> countByModality = studentModalityRepository.findAll().stream()
-                .filter(m -> m.getAcademicProgram().getId().equals(program.getId()))
+        Map<Long, Long> countByModality = programModalities.stream()
                 .filter(m -> m.getSelectionDate() != null)
                 .filter(m -> m.getSelectionDate().getYear() == currentYear)
                 .filter(m -> ReportUtils.getSemesterFromDate(m.getSelectionDate()) == currentSemester)
@@ -869,11 +870,12 @@ public class HistoricalReportService {
             User director, int instances, List<StudentModality> allModalities) {
 
         // Contar estudiantes supervisados
+        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
+                allModalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
         int students = 0;
         for (StudentModality m : allModalities) {
             if (m.getProjectDirector() != null && m.getProjectDirector().getId().equals(director.getId())) {
-                students += studentModalityMemberRepository
-                        .findByStudentModalityIdAndStatus(m.getId(), MemberStatus.ACTIVE).size();
+                students += membersByModality.getOrDefault(m.getId(), List.of()).size();
             }
         }
 
@@ -912,11 +914,13 @@ public class HistoricalReportService {
             List<StudentModality> allModalities) {
 
         // Estudiantes históricos únicos
+        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
+                allModalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
+
         Set<Long> allStudents = new HashSet<>();
         for (StudentModality m : allModalities) {
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(m.getId(), MemberStatus.ACTIVE);
-            members.forEach(member -> allStudents.add(member.getStudent().getId()));
+            membersByModality.getOrDefault(m.getId(), List.of())
+                    .forEach(member -> allStudents.add(member.getStudent().getId()));
         }
 
         // Estudiantes actuales
@@ -929,9 +933,8 @@ public class HistoricalReportService {
                 .collect(Collectors.toList());
 
         for (StudentModality m : currentModalities) {
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(m.getId(), MemberStatus.ACTIVE);
-            members.forEach(member -> currentStudents.add(member.getStudent().getId()));
+            membersByModality.getOrDefault(m.getId(), List.of())
+                    .forEach(member -> currentStudents.add(member.getStudent().getId()));
         }
 
         double avgStudentsPerInstance = allModalities.size() > 0 ?

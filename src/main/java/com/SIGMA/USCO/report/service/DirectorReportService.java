@@ -2,11 +2,9 @@ package com.SIGMA.USCO.report.service;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.report.dto.*;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +43,8 @@ public class DirectorReportService {
                 .collect(Collectors.groupingBy(m -> m.getProjectDirector().getId()));
 
         // Generar información de carga de trabajo por director
+        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
+                modalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
         List<DirectorWorkloadDTO> directors = modalitiesByDirector.entrySet().stream()
                 .map(entry -> {
                     Long directorId = entry.getKey();
@@ -52,13 +52,16 @@ public class DirectorReportService {
                     User director = directorModalities.get(0).getProjectDirector();
 
                     // Obtener todos los proyectos del director
-                    long totalProjects = studentModalityRepository
-                            .countActiveModalitiesByLeader(directorId, ReportUtils.getActiveStatuses());
+                    long totalProjects = directorModalities.stream()
+                            .filter(sm -> sm.getProjectDirector() != null
+                                    && sm.getProjectDirector().getId().equals(directorId)
+                                    && ReportUtils.getActiveStatuses().contains(sm.getStatus()))
+                            .count();
 
                     // Obtener estudiantes asignados
                     List<StudentInfoDTO> assignedStudents = directorModalities.stream()
                             .flatMap(modality -> ReportUtils.buildStudentInfos(
-                                    studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE),
+                                    membersByModality.getOrDefault(modality.getId(), List.of()),
                                     studentProfileRepository).stream())
                             .collect(Collectors.toList());
 

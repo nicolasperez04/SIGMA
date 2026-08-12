@@ -3,7 +3,6 @@ package com.SIGMA.USCO.Modalities.service;
 import com.SIGMA.USCO.Modalities.Entity.DefenseEvaluationCriteria;
 import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
 import com.SIGMA.USCO.Modalities.Entity.DegreeModality;
-import com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory;
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
 import com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType;
@@ -78,6 +77,66 @@ public class StudentModalityListingService {
     private final StudentProfileRepository studentProfileRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
     private final AcademicHistoryPdfRepository academicHistoryPdfRepository;
+
+    private record StatusFlags(boolean canUploadDocuments, boolean canRequestCancellation,
+                               boolean canSubmitCorrections, boolean hasDefenseScheduled,
+                               boolean requiresAction) {
+    }
+
+    private Long calculateDaysRemaining(StudentModality studentModality) {
+        if (studentModality.getCorrectionDeadline() == null) {
+            return null;
+        }
+        return ChronoUnit.DAYS.between(LocalDateTime.now(), studentModality.getCorrectionDeadline());
+    }
+
+    private StatusFlags computeStatusFlags(StudentModality studentModality) {
+        ModalityProcessStatus status = studentModality.getStatus();
+        boolean canUploadDocuments = status == ModalityProcessStatus.MODALITY_SELECTED ||
+                status == ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD ||
+                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
+                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE;
+
+        boolean canRequestCancellation = status != ModalityProcessStatus.MODALITY_CLOSED &&
+                status != ModalityProcessStatus.GRADED_APPROVED &&
+                status != ModalityProcessStatus.GRADED_FAILED &&
+                !status.name().startsWith("CANCELLED");
+
+        boolean canSubmitCorrections = (status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
+                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE) &&
+                studentModality.getCorrectionDeadline() != null &&
+                LocalDateTime.now().isBefore(studentModality.getCorrectionDeadline());
+
+        boolean hasDefenseScheduled = studentModality.getDefenseDate() != null;
+
+        boolean requiresAction = canUploadDocuments || canSubmitCorrections ||
+                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
+                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE;
+
+        return new StatusFlags(canUploadDocuments, canRequestCancellation, canSubmitCorrections,
+                hasDefenseScheduled, requiresAction);
+    }
+
+    private long countApprovedDocs(List<StudentDocument> documents) {
+        return documents.stream()
+                .filter(d -> d.getStatus() == DocumentStatus.ACCEPTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW)
+                .count();
+    }
+
+    private long countPendingDocs(List<StudentDocument> documents) {
+        return documents.stream()
+                .filter(d -> d.getStatus() == DocumentStatus.PENDING ||
+                        d.getStatus() == DocumentStatus.ACCEPTED_FOR_PROGRAM_HEAD_REVIEW ||
+                        d.getStatus() == DocumentStatus.CORRECTION_RESUBMITTED)
+                .count();
+    }
+
+    private long countRejectedDocs(List<StudentDocument> documents) {
+        return documents.stream()
+                .filter(d -> d.getStatus() == DocumentStatus.REJECTED_FOR_PROGRAM_HEAD_REVIEW ||
+                        d.getStatus() == DocumentStatus.REJECTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW)
+                .count();
+    }
 
     private List<ModalityStatusHistoryDTO> buildStatusHistory(Long studentModalityId) {
         return historyRepository
@@ -176,50 +235,16 @@ public class StudentModalityListingService {
                                                        List<DetailDocumentDTO> documents,
                                                        List<StudentDocument> uploadedDocuments,
                                                        String defenseProposedBy) {
-        Long daysRemaining = null;
-        if (studentModality.getCorrectionDeadline() != null) {
-            daysRemaining = ChronoUnit.DAYS.between(
-                    LocalDateTime.now(),
-                    studentModality.getCorrectionDeadline()
-            );
-        }
+        Long daysRemaining = calculateDaysRemaining(studentModality);
 
-        ModalityProcessStatus status = studentModality.getStatus();
-        boolean canUploadDocuments = status == ModalityProcessStatus.MODALITY_SELECTED ||
-                                    status == ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD ||
-                                    status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
-                                    status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE;
+        StatusFlags flags = computeStatusFlags(studentModality);
 
-        boolean canRequestCancellation = status != ModalityProcessStatus.MODALITY_CLOSED &&
-                                        status != ModalityProcessStatus.GRADED_APPROVED &&
-                                        status != ModalityProcessStatus.GRADED_FAILED &&
-                                        !status.name().startsWith("CANCELLED");
-
-        boolean canSubmitCorrections = (status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
-                                       status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE) &&
-                                      studentModality.getCorrectionDeadline() != null &&
-                                      LocalDateTime.now().isBefore(studentModality.getCorrectionDeadline());
-
-        boolean hasDefenseScheduled = studentModality.getDefenseDate() != null;
-
-        boolean requiresAction = canUploadDocuments || canSubmitCorrections ||
-                                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
-                                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE;
-
-        long approvedDocs = uploadedDocuments.stream()
-                .filter(d -> d.getStatus() == DocumentStatus.ACCEPTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW)
-                .count();
-        long pendingDocs = uploadedDocuments.stream()
-                .filter(d -> d.getStatus() == DocumentStatus.PENDING ||
-                            d.getStatus() == DocumentStatus.ACCEPTED_FOR_PROGRAM_HEAD_REVIEW ||
-                            d.getStatus() == DocumentStatus.CORRECTION_RESUBMITTED)
-                .count();
-        long rejectedDocs = uploadedDocuments.stream()
-                .filter(d -> d.getStatus() == DocumentStatus.REJECTED_FOR_PROGRAM_HEAD_REVIEW ||
-                            d.getStatus() == DocumentStatus.REJECTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW)
-                .count();
+        long approvedDocs = countApprovedDocs(uploadedDocuments);
+        long pendingDocs = countPendingDocs(uploadedDocuments);
+        long rejectedDocs = countRejectedDocs(uploadedDocuments);
 
         User projectDirector = studentModality.getProjectDirector();
+        ModalityProcessStatus status = studentModality.getStatus();
 
         return StudentModalityDTO.builder()
                 .studentId(student.getId())
@@ -275,11 +300,11 @@ public class StudentModalityListingService {
 
                 .history(history)
 
-                .canUploadDocuments(canUploadDocuments)
-                .canRequestCancellation(canRequestCancellation)
-                .canSubmitCorrections(canSubmitCorrections)
-                .hasDefenseScheduled(hasDefenseScheduled)
-                .requiresAction(requiresAction)
+                .canUploadDocuments(flags.canUploadDocuments())
+                .canRequestCancellation(flags.canRequestCancellation())
+                .canSubmitCorrections(flags.canSubmitCorrections())
+                .hasDefenseScheduled(flags.hasDefenseScheduled())
+                .requiresAction(flags.requiresAction())
 
                 .build();
     }
@@ -300,27 +325,7 @@ public class StudentModalityListingService {
         StudentProfile studentProfile = studentProfileRepository.findByUserId(student.getId())
                 .orElse(null);
 
-        List<ModalityProcessStatusHistory> historyEntities =
-                historyRepository.findByStudentModalityIdOrderByChangeDateAsc(
-                        studentModality.getId()
-                );
-
-        // Ordenar el historial de más reciente a más antiguo
-        List<ModalityStatusHistoryDTO> history = historyEntities.stream()
-                .map(h -> ModalityStatusHistoryDTO.builder()
-                        .status(h.getStatus().name())
-                        .description(ModalityServiceUtils.describeModalityStatus(h.getStatus()))
-                        .changeDate(h.getChangeDate())
-                        .responsible(
-                                h.getResponsible() != null
-                                        ? h.getResponsible().getEmail()
-                                        : "Sistema"
-                        )
-                        .observations(h.getObservations())
-                        .build()
-                )
-                .sorted((h1, h2) -> h2.getChangeDate().compareTo(h1.getChangeDate())) // Más reciente arriba
-                .toList();
+        List<ModalityStatusHistoryDTO> history = buildStatusHistory(studentModality.getId());
 
         List<StudentDocument> documents = studentDocumentRepository
                 .findByStudentModalityId(studentModality.getId());
@@ -340,49 +345,15 @@ public class StudentModalityListingService {
                 )
                 .toList();
 
-        long approvedDocs = documents.stream()
-                .filter(d -> d.getStatus() == DocumentStatus.ACCEPTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW)
-                .count();
-        long pendingDocs = documents.stream()
-                .filter(d -> d.getStatus() == DocumentStatus.PENDING ||
-                        d.getStatus() == DocumentStatus.ACCEPTED_FOR_PROGRAM_HEAD_REVIEW ||
-                        d.getStatus() == DocumentStatus.CORRECTION_RESUBMITTED)
-                .count();
-        long rejectedDocs = documents.stream()
-                .filter(d -> d.getStatus() == DocumentStatus.REJECTED_FOR_PROGRAM_HEAD_REVIEW ||
-                        d.getStatus() == DocumentStatus.REJECTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW)
-                .count();
+        long approvedDocs = countApprovedDocs(documents);
+        long pendingDocs = countPendingDocs(documents);
+        long rejectedDocs = countRejectedDocs(documents);
 
-        Long daysRemaining = null;
-        if (studentModality.getCorrectionDeadline() != null) {
-            daysRemaining = ChronoUnit.DAYS.between(
-                    LocalDateTime.now(),
-                    studentModality.getCorrectionDeadline()
-            );
-        }
+        Long daysRemaining = calculateDaysRemaining(studentModality);
+
+        StatusFlags flags = computeStatusFlags(studentModality);
 
         ModalityProcessStatus status = studentModality.getStatus();
-        boolean canUploadDocuments = status == ModalityProcessStatus.MODALITY_SELECTED ||
-                status == ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD ||
-                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
-                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE;
-
-        boolean canRequestCancellation = status != ModalityProcessStatus.MODALITY_CLOSED &&
-                status != ModalityProcessStatus.GRADED_APPROVED &&
-                status != ModalityProcessStatus.GRADED_FAILED &&
-                !status.name().startsWith("CANCELLED");
-
-        boolean canSubmitCorrections = (status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
-                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE) &&
-                studentModality.getCorrectionDeadline() != null &&
-                LocalDateTime.now().isBefore(studentModality.getCorrectionDeadline());
-
-        boolean hasDefenseScheduled = studentModality.getDefenseDate() != null;
-
-        boolean requiresAction = canUploadDocuments || canSubmitCorrections ||
-                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
-                status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE;
-
         User projectDirector = studentModality.getProjectDirector();
         String defenseProposedBy = null;
         if (status == ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR) {
@@ -445,11 +416,11 @@ public class StudentModalityListingService {
 
                         .history(history)
 
-                        .canUploadDocuments(canUploadDocuments)
-                        .canRequestCancellation(canRequestCancellation)
-                        .canSubmitCorrections(canSubmitCorrections)
-                        .hasDefenseScheduled(hasDefenseScheduled)
-                        .requiresAction(requiresAction)
+                        .canUploadDocuments(flags.canUploadDocuments())
+                        .canRequestCancellation(flags.canRequestCancellation())
+                        .canSubmitCorrections(flags.canSubmitCorrections())
+                        .hasDefenseScheduled(flags.hasDefenseScheduled())
+                        .requiresAction(flags.requiresAction())
 
                         .build();
     }
@@ -508,23 +479,6 @@ public class StudentModalityListingService {
                             boolean pending =
                                     status == ModalityProcessStatus.MODALITY_SELECTED ||
                                             status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD;
-
-                            // Obtener todos los miembros activos de la modalidad
-                            List<StudentModalityMember> activeMembers =
-                                studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                                    sm.getId(),
-                                    MemberStatus.ACTIVE
-                                );
-
-                            // Concatenar nombres de los miembros (solo nombres, no apellidos)
-                            String studentNames = activeMembers.stream()
-                                    .map(member -> member.getStudent().getName() + " " + member.getStudent().getLastName())
-                                    .collect(Collectors.joining(", "));
-
-                            // Concatenar emails de los miembros
-                            String studentEmails = activeMembers.stream()
-                                    .map(member -> member.getStudent().getEmail())
-                                    .collect(Collectors.joining(", "));
 
                             return toModalityList(sm, status, pending);
                         })
@@ -590,23 +544,6 @@ public class StudentModalityListingService {
                                             status == ModalityProcessStatus.UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE ||
                                             status == ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR;
 
-                            // Obtener todos los miembros activos de la modalidad
-                            List<StudentModalityMember> activeMembers =
-                                    studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                                            sm.getId(),
-                                            MemberStatus.ACTIVE
-                                    );
-
-                            // Concatenar nombres de los miembros (solo nombres, no apellidos)
-                            String studentNames = activeMembers.stream()
-                                    .map(member -> member.getStudent().getName() + " " + member.getStudent().getLastName())
-                                    .collect(Collectors.joining(", "));
-
-                            // Concatenar emails de los miembros
-                            String studentEmails = activeMembers.stream()
-                                    .map(member -> member.getStudent().getEmail())
-                                    .collect(Collectors.joining(", "));
-
                             return toModalityList(sm, status, pending);
                         })
                         .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
@@ -657,23 +594,6 @@ public class StudentModalityListingService {
                             status == ModalityProcessStatus.PROPOSAL_APPROVED ||
                             status == ModalityProcessStatus.CANCELLATION_REQUESTED;
 
-                    // Obtener todos los miembros activos de la modalidad
-                    List<StudentModalityMember> activeMembers =
-                            studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                                    sm.getId(),
-                                    MemberStatus.ACTIVE
-                            );
-
-                    // Concatenar nombres de los miembros (solo nombres, no apellidos)
-                    String studentNames = activeMembers.stream()
-                            .map(member -> member.getStudent().getName() + " " + member.getStudent().getLastName())
-                            .collect(Collectors.joining(", "));
-
-                    // Concatenar emails de los miembros
-                    String studentEmails = activeMembers.stream()
-                            .map(member -> member.getStudent().getEmail())
-                            .collect(Collectors.joining(", "));
-
                     return toModalityList(sm, status, pending);
                 })
                 .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
@@ -719,23 +639,6 @@ public class StudentModalityListingService {
 
                     boolean pending =
                             status == ModalityProcessStatus.DEFENSE_SCHEDULED;
-
-                    // Obtener todos los miembros activos de la modalidad
-                    List<StudentModalityMember> activeMembers =
-                            studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                                    sm.getId(),
-                                    MemberStatus.ACTIVE
-                            );
-
-                    // Concatenar nombres de los miembros (solo nombres, no apellidos)
-                    String studentNames = activeMembers.stream()
-                            .map(member -> member.getStudent().getName() + " " + member.getStudent().getLastName())
-                            .collect(Collectors.joining(", "));
-
-                    // Concatenar emails de los miembros
-                    String studentEmails = activeMembers.stream()
-                            .map(member -> member.getStudent().getEmail())
-                            .collect(Collectors.joining(", "));
 
                     return toModalityList(sm, status, pending);
                 })

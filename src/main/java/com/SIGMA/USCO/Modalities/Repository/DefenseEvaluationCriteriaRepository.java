@@ -15,6 +15,9 @@ public interface DefenseEvaluationCriteriaRepository extends JpaRepository<Defen
     /** Busca la evaluación de un jurado específico por su defenseExaminer ID */
     Optional<DefenseEvaluationCriteria> findByDefenseExaminerId(Long defenseExaminerId);
 
+    /** Busca la evaluación de varios jurados a la vez (batch) */
+    List<DefenseEvaluationCriteria> findByDefenseExaminerIdIn(List<Long> defenseExaminerIds);
+
     /** Verifica si ya existe evaluación para un defenseExaminer */
     boolean existsByDefenseExaminerId(Long defenseExaminerId);
 

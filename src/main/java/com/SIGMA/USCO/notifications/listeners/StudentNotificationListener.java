@@ -35,6 +35,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.Function;
 
 @Component
 @RequiredArgsConstructor
@@ -108,125 +109,83 @@ public class StudentNotificationListener {
                 event.get(ModalityEvent.KEY_STUDENT_DOCUMENT_ID, Long.class)
         ).orElseThrow();
         StudentModality modality = document.getStudentModality();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String subject = "Correcciones solicitadas en documento académico – Acción requerida";
         NotificationRecipientType requestedBy = event.get(ModalityEvent.KEY_REQUESTED_BY, NotificationRecipientType.class);
         String observations = event.get(ModalityEvent.KEY_OBSERVATIONS, String.class);
-        for (var member : members) {
-            User student = member.getStudent();
-
-            String requestedByText;
-            if (requestedBy == NotificationRecipientType.PROGRAM_HEAD) {
-                requestedByText = "la Jefatura de Programa y/o Coordinación de Modalidades";
-            } else if (requestedBy == NotificationRecipientType.EXAMINER) {
-                requestedByText = "un jurado evaluador";
-            } else {
-                requestedByText = "el Comité de Currículo del Programa";
-            }
-
-            String message = NotificationMessageTemplates.correctionsRequested(
-                    student.getName(),
-                    requestedByText,
-                    document.getDocumentConfig().getDocumentName(),
-                    observations != null && !observations.isBlank()
-                            ? observations
-                            : "No se registraron observaciones adicionales."
-            );
-            notificationFactory.buildAndDispatch(NotificationType.DOCUMENT_CORRECTIONS_REQUESTED, NotificationRecipientType.STUDENT, student, modality, subject, message);
-
+        String requestedByText;
+        if (requestedBy == NotificationRecipientType.PROGRAM_HEAD) {
+            requestedByText = "la Jefatura de Programa y/o Coordinación de Modalidades";
+        } else if (requestedBy == NotificationRecipientType.EXAMINER) {
+            requestedByText = "un jurado evaluador";
+        } else {
+            requestedByText = "el Comité de Currículo del Programa";
         }
+        String resolvedObservations = observations != null && !observations.isBlank()
+                ? observations
+                : "No se registraron observaciones adicionales.";
+        dispatchToActiveMembers(modality, NotificationType.DOCUMENT_CORRECTIONS_REQUESTED, null, subject,
+                student -> NotificationMessageTemplates.correctionsRequested(
+                        student.getName(),
+                        requestedByText,
+                        document.getDocumentConfig().getDocumentName(),
+                        resolvedObservations
+                ));
     }
 
 
     private void handleCancellationRequested(ModalityEvent event) {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                sm.getId(),
-                MemberStatus.ACTIVE
-        );
         String subject = "Solicitud de cancelación registrada – Modalidad de grado";
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
-        for (var member : members) {
-            User student = member.getStudent();
-            String message = NotificationMessageTemplates.cancellationRequested(student.getName(), modalidadInfo);
-            notificationFactory.buildAndDispatch(NotificationType.MODALITY_CANCELLATION_REQUESTED, NotificationRecipientType.STUDENT, student, sm, subject, message);
-
-        }
+        dispatchToActiveMembers(sm, NotificationType.MODALITY_CANCELLATION_REQUESTED, null, subject,
+                student -> NotificationMessageTemplates.cancellationRequested(student.getName(), modalidadInfo));
     }
 
 
     private void handleCancellationApproved(ModalityEvent event) {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                sm.getId(),
-                MemberStatus.ACTIVE
-        );
         String subject = "Cancelación aprobada – Modalidad de grado";
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
-        for (var member : members) {
-            User student = member.getStudent();
-            String message = NotificationMessageTemplates.cancellationApproved(student.getName(), modalidadInfo);
-            notificationFactory.buildAndDispatch(NotificationType.MODALITY_CANCELLATION_APPROVED, NotificationRecipientType.STUDENT, student, sm, subject, message);
-
-        }
+        dispatchToActiveMembers(sm, NotificationType.MODALITY_CANCELLATION_APPROVED, null, subject,
+                student -> NotificationMessageTemplates.cancellationApproved(student.getName(), modalidadInfo));
     }
 
 
     private void handleCancellationRejected(ModalityEvent event) {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                sm.getId(),
-                MemberStatus.ACTIVE
-        );
         String subject = "Cancelación no aprobada – Modalidad de grado";
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
         String reason = event.get(ModalityEvent.KEY_REASON, String.class);
-        for (var member : members) {
-            User student = member.getStudent();
-            String message = NotificationMessageTemplates.cancellationRejected(
-                    student.getName(),
-                    modalidadInfo,
-                    reason != null && !reason.isBlank()
-                            ? reason
-                            : "No se especifican motivos adicionales."
-            );
-            notificationFactory.buildAndDispatch(NotificationType.MODALITY_CANCELLATION_REJECTED, NotificationRecipientType.STUDENT, student, sm, subject, message);
-
-        }
+        String resolvedReason = reason != null && !reason.isBlank()
+                ? reason
+                : "No se especifican motivos adicionales.";
+        dispatchToActiveMembers(sm, NotificationType.MODALITY_CANCELLATION_REJECTED, null, subject,
+                student -> NotificationMessageTemplates.cancellationRejected(student.getName(), modalidadInfo, resolvedReason));
     }
 
 
     private void handleDefenseScheduled(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         User director = modality.getProjectDirector();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String studentSubject = "Sustentación programada – Modalidad de Grado";
         Object defenseDate = event.get(ModalityEvent.KEY_DEFENSE_DATE, Object.class);
         String defenseLocation = event.get(ModalityEvent.KEY_DEFENSE_LOCATION, String.class);
-        for (var member : members) {
-            User student = member.getStudent();
-            String studentMessage = NotificationMessageTemplates.defenseScheduled(
-                    student.getName(),
-                    modalidadInfo,
-                    String.valueOf(defenseDate),
-                    defenseLocation,
-                    director != null
-                            ? director.getName() + " " + director.getLastName()
-                            : "No asignado"
-            );
-            notificationFactory.buildAndDispatch(NotificationType.DEFENSE_SCHEDULED, NotificationRecipientType.STUDENT, student, modality, studentSubject, studentMessage);
-
-        }
+        String directorName = director != null
+                ? director.getName() + " " + director.getLastName()
+                : "No asignado";
+        String defenseDateText = String.valueOf(defenseDate);
+        dispatchToActiveMembers(modality, NotificationType.DEFENSE_SCHEDULED, null, studentSubject,
+                student -> NotificationMessageTemplates.defenseScheduled(
+                        student.getName(),
+                        modalidadInfo,
+                        defenseDateText,
+                        defenseLocation,
+                        directorName
+                ));
     }
 
 
@@ -235,23 +194,16 @@ public class StudentNotificationListener {
                 .orElseThrow();
         User director = userRepository.findById(event.get(ModalityEvent.KEY_DIRECTOR_ID, Long.class))
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String studentSubject = "Director de proyecto asignado – Modalidad de grado";
-        for (var member : members) {
-            User student = member.getStudent();
-            String studentMessage = NotificationMessageTemplates.directorAssigned(
-                    student.getName(),
-                    modalidadInfo,
-                    director.getName() + " " + director.getLastName(),
-                    director.getEmail()
-            );
-            notificationFactory.buildAndDispatch(NotificationType.DIRECTOR_ASSIGNED, NotificationRecipientType.STUDENT, student, modality, studentSubject, studentMessage);
-
-        }
+        String directorFullName = director.getName() + " " + director.getLastName();
+        dispatchToActiveMembers(modality, NotificationType.DIRECTOR_ASSIGNED, null, studentSubject,
+                student -> NotificationMessageTemplates.directorAssigned(
+                        student.getName(),
+                        modalidadInfo,
+                        directorFullName,
+                        director.getEmail()
+                ));
     }
 
 
@@ -270,9 +222,7 @@ public class StudentNotificationListener {
                 : "Resultado final de sustentación – Modalidad aprobada")
                 : "Resultado final de sustentación – Modalidad no aprobada";
 
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(), MemberStatus.ACTIVE
-        );
+        List<StudentModalityMember> members = activeMembers(modality);
 
         if (members == null || members.isEmpty()) {
             StudentModalityMember syntheticLeaderMember = StudentModalityMember.builder()
@@ -379,59 +329,41 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleModalityApprovedByCommittee(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Modalidad de grado aprobada – Comité de Currículo";
-        for (var member : members) {
-            User student = member.getStudent();
-            String message = NotificationMessageTemplates.modalityApprovedByCommittee(
-                    student.getName(),
-                    modalidadInfo,
-                    modality.getProjectDirector() != null
-                            ? modality.getProjectDirector().getName() + " " +
-                            modality.getProjectDirector().getLastName()
-                            : "No se registra director asignado.",
-                    String.valueOf(modality.getUpdatedAt())
-            );
-            notificationFactory.buildAndDispatch(NotificationType.MODALITY_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE, NotificationRecipientType.STUDENT, student, modality, subject, message);
-
-        }
+        String directorName = modality.getProjectDirector() != null
+                ? modality.getProjectDirector().getName() + " " +
+                modality.getProjectDirector().getLastName()
+                : "No se registra director asignado.";
+        String approvalDate = String.valueOf(modality.getUpdatedAt());
+        dispatchToActiveMembers(modality, NotificationType.MODALITY_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE, null, subject,
+                student -> NotificationMessageTemplates.modalityApprovedByCommittee(
+                        student.getName(),
+                        modalidadInfo,
+                        directorName,
+                        approvalDate
+                ));
     }
 
 
     private void handleModalityApprovedByProgramHead(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Modalidad de grado aprobada – Jefatura de Programa y/o Coordinación de Modalidades";
-        for (var member : members) {
-            User student = member.getStudent();
-            String message = NotificationMessageTemplates.modalityApprovedByProgramHead(student.getName(), modalidadInfo);
-            notificationFactory.buildAndDispatch(NotificationType.MODALITY_APPROVED_BY_PROGRAM_HEAD, NotificationRecipientType.STUDENT, student, modality, subject, message);
-
-        }
+        dispatchToActiveMembers(modality, NotificationType.MODALITY_APPROVED_BY_PROGRAM_HEAD, null, subject,
+                student -> NotificationMessageTemplates.modalityApprovedByProgramHead(student.getName(), modalidadInfo));
     }
 
 
     private void handleCorrectionDeadlineReminder(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         Integer daysRemaining = event.get(ModalityEvent.KEY_DAYS_REMAINING, Integer.class, 0);
         Object deadline = event.get(ModalityEvent.KEY_DEADLINE, Object.class);
         String subject = "Recordatorio oficial – Plazo de correcciones (%d días restantes)"
                 .formatted(daysRemaining);
-        for (var member : members) {
+        for (var member : activeMembers(modality)) {
             User student = member.getStudent();
             String message = NotificationMessageTemplates.correctionDeadlineReminder(
                     student.getName(),
@@ -449,14 +381,10 @@ if (shouldSendCertificate && pdfPath != null) {
     private void handleCorrectionDeadlineExpired(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Cancelación automática de modalidad por vencimiento de plazo";
         Object requestDate = event.get(ModalityEvent.KEY_REQUEST_DATE, Object.class);
-        for (var member : members) {
+        for (var member : activeMembers(modality)) {
             User student = member.getStudent();
             String message = NotificationMessageTemplates.correctionDeadlineExpired(
                     student.getName(),
@@ -473,14 +401,10 @@ if (shouldSendCertificate && pdfPath != null) {
     private void handleCorrectionResubmitted(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Documento corregido recibido";
         String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
-        for (var member : members) {
+        for (var member : activeMembers(modality)) {
             User student = member.getStudent();
             String message = NotificationMessageTemplates.correctionResubmitted(
                     student.getName(),
@@ -498,14 +422,10 @@ if (shouldSendCertificate && pdfPath != null) {
     private void handleCorrectionApproved(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Correcciones aprobadas";
         String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
-        for (var member : members) {
+        for (var member : activeMembers(modality)) {
             User student = member.getStudent();
             String message = NotificationMessageTemplates.correctionApproved(
                     student.getName(),
@@ -522,23 +442,20 @@ if (shouldSendCertificate && pdfPath != null) {
     private void handleCorrectionRejectedFinal(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Cancelación de modalidad por rechazo definitivo de correcciones";
         String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
         String reason = event.get(ModalityEvent.KEY_REASON, String.class);
-        for (var member : members) {
+        String resolvedReason = reason != null && !reason.isBlank()
+                ? reason
+                : "No se registran motivos adicionales.";
+        for (var member : activeMembers(modality)) {
             User student = member.getStudent();
             String message = NotificationMessageTemplates.correctionRejectedFinal(
                     student.getName(),
                     modalidadInfo,
                     documentName,
-                    reason != null && !reason.isBlank()
-                            ? reason
-                            : "No se registran motivos adicionales."
+                    resolvedReason
             );
             notificationFactory.buildAndDispatch(NotificationType.CORRECTION_REJECTED_FINAL, NotificationRecipientType.STUDENT,
                     student, modality, subject, message
@@ -554,25 +471,24 @@ if (shouldSendCertificate && pdfPath != null) {
                 .orElseThrow();
         User committeeMember = userRepository.findById(event.get(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, Long.class))
                 .orElseThrow();
-        var members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                modality.getId(),
-                MemberStatus.ACTIVE
-        );
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Cierre de modalidad por decisión del Comité de Currículo";
         String reason = event.get(ModalityEvent.KEY_REASON, String.class);
-        for (var member : members) {
+        String resolvedReason = reason != null && !reason.isBlank()
+                ? reason
+                : "No se registran motivos adicionales.";
+        String decisionDate = LocalDateTime.now().toString();
+        String programName = modality.getAcademicProgram().getName();
+        for (var member : activeMembers(modality)) {
             User student = member.getStudent();
             String message = NotificationMessageTemplates.modalityClosedByCommittee(
                     student.getName(),
                     modalidadInfo,
-                    modality.getAcademicProgram().getName(),
+                    programName,
                     committeeMember.getName(),
                     committeeMember.getLastName(),
-                    LocalDateTime.now().toString(),
-                    reason != null && !reason.isBlank()
-                            ? reason
-                            : "No se registran motivos adicionales."
+                    decisionDate,
+                    resolvedReason
             );
             notificationFactory.buildAndDispatch(NotificationType.MODALITY_CLOSED_BY_COMMITTEE, NotificationRecipientType.STUDENT,
                     student, committeeMember, modality, subject, message
@@ -702,8 +618,7 @@ if (shouldSendCertificate && pdfPath != null) {
         User committeeMember = userRepository.findById(event.get(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Miembro del comité no encontrado"));
 
-        List<StudentModalityMember> activeMembers = studentModalityMemberRepository
-                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+        List<StudentModalityMember> members = activeMembers(modality);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
@@ -723,7 +638,7 @@ if (shouldSendCertificate && pdfPath != null) {
 
         String observations = event.get(ModalityEvent.KEY_OBSERVATIONS, String.class);
 
-        for (StudentModalityMember memberEntry : activeMembers) {
+        for (StudentModalityMember memberEntry : members) {
             User student = memberEntry.getStudent();
 
             String message = NotificationMessageTemplates.modalityFinalApprovedByCommittee(
@@ -872,38 +787,25 @@ if (pdfPath != null) {
                 .findById(event.get(ModalityEvent.KEY_EXAMINER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Jurado no encontrado"));
 
-        var members = studentModalityMemberRepository
-                .findByStudentModalityIdAndStatus(
-                        modality.getId(),
-                        MemberStatus.ACTIVE
-                );
-
         String subject = "Notificación oficial – Modalidad aprobada por jurado evaluador";
 
         String modalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
+        String programName = modality.getAcademicProgram().getName();
+        String approvalDate = LocalDateTime.now().toString();
 
-        for (var member : members) {
-            User student = member.getStudent();
-
-            String personalizedMessage = NotificationMessageTemplates.modalityApprovedByExaminers(
-                    student.getName(),
-                    modalityName,
-                    modality.getAcademicProgram().getName(),
-                    LocalDateTime.now().toString()
-            );
-
-            notificationFactory.buildAndDispatch(NotificationType.MODALITY_APPROVED_BY_EXAMINERS, NotificationRecipientType.STUDENT,
-                    student, examiner, modality, subject, personalizedMessage
-            );
-
-        }
+        dispatchToActiveMembers(modality, NotificationType.MODALITY_APPROVED_BY_EXAMINERS, examiner, subject,
+                student -> NotificationMessageTemplates.modalityApprovedByExaminers(
+                        student.getName(),
+                        modalityName,
+                        programName,
+                        approvalDate
+                ));
     }
 
 
     private void handleExaminersAssigned(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
         List<DefenseExaminer> examiners = modality.getDefenseExaminers();
         String jurados = examiners.stream()
                 .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + TranslationUtils.translateExaminerType(e.getExaminerType()) + ")")
@@ -913,31 +815,23 @@ if (pdfPath != null) {
                 .toList());
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Asignación de jurados evaluadores a tu modalidad de grado";
+        String programName = modality.getProgramDegreeModality().getAcademicProgram().getName();
+        String assignmentDate = LocalDateTime.now().toString();
 
-        for (StudentModalityMember member : members) {
-            User student = member.getStudent();
-            String message = NotificationMessageTemplates.examinersAssigned(
-                    student.getName() + " " + student.getLastName(),
-                    modalidadInfo,
-                    modality.getProgramDegreeModality().getAcademicProgram().getName(),
-                    jurados,
-                    LocalDateTime.now().toString()
-            );
-
-            notificationFactory.buildAndDispatch(NotificationType.EXAMINER_ASSIGNED, NotificationRecipientType.STUDENT,
-                    student, modality, subject, message
-            );
-
-        }
+        dispatchToActiveMembers(modality, NotificationType.EXAMINER_ASSIGNED, null, subject,
+                student -> NotificationMessageTemplates.examinersAssigned(
+                        student.getName() + " " + student.getLastName(),
+                        modalidadInfo,
+                        programName,
+                        jurados,
+                        assignmentDate
+                ));
     }
 
 
     private void handleDocumentEditResolved(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
-
-        List<StudentModalityMember> members = studentModalityMemberRepository
-                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
 
         boolean approved = Boolean.TRUE.equals(event.get(ModalityEvent.KEY_APPROVED, Boolean.class));
         NotificationType type = approved ? NotificationType.DOCUMENT_EDIT_APPROVED : NotificationType.DOCUMENT_EDIT_REJECTED;
@@ -947,21 +841,14 @@ if (pdfPath != null) {
 
         String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
         String resolutionNotes = event.get(ModalityEvent.KEY_RESOLUTION_NOTES, String.class);
+        String resolutionText = resolutionNotes != null && !resolutionNotes.isBlank()
+                ? resolutionNotes
+                : "No se registran observaciones adicionales.";
 
-        for (StudentModalityMember member : members) {
-            User student = member.getStudent();
-            String resolutionText = resolutionNotes != null && !resolutionNotes.isBlank()
-                    ? resolutionNotes
-                    : "No se registran observaciones adicionales.";
-            String message = approved
-                    ? NotificationMessageTemplates.documentEditApproved(student.getName(), documentName, resolutionText)
-                    : NotificationMessageTemplates.documentEditRejected(student.getName(), documentName, resolutionText);
-
-            notificationFactory.buildAndDispatch(type, NotificationRecipientType.STUDENT,
-                    student, modality, subject, message
-            );
-
-        }
+        dispatchToActiveMembers(modality, type, null, subject,
+                student -> approved
+                        ? NotificationMessageTemplates.documentEditApproved(student.getName(), documentName, resolutionText)
+                        : NotificationMessageTemplates.documentEditRejected(student.getName(), documentName, resolutionText));
     }
 
 
@@ -970,6 +857,19 @@ if (pdfPath != null) {
         boolean hasExaminers = modality.getDefenseExaminers() != null && !modality.getDefenseExaminers().isEmpty();
         boolean hasDirector = modality.getProjectDirector() != null;
         return hasDefenseDate || hasExaminers || hasDirector;
+    }
+
+    private List<StudentModalityMember> activeMembers(StudentModality modality) {
+        return studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+    }
+
+    private void dispatchToActiveMembers(StudentModality modality, NotificationType type, User triggeredBy,
+                                         String subject, Function<User, String> message) {
+        for (StudentModalityMember member : activeMembers(modality)) {
+            User student = member.getStudent();
+            notificationFactory.buildAndDispatch(type, NotificationRecipientType.STUDENT, student, triggeredBy,
+                    modality, subject, message.apply(student));
+        }
     }
 
 }

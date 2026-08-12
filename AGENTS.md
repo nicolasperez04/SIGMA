@@ -284,3 +284,85 @@ Implementación de los 6 bloques del plan. Estado verificado contra el código.
 - 6 `RuntimeException` en `DocumentEditRequestService` (:160,:225,:354,:660,:811,:952) — mismo patrón 1.2; migrar si se quiere.
 - `StudentService:175` / `StudentModalityListingService:1243` : `ValidationException(e.getMessage())` pre-existentes (leak acotado, 400).
 - `ValidationException` en `StudentModalityListingService:1246`, `SeminarModalityService` (10 bloques), `DocumentEditRequestService:1068`, `DocumentService:322` — fallbacks catch-all genéricos (patrón 1.2 documentado).
+
+## Fase 3 — Report: datos y consultas (DONE 8/2026)
+
+### Correcciones a premisas (verificadas con explore + lectura directa)
+- **8 `findAll()`** (no 6) y **~30 loops N+1** (no ~19).
+- El doble `findAll()` NO está en `ModalityHistoricalPdfGenerator` (los 8 PDF son renderers puros, no tocan BD) sino en `HistoricalReportService:53+:474` y `ComparisonReportService` (1+N por periodo histórico).
+- `@Transactional(readOnly = true)`: **los 10 services ya lo tenían por método (14/14)** — el ítem "solo falta CompletedModalitiesReportService" era falso → no-op.
+
+### Bloque A — Fundación batch (3 repos + ReportUtils)
+- Nuevos métodos: `StudentModalityMemberRepository.findByStudentModalityIdInAndStatus`, `DefenseExaminerRepository.findByStudentModalityIdIn` (@Query con ORDER BY examinerType), `DefenseEvaluationCriteriaRepository.findByDefenseExaminerIdIn`.
+- `ReportUtils` (nuevos helpers estáticos): `loadActiveMembersByModalityIds` → `Map<Long,List<Member>>`, `loadProfilesByUserIds` → `Map<Long,StudentProfile>` (clave = id del perfil = userId vía @MapsId), `loadExaminersByModalityIds`, `loadCriteriaByExaminerIds` + overload `buildStudentInfos(members, Map)`. El `buildStudentInfos(members, repo)` original ahora batchea internamente (`findAllByUserIdIn` ya existía).
+
+### Bloque B — `findAll()` → `findForProgramHead` (push-down del filtro por programa)
+- 7 sitios: `GlobalReportService:112,165`, `HistoricalReportService:52`, `DefenseCalendarReportService:64`, `DirectorAssignedModalitiesReportService:145` (branch onlyActive=false), `StudentListingReportService:52`, `CompletedModalitiesReportService:51`. Los **globales** (`StudentReportService`/`DirectorReportService`, filtro por tipo sin programa) NO se tocaron.
+- Regla conservadora: se CONSERVA el filtro en memoria por programa (inofensivo; evita drift si `academicProgram` y `programDegreeModality.academicProgram` divergieran). Ambos campos son `optional=false` en la entidad → `findForProgramHead` nunca excluye filas válidas.
+- `findByIdWithMembers` (JOIN FETCH members, 0 callers) ACTIVADO en `ModalityTraceabilityReportService:52`.
+
+### Bloque C — Cargas duplicadas eliminadas
+- `HistoricalReportService.calculateRankingPosition` YA NO relee la tabla: recibe `programModalities` (carga única vía `findForProgramHead`) → 1 scan por request.
+- `ComparisonReportService`: `getModalitiesForComparison` carga UNA vez y el loop de periodos filtra en memoria (1+N → 1).
+
+### Bloque D — N+1 eliminados (miembros: 21 sitios → 1 query por sección)
+- Members: `loadActiveMembersByModalityIds` + `getOrDefault(id, List.of())` en los 9 services.
+- Perfiles: `findByUserId`/`findById` por miembro → `loadProfilesByUserIds` (batched).
+- Jurados/criterios: `DefenseCalendarReportService:162,287,290,546,580` → `loadExaminersByModalityIds`/`loadCriteriaByExaminerIds` (mata el flatMap N+1 de toda la tabla en `buildExaminerAnalysis`).
+- Campo muerto `userRepository` ELIMINADO de `DefenseCalendarReportService`.
+- Único `findByStudentModalityId(` restante en report = `ModalityTraceabilityReportService:178` (single-modality, legítimo).
+
+### Bloque E — Counts en memoria + bug fix pre-existente
+- `countByStudentModalityIdAndStatus` → `membersByModality.getOrDefault(id, List.of()).size()`.
+- `countActiveModalitiesByLeader(directorId, ...)` consultaba `sm.leader.id` (líder estudiante) pero recibía un **id de director** → contaba ~0 (bug pre-existente). Reemplazo en memoria por `sm.getProjectDirector().getId().equals(...)` + `getActiveStatuses().contains(status)`. ⚠️ **Cambio de salida**: ahora `activeProjectsCount`/`totalProjects` devuelven el valor real (antes ~0). Consecuencia en `DirectorReportService:56`: `totalProjects == activeProjects` (la sección solo tiene activas; `completedProjects=0` hardcodeado pre-existente). **Validar con negocio.**
+
+### Verificación (8/2026)
+- `.\mvnw.cmd -q clean compile` → EXIT=0.
+- `mvnw test -Dtest='!SigmaApplicationTests'` → 8/8 EXIT=0 (baseline).
+- Greps de cierre en report = 0: `findAll()`, `findByStudentModalityIdAndStatus`, `countActiveModalitiesByLeader`, `countByStudentModalityIdAndStatus`, `findByUserId(`, `studentProfileRepository.findById`, `findByDefenseExaminerId(`.
+- Caché: NO añadida (premisa del plan "solo si las métricas lo piden" — diferido). Medida runtime pendiente (requiere entorno vivo).
+
+### Fuera de alcance (notas)
+- `modality.getMembers()` en `DefenseCalendarReportService` (`buildStudentList`/`buildMonthlyAnalysis`) sin tocar (no es consulta por ítem).
+- `studentProfileRepository.findById` y `findByUserId` son equivalentes (@MapsId) — batch único `findAllByUserIdIn` cubre ambos.
+
+## Fase 4 — División de god classes (DONE 8/2026)
+
+### Alcance y decisiones vinculantes
+- Plan de 6 trabajos; **Trabajo 3 OMITIDO por decisión del usuario**: `GlobalModalityReportController` (1.042 líneas, 18 deps, 28 endpoints) NO se divide — sigue como está en `report/controller`.
+- **NO** se creó `ModalityStatusService` (el bean `ModalityStatusTransition` ya cumple ese rol) ni `ProgramAssignmentService` (la asignación de programa ES la autoridad).
+- Los services originales se BORRARON (sin fachadas); los endpoints públicos no cambiaron; los controllers solo se adaptaron en inyección/call sites.
+- Se verificó antes de despachar: sin colisiones de nombres para las 7 clases nuevas.
+
+### Trabajo 1 (agente) — DocumentModalityService (3.139 líneas) → 2
+- **`DocumentWorkflowService`** (~2.150 líneas, 28 métodos: flujo, aprobaciones, correcciones, rúbrica, consenso, tiebreaker, cierre; 17 campos + dep ModalityDocumentService; sin `@Slf4j`).
+- **`ModalityDocumentService`** (~800 líneas, 12 métodos: upload/view/resubmit, `checkAndUpdateModalityStatusIfAllMandatoryDocsUploaded`, 2 validadores de comité ahora públicos, `isAuthorizedForDocument`/`tryRequire`; `@Value uploadDir` viajó aquí).
+- Borrados 2 privados muertos (`checkIfAllMandatoryDocumentsAcceptedByAllExaminers`, `checkIfAllDocumentsAcceptedByAllExaminers`). `ModalityController` rewireado.
+
+### Trabajo 4 (agente) — AdminService (738 líneas) → 3
+- **`UserAdminService`** (382 líneas, 10 públicos + `toUserResponse`): roles/permisos/usuarios/`getUsers` paginado/`registerUserByAdmin`.
+- **`AuthorityAssignmentService`** (309 líneas): 8 asignaciones + `assignAuthority`/`assignAuthorityChecked` PÚBLICOS + helper nuevo `assignExaminerToPrograms(User, List<Long>) → AssignmentResult(assigned, skipped)` + record `AssignmentResult`. Los 2 loops multiprograma (assignExaminerToMultiplePrograms y registerUserByAdmin) fusionados en el helper, sin divergencia funcional.
+- **`AdminCatalogService`** (60 líneas): solo `getModalities`. `AdminController` rewireado.
+
+### Trabajo 2 (agente) — DefenseModalityService (1.799 líneas) → 2
+- **`DefenseEvaluationService`** (1.042 líneas, 8 públicos + 9 privados): `registerFinalDefenseEvaluation` entero, consenso/tiebreaker/distinciones + 4 consultores; 8 campos. El `setStatus` directo `UNDER_EVALUATION_PRIMARY_EXAMINERS` se movió con `processPrimaryExaminerEvaluation`.
+- **`DefenseWorkflowService`** (835 líneas, 10 públicos, 0 privados): schedule/approve/reschedule/assign + 3 consultores. `getPendingDefenseProposals`/`getExaminerTypeForModality` eran `@Transactional` sin readOnly y se conservaron byte-idénticos. `ModalityController` rewireado (18 call sites).
+
+### Trabajo 5 (coord.) — StudentNotificationListener (976 líneas, NO era god class)
+- Extraídos 2 helpers privados: `activeMembers(StudentModality)` (19 queries duplicadas `findByStudentModalityIdAndStatus` → 1) y `dispatchToActiveMembers(modality, type, triggeredBy, subject, Function<User,String>)` (11 loops idénticos buildAndDispatch → 1). Los 6 handlers con `log.info` per-member conservan su loop manual (usa `activeMembers`); los 2 con PDF adjunto y el de líder se mantienen byte-idénticos.
+- **NO se movieron los subjects a `NotificationMessageTemplates`** (decisión YAGNI del coordinador): son strings únicos usados 1 vez y los otros 4 listeners también los mantienen inline; moverlos = +26 métodos sin dedup.
+
+### Trabajo 6 (coord.) — StudentModalityListingService (1.274 líneas, NO era god class)
+- Dead code ELIMINADO en los 4 listados (programHead/committee/director/examiner): `activeMembers` + `studentNames` + `studentEmails` computados y descartados (toModalityList ya los recalcula y SÍ los usa) → se ahorra 1 query + 2 joins por fila.
+- Dedup de cálculos: `calculateDaysRemaining`, `computeStatusFlags` → record `StatusFlags`, `countApprovedDocs`/`countPendingDocs`/`countRejectedDocs`; el inline de historial de `getCurrentStudentModality` → `buildStatusHistory()`. **Los dos builders NO se fusionaron** (difieren en `modalityType`, `modalityId`, `defenseProposedBy` y docs — fusionar cambiaría el JSON).
+
+### Verificación (8/2026)
+- `.\mvnw.cmd -q clean compile` → EXIT=0 (fix: `status` local re-añadido en los 2 builders).
+- `mvnw test -Dtest='!SigmaApplicationTests'` → 8/8 EXIT=0.
+- Greps de cierre: `DocumentModalityService`/`DefenseModalityService`/`AdminService` = 0 en src; `GlobalModalityReportController` = 1 archivo (Work 3 omitido); `findByStudentModalityIdAndStatus` en StudentNotificationListener = 1 (el helper).
+- Smoke runtime pendiente (requiere entorno vivo con MySQL/`.env`).
+
+### Fuera de alcance (anotado)
+- `ExaminerNotificationListener` conserva 2 queries directas (79, 621) — patrón `activeMembers` aplicable si se quiere (textos inline pendientes de la Fase 2.4).
+- `DefenseWorkflowService:779-790` conserva su propio `activeMembers`/`studentNames`/`studentEmails` (es un DTO distinto del `ModalityListDTO`).
+- `DocumentEditRequestService:664` similar (modalityInfo para el correo) — no comparte shape con el listing.

@@ -1,5 +1,6 @@
 package com.SIGMA.USCO.report.service;
 
+import com.SIGMA.USCO.Modalities.Entity.DefenseEvaluationCriteria;
 import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
@@ -9,7 +10,6 @@ import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.Modalities.service.ModalityServiceUtils;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
-import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.common.util.TranslationUtils;
@@ -37,7 +37,6 @@ public class DefenseCalendarReportService {
     private final StudentModalityRepository studentModalityRepository;
     private final DefenseExaminerRepository defenseExaminerRepository;
     private final DefenseEvaluationCriteriaRepository defenseEvaluationCriteriaRepository;
-    private final UserRepository userRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
 
     /**
@@ -62,7 +61,7 @@ public class DefenseCalendarReportService {
         }
 
         // Obtener todas las modalidades del programa
-        List<StudentModality> allModalities = studentModalityRepository.findAll().stream()
+        List<StudentModality> allModalities = studentModalityRepository.findForProgramHead(List.of(program.getId())).stream()
                 .filter(m -> m.getAcademicProgram().getId().equals(program.getId()))
                 .collect(Collectors.toList());
 
@@ -160,13 +159,16 @@ public class DefenseCalendarReportService {
     }
 
     private List<UpcomingDefenseDTO> buildUpcomingDefenses(List<StudentModality> modalities) {
+        Map<Long, List<DefenseExaminer>> examinersByModality = ReportUtils.loadExaminersByModalityIds(
+                modalities.stream().map(StudentModality::getId).collect(Collectors.toList()),
+                defenseExaminerRepository);
         return modalities.stream()
-                .map(this::mapToUpcomingDefense)
+                .map(m -> mapToUpcomingDefense(m, examinersByModality))
                 .collect(Collectors.toList());
     }
 
-    private UpcomingDefenseDTO mapToUpcomingDefense(StudentModality modality) {
-        List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(modality.getId());
+    private UpcomingDefenseDTO mapToUpcomingDefense(StudentModality modality, Map<Long, List<DefenseExaminer>> examinersByModality) {
+        List<DefenseExaminer> examiners = examinersByModality.getOrDefault(modality.getId(), List.of());
         List<StudentBasicInfoDTO> students = buildStudentList(modality);
 
         long daysUntil = ChronoUnit.DAYS.between(LocalDateTime.now(), modality.getDefenseDate());
@@ -282,13 +284,25 @@ public class DefenseCalendarReportService {
     }
 
     private List<CompletedDefenseDTO> buildCompletedDefenses(List<StudentModality> modalities) {
+        Map<Long, List<DefenseExaminer>> examinersByModality = ReportUtils.loadExaminersByModalityIds(
+                modalities.stream().map(StudentModality::getId).collect(Collectors.toList()),
+                defenseExaminerRepository);
+        Map<Long, DefenseEvaluationCriteria> criteriaByExaminer = ReportUtils.loadCriteriaByExaminerIds(
+                examinersByModality.values().stream()
+                        .flatMap(List::stream)
+                        .map(DefenseExaminer::getId)
+                        .collect(Collectors.toList()),
+                defenseEvaluationCriteriaRepository);
         return modalities.stream()
-                .map(this::mapToCompletedDefense)
+                .map(m -> mapToCompletedDefense(m, examinersByModality, criteriaByExaminer))
                 .collect(Collectors.toList());
     }
 
-    private CompletedDefenseDTO mapToCompletedDefense(StudentModality modality) {
-        List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(modality.getId());
+    private CompletedDefenseDTO mapToCompletedDefense(
+            StudentModality modality,
+            Map<Long, List<DefenseExaminer>> examinersByModality,
+            Map<Long, DefenseEvaluationCriteria> criteriaByExaminer) {
+        List<DefenseExaminer> examiners = examinersByModality.getOrDefault(modality.getId(), List.of());
         List<StudentBasicInfoDTO> students = buildStudentList(modality);
 
         long daysAgo = modality.getDefenseDate() != null
@@ -305,11 +319,9 @@ public class DefenseCalendarReportService {
         Boolean allEvaluationsCompleted = true;
 
         for (DefenseExaminer examiner : examiners) {
-            Optional<com.SIGMA.USCO.Modalities.Entity.DefenseEvaluationCriteria> eval =
-                defenseEvaluationCriteriaRepository.findByDefenseExaminerId(examiner.getId());
-            
-            if (eval.isPresent()) {
-                com.SIGMA.USCO.Modalities.Entity.DefenseEvaluationCriteria evaluation = eval.get();
+            DefenseEvaluationCriteria evaluation = criteriaByExaminer.get(examiner.getId());
+
+            if (evaluation != null) {
                 evaluationsSummary.add(DefenseEvaluationSummaryDTO.builder()
                         .examinerId(examiner.getExaminer().getId())
                         .examinerName(examiner.getExaminer().getName() + " " + examiner.getExaminer().getLastName())
@@ -531,8 +543,11 @@ public class DefenseCalendarReportService {
     }
 
     private ExaminerAnalysisDTO buildExaminerAnalysis(List<StudentModality> modalities) {
+        Map<Long, List<DefenseExaminer>> examinersByModality = ReportUtils.loadExaminersByModalityIds(
+                modalities.stream().map(StudentModality::getId).collect(Collectors.toList()),
+                defenseExaminerRepository);
         List<DefenseExaminer> allExaminers = modalities.stream()
-                .flatMap(m -> defenseExaminerRepository.findByStudentModalityId(m.getId()).stream())
+                .flatMap(m -> examinersByModality.getOrDefault(m.getId(), List.of()).stream())
                 .collect(Collectors.toList());
 
         Set<Long> uniqueExaminers = allExaminers.stream()
@@ -562,12 +577,16 @@ public class DefenseCalendarReportService {
     private List<DefenseAlertDTO> buildAlerts(List<StudentModality> modalities) {
         List<DefenseAlertDTO> alerts = new ArrayList<>();
 
+        Map<Long, List<DefenseExaminer>> examinersByModality = ReportUtils.loadExaminersByModalityIds(
+                modalities.stream().map(StudentModality::getId).collect(Collectors.toList()),
+                defenseExaminerRepository);
+
         modalities.stream()
                 .filter(m -> m.getDefenseDate() != null)
                 .filter(m -> m.getDefenseDate().isAfter(LocalDateTime.now()))
                 .filter(m -> ChronoUnit.DAYS.between(LocalDateTime.now(), m.getDefenseDate()) <= 7)
                 .forEach(m -> {
-                    List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(m.getId());
+                    List<DefenseExaminer> examiners = examinersByModality.getOrDefault(m.getId(), List.of());
                     if (examiners.isEmpty()) {
                         alerts.add(DefenseAlertDTO.builder()
                                 .alertType("URGENT")

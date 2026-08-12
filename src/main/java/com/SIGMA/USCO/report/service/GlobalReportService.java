@@ -2,7 +2,6 @@ package com.SIGMA.USCO.report.service;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
@@ -110,7 +109,7 @@ public class GlobalReportService {
         String programCode = userProgram.getCode();
 
         // Obtener TODAS las modalidades del programa (en cualquier estado)
-        List<StudentModality> allModalities = studentModalityRepository.findAll()
+        List<StudentModality> allModalities = studentModalityRepository.findForProgramHead(List.of(userProgramId))
                 .stream()
                 .filter(modality -> modality.getAcademicProgram().getId().equals(userProgramId))
                 .collect(Collectors.toList());
@@ -163,7 +162,7 @@ public class GlobalReportService {
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
         // Obtener TODAS las modalidades del programa (en cualquier estado)
-        List<StudentModality> allModalities = studentModalityRepository.findAll()
+        List<StudentModality> allModalities = studentModalityRepository.findForProgramHead(List.of(userProgram.getId()))
                 .stream()
                 .filter(modality -> modality.getAcademicProgram().getId().equals(userProgram.getId()))
                 .collect(Collectors.toList());
@@ -207,11 +206,13 @@ public class GlobalReportService {
 
         int totalActiveModalities = activeModalities.size();
 
+        List<Long> modalityIds = activeModalities.stream().map(StudentModality::getId).toList();
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(modalityIds, studentModalityMemberRepository);
 
         Set<Long> uniqueStudents = new HashSet<>();
         for (StudentModality modality : activeModalities) {
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+            List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
             members.forEach(member -> uniqueStudents.add(member.getStudent().getId()));
         }
         int totalActiveStudents = uniqueStudents.size();
@@ -250,8 +251,7 @@ public class GlobalReportService {
         if (groupCount > 0) {
             long totalStudentsInGroups = activeModalities.stream()
                     .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.GROUP)
-                    .mapToLong(m -> studentModalityMemberRepository
-                            .countByStudentModalityIdAndStatus(m.getId(), MemberStatus.ACTIVE))
+                    .mapToLong(m -> membersByModality.getOrDefault(m.getId(), List.of()).size())
                     .sum();
             avgStudentsPerGroup = (double) totalStudentsInGroups / groupCount;
         }
@@ -292,26 +292,41 @@ public class GlobalReportService {
 
 
     private List<ModalityDetailReportDTO> generateModalityDetails(List<StudentModality> activeModalities) {
+        List<Long> modalityIds = activeModalities.stream().map(StudentModality::getId).toList();
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(modalityIds, studentModalityMemberRepository);
+        List<Long> allUserIds = membersByModality.values().stream()
+                .flatMap(List::stream)
+                .map(member -> member.getStudent().getId())
+                .distinct()
+                .toList();
+        Map<Long, StudentProfile> profilesByUserId = ReportUtils.loadProfilesByUserIds(allUserIds, studentProfileRepository);
+
         return activeModalities.stream()
-                .map(this::buildModalityDetail)
+                .map(modality -> buildModalityDetail(modality, membersByModality, profilesByUserId, activeModalities))
                 .sorted(Comparator.comparing(ModalityDetailReportDTO::getLastUpdate).reversed())
                 .collect(Collectors.toList());
     }
 
 
-    private ModalityDetailReportDTO buildModalityDetail(StudentModality modality) {
+    private ModalityDetailReportDTO buildModalityDetail(StudentModality modality,
+                                                       Map<Long, List<StudentModalityMember>> membersByModality,
+                                                       Map<Long, StudentProfile> profilesByUserId,
+                                                       List<StudentModality> sectionModalities) {
         // Obtener información de estudiantes
-        List<StudentModalityMember> members = studentModalityMemberRepository
-                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+        List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
 
-        List<StudentInfoDTO> students = ReportUtils.buildStudentInfos(members, studentProfileRepository);
+        List<StudentInfoDTO> students = ReportUtils.buildStudentInfos(members, profilesByUserId);
 
 
         DirectorInfoDTO director = null;
         if (modality.getProjectDirector() != null) {
             User directorUser = modality.getProjectDirector();
-            long directorActiveProjects = studentModalityRepository
-                    .countActiveModalitiesByLeader(directorUser.getId(), ReportUtils.getActiveStatuses());
+            long directorActiveProjects = sectionModalities.stream()
+                    .filter(sm -> sm.getProjectDirector() != null
+                            && sm.getProjectDirector().getId().equals(directorUser.getId())
+                            && ReportUtils.getActiveStatuses().contains(sm.getStatus()))
+                    .count();
 
             director = DirectorInfoDTO.builder()
                     .directorId(directorUser.getId())
@@ -358,6 +373,10 @@ public class GlobalReportService {
 
     private List<ProgramStatisticsDTO> generateProgramStatistics(List<StudentModality> activeModalities) {
 
+        List<Long> modalityIds = activeModalities.stream().map(StudentModality::getId).toList();
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(modalityIds, studentModalityMemberRepository);
+
         Map<Long, List<StudentModality>> modalitiesByProgram = activeModalities.stream()
                 .collect(Collectors.groupingBy(m -> m.getAcademicProgram().getId()));
 
@@ -371,8 +390,7 @@ public class GlobalReportService {
 
                     Set<Long> uniqueStudents = new HashSet<>();
                     for (StudentModality modality : programModalities) {
-                        List<StudentModalityMember> members = studentModalityMemberRepository
-                                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+                        List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
                         members.forEach(member -> uniqueStudents.add(member.getStudent().getId()));
                     }
 

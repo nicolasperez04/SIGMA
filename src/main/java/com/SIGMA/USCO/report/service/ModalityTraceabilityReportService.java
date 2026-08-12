@@ -21,7 +21,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -49,7 +49,7 @@ public class ModalityTraceabilityReportService {
     @Transactional(readOnly = true)
     public ModalityTraceabilityReportDTO generateReport(Long studentModalityId) {
 
-        StudentModality sm = studentModalityRepository.findById(studentModalityId)
+        StudentModality sm = studentModalityRepository.findByIdWithMembers(studentModalityId)
                 .orElseThrow(() -> new RuntimeException(
                         "Modalidad no encontrada con ID: " + studentModalityId));
 
@@ -136,12 +136,14 @@ public class ModalityTraceabilityReportService {
     // ─────────────────────────────────────────────────────────────────────────
 
     private List<ModalityTraceabilityReportDTO.MemberDetailDTO> buildMembers(StudentModality sm) {
-        List<StudentModalityMember> allMembers = studentModalityMemberRepository
-                .findByStudentModalityId(sm.getId());
+        List<StudentModalityMember> allMembers = sm.getMembers();
+        Map<Long, StudentProfile> profs = ReportUtils.loadProfilesByUserIds(
+                allMembers.stream().map(m -> m.getStudent().getId()).toList(),
+                studentProfileRepository);
 
         return allMembers.stream().map(m -> {
             User student = m.getStudent();
-            StudentProfile profile = studentProfileRepository.findByUserId(student.getId()).orElse(null);
+            StudentProfile profile = profs.get(student.getId());
 
             return ModalityTraceabilityReportDTO.MemberDetailDTO.builder()
                     .userId(student.getId())
@@ -174,17 +176,19 @@ public class ModalityTraceabilityReportService {
 
     private List<ModalityTraceabilityReportDTO.ExaminerDetailDTO> buildExaminers(Long modalityId) {
         List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(modalityId);
+        Map<Long, DefenseEvaluationCriteria> criteriaMap = ReportUtils.loadCriteriaByExaminerIds(
+                examiners.stream().map(DefenseExaminer::getId).toList(),
+                defenseEvaluationCriteriaRepository);
+
         return examiners.stream().map(e -> {
             String typeLabel = TranslationUtils.translateExaminerType(e.getExaminerType());
             User examiner = e.getExaminer();
             
             // Recuperar evaluación del jurado si existe
             ModalityTraceabilityReportDTO.ExaminerEvaluationDTO evaluationDTO = null;
-            Optional<DefenseEvaluationCriteria> evaluation = 
-                defenseEvaluationCriteriaRepository.findByDefenseExaminerId(e.getId());
-            
-            if (evaluation.isPresent()) {
-                DefenseEvaluationCriteria eval = evaluation.get();
+            DefenseEvaluationCriteria eval = criteriaMap.get(e.getId());
+
+            if (eval != null) {
                 evaluationDTO = ModalityTraceabilityReportDTO.ExaminerEvaluationDTO.builder()
                         .domainAndClarity(eval.getDomainAndClarity() != null ? eval.getDomainAndClarity().name() : null)
                         .synthesisAndCommunication(eval.getSynthesisAndCommunication() != null ? eval.getSynthesisAndCommunication().name() : null)

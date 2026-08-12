@@ -2,7 +2,6 @@ package com.SIGMA.USCO.report.service;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
@@ -49,7 +48,8 @@ public class CompletedModalitiesReportService {
         );
 
         List<StudentModality> completedModalities = studentModalityRepository
-                .findByStatusIn(completedStatuses).stream()
+                .findForProgramHead(List.of(userProgram.getId())).stream()
+                .filter(m -> completedStatuses.contains(m.getStatus()))
                 .filter(m -> m.getAcademicProgram().getId().equals(userProgram.getId()))
                 .collect(Collectors.toList());
 
@@ -251,14 +251,24 @@ public class CompletedModalitiesReportService {
 
         List<CompletedModalitiesReportDTO.CompletedModalityDetailDTO> details = new ArrayList<>();
 
+        List<Long> modalityIds = modalities.stream().map(StudentModality::getId).toList();
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(modalityIds, studentModalityMemberRepository);
+
+        List<Long> allUserIds = membersByModality.values().stream()
+                .flatMap(List::stream)
+                .map(member -> member.getStudent().getId())
+                .distinct()
+                .toList();
+        Map<Long, StudentProfile> profilesByUserId = ReportUtils.loadProfilesByUserIds(allUserIds, studentProfileRepository);
+
         for (StudentModality modality : modalities) {
-            List<StudentModalityMember> members = studentModalityMemberRepository
-                    .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
+            List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
 
             List<CompletedModalitiesReportDTO.StudentInfoDTO> students = new ArrayList<>();
             for (StudentModalityMember member : members) {
                 User user = member.getStudent();
-                StudentProfile profile = studentProfileRepository.findById(user.getId()).orElse(null);
+                StudentProfile profile = profilesByUserId.get(user.getId());
 
                 if (user != null) {
                     students.add(CompletedModalitiesReportDTO.StudentInfoDTO.builder()

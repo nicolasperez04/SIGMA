@@ -21,6 +21,12 @@ public interface DefenseExaminerRepository extends JpaRepository<DefenseExaminer
 
 
     @Query("SELECT de FROM DefenseExaminer de " +
+           "WHERE de.studentModality.id IN :studentModalityIds " +
+           "ORDER BY de.examinerType ASC")
+    List<DefenseExaminer> findByStudentModalityIdIn(@Param("studentModalityIds") List<Long> studentModalityIds);
+
+
+    @Query("SELECT de FROM DefenseExaminer de " +
            "WHERE de.examiner.id = :examinerId " +
            "ORDER BY de.assignmentDate DESC")
     List<DefenseExaminer> findByExaminerId(@Param("examinerId") Long examinerId);
