@@ -18,6 +18,13 @@ import com.SIGMA.USCO.Users.dto.request.PermissionDTO;
 import com.SIGMA.USCO.Users.dto.request.RegisterUserByAdminRequest;
 import com.SIGMA.USCO.Users.dto.request.RoleRequest;
 import com.SIGMA.USCO.Users.dto.request.UpdateUserRequest;
+import com.SIGMA.USCO.Users.dto.response.ExaminerAssignmentResponse;
+import com.SIGMA.USCO.Users.dto.response.ExaminerProgramItem;
+import com.SIGMA.USCO.Users.dto.response.ExaminerProgramsResponse;
+import com.SIGMA.USCO.Users.dto.response.MultipleAssignmentResponse;
+import com.SIGMA.USCO.Users.dto.response.ProgramAssignmentItem;
+import com.SIGMA.USCO.Users.dto.response.RegisterUserResponse;
+import com.SIGMA.USCO.Users.dto.response.SkippedProgramItem;
 import com.SIGMA.USCO.Users.dto.response.UserResponse;
 import com.SIGMA.USCO.Users.repository.PermissionRepository;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
@@ -30,8 +37,11 @@ import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.common.exception.ConflictException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.common.web.PaginatedResponse;
 import com.SIGMA.USCO.documents.dto.RequiredDocumentDTO;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -77,7 +87,7 @@ public class AdminService {
                         .toList();
     }
 
-    public String createRole(RoleRequest request) {
+    public void createRole(RoleRequest request) {
 
         if (roleRepository.findByName(request.getName()).isPresent()) {
             throw new ConflictException("El rol ya existe.");
@@ -96,13 +106,12 @@ public class AdminService {
                 .build();
 
         roleRepository.save(role);
-
-        return " Rol creado correctamente.";
     }
 
-    public String updateRole(Long id, RoleRequest request){
+    @Transactional
+    public void updateRole(Long id, RoleRequest request){
         Role role = roleRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Rol no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Rol no encontrado"));
 
         Optional<Role> existingRole = roleRepository.findByNameIgnoreCase(request.getName());
 
@@ -122,49 +131,41 @@ public class AdminService {
         role.setPermissions(permissions);
 
         roleRepository.save(role);
-
-        return " Rol actualizado correctamente.";
     }
 
-    public String assignRoleToUser(UpdateUserRequest request){
+    @Transactional
+    public void assignRoleToUser(UpdateUserRequest request){
 
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
         Role role = roleRepository.findById(request.getRoleId())
-                .orElseThrow(() -> new RuntimeException("Rol no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Rol no encontrado"));
 
         user.getRoles().clear();
         user.getRoles().add(role);
         user.setLastUpdateDate(LocalDateTime.now());
         userRepository.save(user);
-
-        return "Rol asignado correctamente al usuario.";
     }
 
-    public String changeUserStatus(UpdateUserRequest request){
+    @Transactional
+    public void changeUserStatus(UpdateUserRequest request){
 
         if (request.getStatus() == null) {
             throw new ValidationException("El estado debe ser ACTIVE o INACTIVE.");
         }
 
-        Status newStatus;
-        try {
-            newStatus = Status.valueOf(request.getStatus().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new ValidationException("El estado debe ser ACTIVE o INACTIVE.");
-        }
+        Status newStatus = Status.valueOf(request.getStatus().toUpperCase());
 
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
         user.setStatus(newStatus);
         user.setLastUpdateDate(LocalDateTime.now());
         userRepository.save(user);
-        return "Estado del usuario actualizado correctamente.";
-
     }
 
-    public String createPermission (PermissionDTO request){
+    @Transactional
+    public void createPermission (PermissionDTO request){
 
         if (permissionRepository.findByName(request.getName()).isPresent()) {
             throw new ConflictException("El permiso ya existe.");
@@ -175,9 +176,6 @@ public class AdminService {
                 .build();
 
         permissionRepository.save(permission);
-
-        return " Permiso creado correctamente.";
-
     }
 
     @Transactional(readOnly = true)
@@ -192,73 +190,52 @@ public class AdminService {
     }
 
     @Transactional(readOnly = true)
-    public List<UserResponse> getUsers(String status, String role, Long academicProgramId, Long facultyId, 
-                                       String name, String lastName, String email) {
+    public PaginatedResponse<UserResponse> getUsers(String status, String role, Long academicProgramId, Long facultyId, 
+                                               String name, String lastName, String email, int page, int size) {
 
-        List<User> users;
-
-        if (status == null || status.isBlank()) {
-            users = userRepository.findAll();
-        } else {
-            Status userStatus;
+        Status userStatus = null;
+        if (status != null && !status.isBlank()) {
             try {
                 userStatus = Status.valueOf(status.toUpperCase());
             } catch (IllegalArgumentException e) {
                 throw new ValidationException("Estado inválido. Use ACTIVE o INACTIVE");
             }
-            users = userRepository.findByStatus(userStatus);
         }
 
-        if (role != null && !role.isBlank()) {
-            final String roleNameUpper = role.toUpperCase();
-            users = users.stream()
-                    .filter(user -> user.getRoles().stream()
-                            .anyMatch(r -> r.getName().equalsIgnoreCase(roleNameUpper)))
-                    .toList();
-        }
+        // Filtros se ejecutan en la consulta para reducir el volumen traído desde BD
+        Page<User> usersPage = userRepository.findUsersByFilters(
+                userStatus,
+                (role == null || role.isBlank()) ? null : role,
+                academicProgramId,
+                facultyId,
+                (name == null || name.isBlank()) ? null : name,
+                (lastName == null || lastName.isBlank()) ? null : lastName,
+                (email == null || email.isBlank()) ? null : email,
+                PageRequest.of(page, size)
+        );
 
-        // Aplicar filtros de búsqueda por nombre, apellido y email
-        if (name != null && !name.isBlank()) {
-            final String searchName = name.toLowerCase();
-            users = users.stream()
-                    .filter(user -> user.getName().toLowerCase().contains(searchName))
-                    .toList();
-        }
+        List<User> users = usersPage.getContent();
 
-        if (lastName != null && !lastName.isBlank()) {
-            final String searchLastName = lastName.toLowerCase();
-            users = users.stream()
-                    .filter(user -> user.getLastName().toLowerCase().contains(searchLastName))
-                    .toList();
-        }
+        List<Long> userIds = users.stream().map(User::getId).toList();
 
-        if (email != null && !email.isBlank()) {
-            final String searchEmail = email.toLowerCase();
-            users = users.stream()
-                    .filter(user -> user.getEmail().toLowerCase().contains(searchEmail))
-                    .toList();
-        }
+        // Cargar perfiles y autoridades de los usuarios de la página en 2 consultas (evita N+1)
+        List<StudentProfile> studentProfiles =
+                userIds.isEmpty() ? List.of() : studentProfileRepository.findAllByUserIdIn(userIds);
+        List<ProgramAuthority> allAuthorities =
+                userIds.isEmpty() ? List.of() : 
+programAuthorityRepository.findAllByUser_IdIn(userIds);
+
+        Map<Long, StudentProfile> studentProfileByUser = studentProfiles.stream()
+                .collect(Collectors.toMap(sp -> sp.getUser().getId(), sp -> sp, (a, b) -> a));
+        Map<Long, List<ProgramAuthority>> authoritiesByUser = allAuthorities.stream()
+                .collect(Collectors.groupingBy(pa -> pa.getUser().getId()));
 
         List<UserResponse> userResponses = new ArrayList<>();
 
         for (User user : users) {
-            // Obtener todos los perfiles de autoridad del usuario
-            Optional<StudentProfile> studentProfile = studentProfileRepository.findByUserId(user.getId());
-            
-            if (studentProfile.isPresent()) {
-                // Si es estudiante, usar su programa académico
-                StudentProfile sp = studentProfile.get();
-                Long userFacultyId = sp.getFaculty().getId();
-                Long userAcademicProgramId = sp.getAcademicProgram().getId();
+            StudentProfile sp = studentProfileByUser.get(user.getId());
 
-                // Aplicar filtros
-                if (facultyId != null && !userFacultyId.equals(facultyId)) {
-                    continue;
-                }
-                if (academicProgramId != null && !userAcademicProgramId.equals(academicProgramId)) {
-                    continue;
-                }
-
+            if (sp != null) {
                 userResponses.add(
                     toUserResponse(
                             user,
@@ -268,29 +245,16 @@ public class AdminService {
                 );
             } else {
                 // Si no es estudiante, usar sus ProgramAuthority
-                List<ProgramAuthority> authorities = programAuthorityRepository.findByUser_Id(user.getId());
-                
+                List<ProgramAuthority> authorities = authoritiesByUser.getOrDefault(user.getId(), List.of());
+
                 if (authorities.isEmpty()) {
                     // Usuario sin perfil de estudiante ni autoridades: mostrar sin facultad/programa
-                    if (facultyId == null && academicProgramId == null) {
-                        userResponses.add(
-                            toUserResponse(user, null, null)
-                        );
-                    }
+                    userResponses.add(
+                        toUserResponse(user, null, null)
+                    );
                 } else {
-                    // Crear un UserResponse para CADA autoridad que coincida con los filtros
+                    // Crear un UserResponse para CADA autoridad
                     for (ProgramAuthority authority : authorities) {
-                        Long userFacultyId = authority.getAcademicProgram().getFaculty().getId();
-                        Long userAcademicProgramId = authority.getAcademicProgram().getId();
-
-                        // Aplicar filtros
-                        if (facultyId != null && !userFacultyId.equals(facultyId)) {
-                            continue;
-                        }
-                        if (academicProgramId != null && !userAcademicProgramId.equals(academicProgramId)) {
-                            continue;
-                        }
-
                         userResponses.add(
                             toUserResponse(
                                     user,
@@ -303,7 +267,7 @@ public class AdminService {
             }
         }
 
-        return userResponses;
+        return PaginatedResponse.of(userResponses, page, size, usersPage.getTotalElements());
     }
 
     private UserResponse toUserResponse(User user, String faculty, String academicProgram) {
@@ -324,9 +288,10 @@ public class AdminService {
                 .build();
     }
 
-    public String desactiveUser(Long userId) {
+    @Transactional
+    public void desactiveUser(Long userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
         if (user.getStatus() == Status.INACTIVE) {
             throw new ValidationException("El usuario ya está inactivo.");
@@ -335,117 +300,63 @@ public class AdminService {
         user.setStatus(Status.INACTIVE);
         user.setLastUpdateDate(LocalDateTime.now());
         userRepository.save(user);
-
-        return "Usuario desactivado correctamente.";
     }
 
     @Transactional
     public void assignProgramHead(assignAuthorityProgram request){
-
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
-
-        AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
-                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
-
-        Role programHeadRole = roleRepository.findByName("PROGRAM_HEAD")
-                .orElseThrow(() -> new RuntimeException("Rol PROGRAM_HEAD no encontrado"));
-
-        if (!user.getRoles().contains(programHeadRole)) {
-            user.getRoles().add(programHeadRole);
-            userRepository.save(user);
-        }
-
-        ProgramAuthority authority = ProgramAuthority.builder()
-                .user(user)
-                .academicProgram(program)
-                .role(ProgramRole.PROGRAM_HEAD)
-                .build();
-
-        programAuthorityRepository.save(authority);
+        assignAuthority(request.getUserId(), request.getAcademicProgramId(), "PROGRAM_HEAD", ProgramRole.PROGRAM_HEAD);
     }
 
     @Transactional
     public void assignProjectDirector(assignAuthorityProgram request){
-
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
-
-        AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
-                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
-
-        Role projectDirector = roleRepository.findByName("PROJECT_DIRECTOR")
-                .orElseThrow(() -> new RuntimeException("Rol PROJECT_DIRECTOR no encontrado"));
-
-        if (!user.getRoles().contains(projectDirector)) {
-            user.getRoles().add(projectDirector);
-            userRepository.save(user);
-        }
-
-        ProgramAuthority authority = ProgramAuthority.builder()
-                .user(user)
-                .academicProgram(program)
-                .role(ProgramRole.PROJECT_DIRECTOR)
-                .build();
-
-        programAuthorityRepository.save(authority);
+        assignAuthority(request.getUserId(), request.getAcademicProgramId(), "PROJECT_DIRECTOR", ProgramRole.PROJECT_DIRECTOR);
     }
 
     @Transactional
     public void assignCommittee(assignAuthorityProgram request){
-
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
-
-        AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
-                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
-
-        Role committee = roleRepository.findByName("PROGRAM_CURRICULUM_COMMITTEE")
-                .orElseThrow(() -> new RuntimeException("Rol PROGRAM_CURRICULUM_COMMITTEE no encontrado"));
-
-        if (!user.getRoles().contains(committee)) {
-            user.getRoles().add(committee);
-            userRepository.save(user);
-        }
-
-        ProgramAuthority authority = ProgramAuthority.builder()
-                .user(user)
-                .academicProgram(program)
-                .role(ProgramRole.PROGRAM_CURRICULUM_COMMITTEE)
-                .build();
-
-        programAuthorityRepository.save(authority);
+        assignAuthority(request.getUserId(), request.getAcademicProgramId(), "PROGRAM_CURRICULUM_COMMITTEE", ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
     }
 
     @Transactional
     public void assignExaminer(assignAuthorityProgram request){
-
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
         AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
-                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Programa académico no encontrado"));
 
-        Role examiner = roleRepository.findByName("EXAMINER")
-                .orElseThrow(() -> new RuntimeException("Rol EXAMINER no encontrado"));
-
-        // Asegurar que el usuario tenga el rol EXAMINER
-        if (!user.getRoles().contains(examiner)) {
-            user.getRoles().add(examiner);
-            userRepository.save(user);
-        }
-
-        // Permitir que el usuario sea jurado en múltiples programas
         boolean alreadyAssigned = programAuthorityRepository
                 .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), program.getId(), ProgramRole.EXAMINER);
         if (alreadyAssigned) {
             throw new ConflictException("El jurado ya está asociado a este programa académico");
         }
 
+        assignAuthorityChecked(user, program, "EXAMINER", ProgramRole.EXAMINER);
+    }
+
+    private void assignAuthority(Long userId, Long programId, String roleName, ProgramRole programRole) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+
+        AcademicProgram program = academicProgramRepository.findById(programId)
+                .orElseThrow(() -> new NotFoundException("Programa académico no encontrado"));
+
+        assignAuthorityChecked(user, program, roleName, programRole);
+    }
+
+    private void assignAuthorityChecked(User user, AcademicProgram program, String roleName, ProgramRole programRole) {
+        Role role = roleRepository.findByName(roleName)
+                .orElseThrow(() -> new NotFoundException("Rol " + roleName + " no encontrado"));
+
+        if (!user.getRoles().contains(role)) {
+            user.getRoles().add(role);
+            userRepository.save(user);
+        }
+
         ProgramAuthority authority = ProgramAuthority.builder()
                 .user(user)
                 .academicProgram(program)
-                .role(ProgramRole.EXAMINER)
+                .role(programRole)
                 .build();
 
         programAuthorityRepository.save(authority);
@@ -456,10 +367,10 @@ public class AdminService {
      * Un jurado puede estar vinculado a múltiples programas académicos.
      */
     @Transactional
-    public Map<String, Object> assignExaminerToAdditionalProgram(assignAuthorityProgram request) {
+    public ExaminerAssignmentResponse assignExaminerToAdditionalProgram(assignAuthorityProgram request) {
 
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
         boolean hasExaminerRole = user.getRoles().stream()
                 .anyMatch(r -> r.getName().equals("EXAMINER"));
@@ -468,7 +379,7 @@ public class AdminService {
         }
 
         AcademicProgram program = academicProgramRepository.findById(request.getAcademicProgramId())
-                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Programa académico no encontrado"));
 
         boolean alreadyAssigned = programAuthorityRepository
                 .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), program.getId(), ProgramRole.EXAMINER);
@@ -476,33 +387,27 @@ public class AdminService {
             throw new ValidationException("El jurado ya está asociado al programa: " + program.getName());
         }
 
-        ProgramAuthority authority = ProgramAuthority.builder()
-                .user(user)
-                .academicProgram(program)
-                .role(ProgramRole.EXAMINER)
+        assignAuthorityChecked(user, program, "EXAMINER", ProgramRole.EXAMINER);
+
+        return ExaminerAssignmentResponse.builder()
+                .success(true)
+                .message("Jurado vinculado correctamente al programa: " + program.getName())
+                .examinerName(user.getName() + " " + user.getLastName())
+                .programName(program.getName())
                 .build();
-
-        programAuthorityRepository.save(authority);
-
-        return Map.of(
-                "success", true,
-                "message", "Jurado vinculado correctamente al programa: " + program.getName(),
-                "examinerName", user.getName() + " " + user.getLastName(),
-                "programName", program.getName()
-        );
     }
 
     /**
      * Desvincula un jurado (EXAMINER) de un programa académico específico.
      */
     @Transactional
-    public Map<String, Object> removeExaminerFromProgram(Long userId, Long academicProgramId) {
+    public ExaminerAssignmentResponse removeExaminerFromProgram(Long userId, Long academicProgramId) {
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
         AcademicProgram program = academicProgramRepository.findById(academicProgramId)
-                .orElseThrow(() -> new RuntimeException("Programa académico no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Programa académico no encontrado"));
 
         List<ProgramAuthority> authorities = programAuthorityRepository
                 .findByAcademicProgram_IdAndRole(academicProgramId, ProgramRole.EXAMINER)
@@ -516,12 +421,12 @@ public class AdminService {
 
         programAuthorityRepository.deleteAll(authorities);
 
-        return Map.of(
-                "success", true,
-                "message", "Jurado desvinculado correctamente del programa: " + program.getName(),
-                "examinerName", user.getName() + " " + user.getLastName(),
-                "programName", program.getName()
-        );
+        return ExaminerAssignmentResponse.builder()
+                .success(true)
+                .message("Jurado desvinculado correctamente del programa: " + program.getName())
+                .examinerName(user.getName() + " " + user.getLastName())
+                .programName(program.getName())
+                .build();
     }
 
     /**
@@ -530,13 +435,13 @@ public class AdminService {
      * Los programas donde ya esté asociado se omiten (no generan error).
      */
     @Transactional
-    public Map<String, Object> assignExaminerToMultiplePrograms(AssignExaminerMultipleProgramsRequest request) {
+    public MultipleAssignmentResponse assignExaminerToMultiplePrograms(AssignExaminerMultipleProgramsRequest request) {
 
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
         Role examinerRole = roleRepository.findByName("EXAMINER")
-                .orElseThrow(() -> new RuntimeException("Rol EXAMINER no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Rol EXAMINER no encontrado"));
 
         // Asignar el rol EXAMINER si el usuario aún no lo tiene
         if (user.getRoles().stream().noneMatch(r -> r.getName().equals("EXAMINER"))) {
@@ -544,8 +449,8 @@ public class AdminService {
             userRepository.save(user);
         }
 
-        List<Map<String, Object>> assigned = new ArrayList<>();
-        List<Map<String, Object>> skipped = new ArrayList<>();
+        List<ProgramAssignmentItem> assigned = new ArrayList<>();
+        List<SkippedProgramItem> skipped = new ArrayList<>();
 
         for (Long programId : request.getAcademicProgramIds()) {
 
@@ -553,10 +458,10 @@ public class AdminService {
                     .orElse(null);
 
             if (program == null) {
-                skipped.add(Map.of(
-                        "academicProgramId", programId,
-                        "reason", "Programa académico no encontrado"
-                ));
+                skipped.add(SkippedProgramItem.builder()
+                        .academicProgramId(programId)
+                        .reason("Programa académico no encontrado")
+                        .build());
                 continue;
             }
 
@@ -564,49 +469,43 @@ public class AdminService {
                     .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), programId, ProgramRole.EXAMINER);
 
             if (alreadyAssigned) {
-                skipped.add(Map.of(
-                        "academicProgramId", programId,
-                        "academicProgramName", program.getName(),
-                        "reason", "El jurado ya estaba asociado a este programa"
-                ));
+                skipped.add(SkippedProgramItem.builder()
+                        .academicProgramId(programId)
+                        .academicProgramName(program.getName())
+                        .reason("El jurado ya estaba asociado a este programa")
+                        .build());
                 continue;
             }
 
-            ProgramAuthority authority = ProgramAuthority.builder()
-                    .user(user)
-                    .academicProgram(program)
-                    .role(ProgramRole.EXAMINER)
-                    .build();
+            assignAuthorityChecked(user, program, "EXAMINER", ProgramRole.EXAMINER);
 
-            programAuthorityRepository.save(authority);
-
-            assigned.add(Map.of(
-                    "academicProgramId", program.getId(),
-                    "academicProgramName", program.getName(),
-                    "facultyName", program.getFaculty().getName()
-            ));
+            assigned.add(ProgramAssignmentItem.builder()
+                    .academicProgramId(program.getId())
+                    .academicProgramName(program.getName())
+                    .facultyName(program.getFaculty().getName())
+                    .build());
         }
 
-        return Map.of(
-                "success", true,
-                "examinerId", user.getId(),
-                "examinerName", user.getName() + " " + user.getLastName(),
-                "examinerEmail", user.getEmail(),
-                "programsAssigned", assigned,
-                "programsSkipped", skipped,
-                "totalAssigned", assigned.size(),
-                "totalSkipped", skipped.size()
-        );
+        return MultipleAssignmentResponse.builder()
+                .success(true)
+                .examinerId(user.getId())
+                .examinerName(user.getName() + " " + user.getLastName())
+                .examinerEmail(user.getEmail())
+                .programsAssigned(assigned)
+                .programsSkipped(skipped)
+                .totalAssigned(assigned.size())
+                .totalSkipped(skipped.size())
+                .build();
     }
 
     /**
      * Retorna todos los programas académicos a los que está asociado un jurado.
      */
     @Transactional(readOnly = true)
-    public Map<String, Object> getExaminerPrograms(Long userId) {
+    public ExaminerProgramsResponse getExaminerPrograms(Long userId) {
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
         boolean hasExaminerRole = user.getRoles().stream()
                 .anyMatch(r -> r.getName().equals("EXAMINER"));
@@ -617,23 +516,23 @@ public class AdminService {
         List<ProgramAuthority> authorities = programAuthorityRepository
                 .findByUser_IdAndRole(userId, ProgramRole.EXAMINER);
 
-        List<Map<String, Object>> programs = authorities.stream()
-                .map(a -> Map.<String, Object>of(
-                        "programAuthorityId", a.getId(),
-                        "academicProgramId", a.getAcademicProgram().getId(),
-                        "academicProgramName", a.getAcademicProgram().getName(),
-                        "facultyId", a.getAcademicProgram().getFaculty().getId(),
-                        "facultyName", a.getAcademicProgram().getFaculty().getName()
-                ))
+        List<ExaminerProgramItem> programs = authorities.stream()
+                .map(a -> ExaminerProgramItem.builder()
+                        .programAuthorityId(a.getId())
+                        .academicProgramId(a.getAcademicProgram().getId())
+                        .academicProgramName(a.getAcademicProgram().getName())
+                        .facultyId(a.getAcademicProgram().getFaculty().getId())
+                        .facultyName(a.getAcademicProgram().getFaculty().getName())
+                        .build())
                 .toList();
 
-        return Map.of(
-                "success", true,
-                "examinerId", user.getId(),
-                "examinerName", user.getName() + " " + user.getLastName(),
-                "examinerEmail", user.getEmail(),
-                "programs", programs
-        );
+        return ExaminerProgramsResponse.builder()
+                .success(true)
+                .examinerId(user.getId())
+                .examinerName(user.getName() + " " + user.getLastName())
+                .examinerEmail(user.getEmail())
+                .programs(programs)
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -699,7 +598,7 @@ public class AdminService {
     }
 
     @Transactional
-    public Map<String, Object> registerUserByAdmin(RegisterUserByAdminRequest request) {
+    public RegisterUserResponse registerUserByAdmin(RegisterUserByAdminRequest request) {
 
         String email = request.getEmail().trim().toLowerCase();
 
@@ -713,7 +612,7 @@ public class AdminService {
 
         String roleName = request.getRoleName().toUpperCase();
         Role role = roleRepository.findByName(roleName)
-                .orElseThrow(() -> new RuntimeException("El rol " + roleName + " no existe en el sistema"));
+                .orElseThrow(() -> new NotFoundException("El rol " + roleName + " no existe en el sistema"));
 
         boolean requiresProgram = roleName.equals("PROGRAM_HEAD") ||
                 roleName.equals("PROJECT_DIRECTOR") ||
@@ -750,26 +649,26 @@ public class AdminService {
 
             if (programIds == null || programIds.isEmpty()) {
                 // Sin programas: el jurado se registra sin asociación de programa
-                return Map.of(
-                        "success", true,
-                        "message", "Usuario registrado exitosamente con el rol EXAMINER sin programas asociados. " +
-                                   "Puede asociarlo a programas académicos posteriormente.",
-                        "userId", user.getId(),
-                        "examinerName", user.getName() + " " + user.getLastName()
-                );
+                return RegisterUserResponse.builder()
+                        .success(true)
+                        .message("Usuario registrado exitosamente con el rol EXAMINER sin programas asociados. " +
+                                 "Puede asociarlo a programas académicos posteriormente.")
+                        .userId(user.getId())
+                        .examinerName(user.getName() + " " + user.getLastName())
+                        .build();
             }
 
-            List<Map<String, Object>> assigned = new ArrayList<>();
-            List<Map<String, Object>> skipped  = new ArrayList<>();
+            List<ProgramAssignmentItem> assigned = new ArrayList<>();
+            List<SkippedProgramItem> skipped  = new ArrayList<>();
 
             for (Long programId : programIds) {
                 AcademicProgram program = academicProgramRepository.findById(programId).orElse(null);
 
                 if (program == null) {
-                    skipped.add(Map.of(
-                            "academicProgramId", programId,
-                            "reason", "Programa académico no encontrado"
-                    ));
+                    skipped.add(SkippedProgramItem.builder()
+                            .academicProgramId(programId)
+                            .reason("Programa académico no encontrado")
+                            .build());
                     continue;
                 }
 
@@ -777,40 +676,34 @@ public class AdminService {
                         .existsByUser_IdAndAcademicProgram_IdAndRole(user.getId(), programId, ProgramRole.EXAMINER);
 
                 if (alreadyAssigned) {
-                    skipped.add(Map.of(
-                            "academicProgramId", programId,
-                            "academicProgramName", program.getName(),
-                            "reason", "El jurado ya estaba asociado a este programa"
-                    ));
+                    skipped.add(SkippedProgramItem.builder()
+                            .academicProgramId(programId)
+                            .academicProgramName(program.getName())
+                            .reason("El jurado ya estaba asociado a este programa")
+                            .build());
                     continue;
                 }
 
-                ProgramAuthority authority = ProgramAuthority.builder()
-                        .user(user)
-                        .academicProgram(program)
-                        .role(ProgramRole.EXAMINER)
-                        .build();
+                assignAuthority(user.getId(), program.getId(), "EXAMINER", ProgramRole.EXAMINER);
 
-                programAuthorityRepository.save(authority);
-
-                assigned.add(Map.of(
-                        "academicProgramId", program.getId(),
-                        "academicProgramName", program.getName(),
-                        "facultyName", program.getFaculty().getName()
-                ));
+                assigned.add(ProgramAssignmentItem.builder()
+                        .academicProgramId(program.getId())
+                        .academicProgramName(program.getName())
+                        .facultyName(program.getFaculty().getName())
+                        .build());
             }
 
-            return Map.of(
-                    "success", true,
-                    "message", "Usuario registrado exitosamente con el rol EXAMINER",
-                    "userId", user.getId(),
-                    "examinerName", user.getName() + " " + user.getLastName(),
-                    "examinerEmail", user.getEmail(),
-                    "programsAssigned", assigned,
-                    "programsSkipped", skipped,
-                    "totalAssigned", assigned.size(),
-                    "totalSkipped", skipped.size()
-            );
+            return RegisterUserResponse.builder()
+                    .success(true)
+                    .message("Usuario registrado exitosamente con el rol EXAMINER")
+                    .userId(user.getId())
+                    .examinerName(user.getName() + " " + user.getLastName())
+                    .examinerEmail(user.getEmail())
+                    .programsAssigned(assigned)
+                    .programsSkipped(skipped)
+                    .totalAssigned(assigned.size())
+                    .totalSkipped(skipped.size())
+                    .build();
         }
 
         // ── Otros roles: un solo programa obligatorio ────────────────────────
@@ -825,27 +718,21 @@ public class AdminService {
                 default -> throw new ValidationException("Rol de programa no válido");
             };
 
-            ProgramAuthority authority = ProgramAuthority.builder()
-                    .user(user)
-                    .academicProgram(program)
-                    .role(programRole)
+            assignAuthority(user.getId(), request.getAcademicProgramId(), roleName, programRole);
+
+            return RegisterUserResponse.builder()
+                    .success(true)
+                    .message("Usuario registrado exitosamente con el rol " + roleName +
+                             " y asignado al programa académico: " + program.getName())
+                    .userId(user.getId())
                     .build();
-
-            programAuthorityRepository.save(authority);
-
-            return Map.of(
-                    "success", true,
-                    "message", "Usuario registrado exitosamente con el rol " + roleName +
-                               " y asignado al programa académico: " + program.getName(),
-                    "userId", user.getId()
-            );
         }
 
-        return Map.of(
-                "success", true,
-                "message", "Usuario registrado exitosamente con el rol " + roleName,
-                "userId", user.getId()
-        );
+        return RegisterUserResponse.builder()
+                .success(true)
+                .message("Usuario registrado exitosamente con el rol " + roleName)
+                .userId(user.getId())
+                .build();
     }
 
 }

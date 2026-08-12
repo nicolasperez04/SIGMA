@@ -1,6 +1,7 @@
 package com.SIGMA.USCO.Modalities.dto;
 
 import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
+import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,8 +22,11 @@ public class ScheduleDefenseDTO {
     private String observations;
 
 
+    @Positive
     private Long primaryExaminer1Id;
+    @Positive
     private Long primaryExaminer2Id;
+    @Positive
     private Long tiebreakerExaminerId;
 
 }

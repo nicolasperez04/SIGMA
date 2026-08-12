@@ -5,7 +5,7 @@ import com.SIGMA.USCO.Users.Entity.enums.Status;
 import com.SIGMA.USCO.Users.dto.request.AuthRequest;
 import com.SIGMA.USCO.Users.dto.request.ResetPasswordRequest;
 import com.SIGMA.USCO.Users.repository.*;
-import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.UnauthorizedException;
 import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.config.EmailService;
@@ -36,7 +36,6 @@ public class AuthService {
     private final EmailService emailService;
     private final RoleRepository roleRepository;
     private final BlackListedTokenRepository blackListedTokenRepository;
-    private final StudentProfileRepository studentProfileRepository;
 
     @Value("${frontend.url}")
     private String frontendUrl;
@@ -72,7 +71,7 @@ public class AuthService {
         }
 
         Role studentRole = roleRepository.findByName("STUDENT")
-                .orElseThrow(() -> new RuntimeException("El rol STUDENT no existe en la base de datos."));
+                .orElseThrow(() -> new NotFoundException("El rol STUDENT no existe en la base de datos."));
 
         User user = User.builder()
                 .name(request.getName())
@@ -92,11 +91,6 @@ public class AuthService {
         return ResponseEntity.ok(token);
     }
 
-
-    private boolean userHasStudentRole(User user) {
-        return user.getRoles().stream()
-                .anyMatch(r -> r.getName().equalsIgnoreCase("STUDENT"));
-    }
 
     public ResponseEntity<?> login(AuthRequest request){
         try {
@@ -187,9 +181,5 @@ public class AuthService {
         } else {
             throw new ValidationException("El token ya ha sido invalidado.");
         }
-    }
-    public User getCurrentUser() {
-        Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        return (User) authentication.getPrincipal();
     }
 }

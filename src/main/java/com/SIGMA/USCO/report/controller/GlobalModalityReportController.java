@@ -36,6 +36,7 @@ import com.SIGMA.USCO.report.service.PdfReport;
 import com.SIGMA.USCO.report.service.StudentListingPdfGenerator;
 import com.SIGMA.USCO.report.service.StudentListingReportService;
 import com.SIGMA.USCO.report.service.StudentReportService;
+import com.SIGMA.USCO.common.exception.BusinessException;
 import com.itextpdf.text.DocumentException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ByteArrayResource;
@@ -44,6 +45,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -103,6 +105,8 @@ public class GlobalModalityReportController {
                             "timestamp", LocalDateTime.now()
                     ));
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
@@ -129,6 +133,8 @@ public class GlobalModalityReportController {
 
         } catch (DocumentException | IOException e) {
             return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return buildErrorResponse("Error inesperado: " + e.getMessage());
         }
@@ -159,6 +165,8 @@ public class GlobalModalityReportController {
                             "timestamp", LocalDateTime.now()
                     ));
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
@@ -182,6 +190,8 @@ public class GlobalModalityReportController {
                             "timestamp", LocalDateTime.now()
                     ));
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
@@ -208,6 +218,8 @@ public class GlobalModalityReportController {
                             "timestamp", LocalDateTime.now()
                     ));
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
@@ -239,6 +251,8 @@ public class GlobalModalityReportController {
 
         } catch (IllegalArgumentException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte de directores: " + e.getMessage());
         }
@@ -262,6 +276,8 @@ public class GlobalModalityReportController {
 
         } catch (DocumentException | IOException e) {
             return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return buildErrorResponse("Error inesperado: " + e.getMessage());
         }
@@ -296,6 +312,8 @@ public class GlobalModalityReportController {
 
         } catch (IllegalArgumentException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte del director: " + e.getMessage());
         }
@@ -324,6 +342,8 @@ public class GlobalModalityReportController {
 
         } catch (DocumentException | IOException e) {
             return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return buildErrorResponse("Error inesperado: " + e.getMessage());
         }
@@ -332,6 +352,7 @@ public class GlobalModalityReportController {
     // ==================== UTILIDADES Y METADATOS ====================
 
     @GetMapping("/health")
+    @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<?> healthCheck() {
         return ResponseEntity.ok(Map.of(
                 "status", "UP",
@@ -409,6 +430,8 @@ public class GlobalModalityReportController {
 
         } catch (IllegalArgumentException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al obtener tipos de modalidad: " + e.getMessage());
         }
@@ -446,6 +469,8 @@ public class GlobalModalityReportController {
 
         } catch (IllegalArgumentException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte filtrado: " + e.getMessage());
         }
@@ -469,6 +494,8 @@ public class GlobalModalityReportController {
 
         } catch (DocumentException | IOException e) {
             return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return buildErrorResponse("Error inesperado: " + e.getMessage());
         }
@@ -500,6 +527,8 @@ public class GlobalModalityReportController {
 
         } catch (IllegalArgumentException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte comparativo: " + e.getMessage());
         }
@@ -523,6 +552,8 @@ public class GlobalModalityReportController {
 
         } catch (DocumentException | IOException e) {
             return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return buildErrorResponse("Error inesperado: " + e.getMessage());
         }
@@ -555,6 +586,8 @@ public class GlobalModalityReportController {
 
         } catch (IllegalArgumentException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte histórico: " + e.getMessage());
         }
@@ -584,6 +617,8 @@ public class GlobalModalityReportController {
             return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
         } catch (IllegalArgumentException e) {
             return buildErrorResponse("Datos inválidos: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return buildErrorResponse("Error inesperado: " + e.getMessage());
         }
@@ -615,6 +650,8 @@ public class GlobalModalityReportController {
 
         } catch (IllegalArgumentException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
@@ -641,6 +678,8 @@ public class GlobalModalityReportController {
             return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
         } catch (IllegalArgumentException e) {
             return buildErrorResponse("Datos inválidos: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return buildErrorResponse("Error inesperado: " + e.getMessage());
         }
@@ -672,6 +711,8 @@ public class GlobalModalityReportController {
 
         } catch (IllegalArgumentException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
@@ -698,6 +739,8 @@ public class GlobalModalityReportController {
             return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
         } catch (IllegalArgumentException e) {
             return buildErrorResponse("Datos inválidos: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return buildErrorResponse("Error inesperado: " + e.getMessage());
         }
@@ -759,6 +802,8 @@ public class GlobalModalityReportController {
                     "data", report,
                     "timestamp", LocalDateTime.now()
             ));
+        } catch (BusinessException e) {
+            throw e;
         } catch (RuntimeException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
@@ -786,6 +831,8 @@ public class GlobalModalityReportController {
                     "data", report,
                     "timestamp", LocalDateTime.now()
             ));
+        } catch (BusinessException e) {
+            throw e;
         } catch (RuntimeException e) {
             return jsonError(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
@@ -822,6 +869,8 @@ public class GlobalModalityReportController {
                     .contentType(MediaType.APPLICATION_PDF)
                     .body(resource);
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (RuntimeException e) {
             return buildErrorResponse("No se pudo generar el reporte: " + e.getMessage());
         } catch (DocumentException | IOException e) {
@@ -860,6 +909,8 @@ public class GlobalModalityReportController {
                     .contentType(MediaType.APPLICATION_PDF)
                     .body(resource);
 
+        } catch (BusinessException e) {
+            throw e;
         } catch (RuntimeException e) {
             return buildErrorResponse("No se pudo generar el reporte: " + e.getMessage());
         } catch (DocumentException | IOException e) {
@@ -919,20 +970,13 @@ public class GlobalModalityReportController {
     @GetMapping("/defense-calendar")
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<?> getDefenseCalendarReport(
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
             @RequestParam(required = false, defaultValue = "false") Boolean includeCompleted
     ) {
         try {
-            LocalDateTime start = startDate != null
-                    ? LocalDateTime.parse(startDate)
-                    : null;
-            LocalDateTime end = endDate != null
-                    ? LocalDateTime.parse(endDate)
-                    : null;
-
             DefenseCalendarReportDTO report = defenseCalendarReportService
-                    .generateDefenseCalendarReport(start, end, includeCompleted);
+                    .generateDefenseCalendarReport(startDate, endDate, includeCompleted);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -946,6 +990,8 @@ public class GlobalModalityReportController {
 
         } catch (IllegalArgumentException e) {
             return jsonError(HttpStatus.BAD_REQUEST, "Parámetros inválidos: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, "Error al generar el reporte: " + e.getMessage());
         }
@@ -958,20 +1004,13 @@ public class GlobalModalityReportController {
     @GetMapping("/defense-calendar/pdf")
     @PreAuthorize("hasAuthority('PERM_VIEW_REPORT')")
     public ResponseEntity<Resource> exportDefenseCalendarToPdf(
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
             @RequestParam(required = false, defaultValue = "false") Boolean includeCompleted
     ) {
         try {
-            LocalDateTime start = startDate != null
-                    ? LocalDateTime.parse(startDate)
-                    : null;
-            LocalDateTime end = endDate != null
-                    ? LocalDateTime.parse(endDate)
-                    : null;
-
             DefenseCalendarReportDTO report = defenseCalendarReportService
-                    .generateDefenseCalendarReport(start, end, includeCompleted);
+                    .generateDefenseCalendarReport(startDate, endDate, includeCompleted);
 
             byte[] pdfBytes = defenseCalendarPdfGenerator.generatePdf(report);
             ByteArrayResource resource = new ByteArrayResource(pdfBytes);
@@ -994,6 +1033,8 @@ public class GlobalModalityReportController {
             return buildErrorResponse("Parámetros inválidos: " + e.getMessage());
         } catch (DocumentException | IOException e) {
             return buildErrorResponse("Error al generar el PDF: " + e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             return buildErrorResponse("Error inesperado: " + e.getMessage());
         }

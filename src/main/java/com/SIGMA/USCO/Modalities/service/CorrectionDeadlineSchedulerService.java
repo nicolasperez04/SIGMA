@@ -1,9 +1,7 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory;
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.ModalityProcessStatusHistoryRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
@@ -25,8 +23,8 @@ import java.util.List;
 public class CorrectionDeadlineSchedulerService {
 
     private final StudentModalityRepository studentModalityRepository;
-    private final ModalityProcessStatusHistoryRepository historyRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final ModalityStatusTransition modalityStatusTransition;
 
     /**
      * ========================================
@@ -147,27 +145,12 @@ public class CorrectionDeadlineSchedulerService {
         log.warn("   Fecha de solicitud: {}", modality.getCorrectionRequestDate());
         log.warn("   Plazo límite: {}", modality.getCorrectionDeadline());
 
-        // Cambiar estado a CORRECTIONS_REJECTED_FINAL
-        modality.setStatus(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL);
-        modality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(modality);
-
-        // Registrar en historial
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(modality)
-                        .status(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(null) // Rechazo automático del sistema
-                        .observations(
-                                "Propuesta rechazada automáticamente. " +
-                                "Razón: " + reason + ". " +
-                                "Fecha de solicitud de correcciones: " + modality.getCorrectionRequestDate() + ". " +
-                                "Plazo límite: " + modality.getCorrectionDeadline() + ". " +
-                                "Intentos de corrección usados: " + modality.getCorrectionAttempts() + " de 3."
-                        )
-                        .build()
-        );
+        modalityStatusTransition.transition(modality, ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL, null,
+                "Propuesta rechazada automáticamente. " +
+                "Razón: " + reason + ". " +
+                "Fecha de solicitud de correcciones: " + modality.getCorrectionRequestDate() + ". " +
+                "Plazo límite: " + modality.getCorrectionDeadline() + ". " +
+                "Intentos de corrección usados: " + modality.getCorrectionAttempts() + " de 3.");
 
         // Publicar evento de rechazo
         applicationEventPublisher.publishEvent(

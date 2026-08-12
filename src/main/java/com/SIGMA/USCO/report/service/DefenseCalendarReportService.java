@@ -8,11 +8,11 @@ import com.SIGMA.USCO.Modalities.Repository.DefenseEvaluationCriteriaRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.Modalities.service.ModalityServiceUtils;
 import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
-import com.SIGMA.USCO.academic.repository.AcademicProgramRepository;
+import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import com.SIGMA.USCO.report.dto.DefenseCalendarReportDTO;
 import com.SIGMA.USCO.report.dto.DefenseCalendarReportDTO.*;
 import com.SIGMA.USCO.report.dto.ReportMetadataDTO;
@@ -38,7 +38,6 @@ public class DefenseCalendarReportService {
     private final DefenseExaminerRepository defenseExaminerRepository;
     private final DefenseEvaluationCriteriaRepository defenseEvaluationCriteriaRepository;
     private final UserRepository userRepository;
-    private final AcademicProgramRepository academicProgramRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
 
     /**
@@ -52,29 +51,19 @@ public class DefenseCalendarReportService {
     ) {
         User user = SecurityUtils.getCurrentUser();
 
-        // Obtener el programa académico del usuario autenticado
-        Long programId = programAuthorityRepository
-                .findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
-                .stream()
-                .findFirst()
-                .map(pa -> pa.getAcademicProgram().getId())
-                .orElseGet(() -> programAuthorityRepository
-                        .findByUser_Id(user.getId())
-                        .stream()
-                        .findFirst()
-                        .map(pa -> pa.getAcademicProgram().getId())
-                        .orElseThrow(() -> new IllegalArgumentException("Usuario sin programa académico asignado")));
-
-        AcademicProgram program = academicProgramRepository.findById(programId)
-                .orElseThrow(() -> new IllegalArgumentException("Programa académico no encontrado"));
+        AcademicProgram program = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
         // Si no se especifican fechas, usar un rango de 6 meses
         LocalDateTime effectiveStartDate = startDate != null ? startDate : LocalDateTime.now().minusMonths(3);
         LocalDateTime effectiveEndDate = endDate != null ? endDate : LocalDateTime.now().plusMonths(3);
 
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+            throw new ValidationException("La fecha de inicio no puede ser posterior a la fecha de fin");
+        }
+
         // Obtener todas las modalidades del programa
         List<StudentModality> allModalities = studentModalityRepository.findAll().stream()
-                .filter(m -> m.getAcademicProgram().getId().equals(programId))
+                .filter(m -> m.getAcademicProgram().getId().equals(program.getId()))
                 .collect(Collectors.toList());
 
         // Filtrar modalidades con sustentación programada en el rango
@@ -235,7 +224,7 @@ public class DefenseCalendarReportService {
                 .readinessPercentage((readyItems * 100.0) / totalItems)
                 .projectTitle("Proyecto " + modality.getModalityType().name())
                 .estimatedDuration(120)
-                .modalityStatus(translateStatus(modality.getStatus()))
+                .modalityStatus(TranslationUtils.translateModalityProcessStatus(modality.getStatus()))
                 .scheduledDate(modality.getDefenseDate())
                 .reminderSent(false)
                 .build();
@@ -281,7 +270,7 @@ public class DefenseCalendarReportService {
                 .directorName(modality.getProjectDirector() != null
                         ? modality.getProjectDirector().getName() + " " + modality.getProjectDirector().getLastName()
                         : "Sin asignar")
-                .currentStatus(translateStatus(modality.getStatus()))
+                .currentStatus(TranslationUtils.translateModalityProcessStatus(modality.getStatus()))
                 .statusDate(modality.getUpdatedAt())
                 .daysInCurrentStatus((int) daysInStatus)
                 .nextAction(getNextAction(modality.getStatus()))
@@ -695,20 +684,11 @@ public class DefenseCalendarReportService {
                 .examinerId(examiner.getId())
                 .fullName(examinerUser.getName() + " " + examinerUser.getLastName())
                 .email(examinerUser.getEmail())
-                .examinerType(translateExaminerType(examiner.getExaminerType()))
+                .examinerType(TranslationUtils.translateExaminerType(examiner.getExaminerType()))
                 .assignmentDate(examiner.getAssignmentDate())
                 .confirmed(true)
                 .affiliation("Universidad Surcolombiana")
                 .build();
-    }
-
-    private String translateExaminerType(com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType type) {
-        if (type == null) return "Jurado";
-        return switch (type) {
-            case PRIMARY_EXAMINER_1 -> "Jurado Principal 1";
-            case PRIMARY_EXAMINER_2 -> "Jurado Principal 2";
-            case TIEBREAKER_EXAMINER -> "Jurado de Desempate";
-        };
     }
 
     private String translateModalityType(String type) {
@@ -723,58 +703,6 @@ public class DefenseCalendarReportService {
         translations.put("EMPRENDIMIENTO_Y_FORTALECIMIENTO_DE_EMPRESA", "Emprendimiento");
         translations.put("SEMINARIO_DE_GRADO", "Seminario de Grado");
         return translations.getOrDefault(type, type);
-    }
-
-    private String translateStatus(ModalityProcessStatus status) {
-        if (status == null) return "Sin estado";
-        return switch (status) {
-            case MODALITY_SELECTED -> "Modalidad seleccionada";
-            case UNDER_REVIEW_PROGRAM_HEAD -> "En revisión por Jefatura";
-            case CORRECTIONS_REQUESTED_PROGRAM_HEAD -> "Correcciones solicitadas por Jefatura";
-            case CORRECTIONS_SUBMITTED -> "Correcciones enviadas";
-            case CORRECTIONS_SUBMITTED_TO_PROGRAM_HEAD -> "Correcciones enviadas a Jefatura";
-            case CORRECTIONS_SUBMITTED_TO_COMMITTEE -> "Correcciones enviadas al Comité";
-            case CORRECTIONS_SUBMITTED_TO_EXAMINERS -> "Correcciones enviadas a los Jurados";
-            case CORRECTIONS_APPROVED -> "Correcciones aprobadas";
-            case CORRECTIONS_REJECTED_FINAL -> "Rechazado definitivamente";
-            case READY_FOR_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para Comité de Currículo";
-            case UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE -> "En revisión por Comité";
-            case CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE -> "Correcciones solicitadas por Comité";
-            case READY_FOR_DIRECTOR_ASSIGNMENT -> "Lista para asignar Director";
-            case READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Lista para aprobación por Comité";
-            case APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE -> "Aprobado por Comité de Currículo";
-            case PROPOSAL_APPROVED -> "Propuesta aprobada";
-            case PENDING_PROGRAM_HEAD_FINAL_REVIEW -> "Pendiente revisión final por Jefatura";
-            case APPROVED_BY_PROGRAM_HEAD_FINAL_REVIEW -> "Aprobado por Jefatura - Notificando Jurados";
-            case DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR -> "Sustentación propuesta por Director";
-            case DEFENSE_SCHEDULED -> "Sustentación programada";
-            case EXAMINERS_ASSIGNED -> "Jurados asignados";
-            case READY_FOR_EXAMINERS -> "Lista para revisión de jurados";
-            case DOCUMENTS_APPROVED_BY_EXAMINERS -> "Documentos aprobados por jurados";
-            case SECONDARY_DOCUMENTS_APPROVED_BY_EXAMINERS -> "Documentos finales aprobados";
-            case DOCUMENT_REVIEW_TIEBREAKER_REQUIRED -> "Requiere jurado de desempate";
-            case EDIT_REQUESTED_BY_STUDENT -> "Edición solicitada por el estudiante";
-            case CORRECTIONS_REQUESTED_EXAMINERS -> "Correcciones solicitadas por jurados";
-            case READY_FOR_DEFENSE -> "Lista para sustentación";
-            case FINAL_REVIEW_COMPLETED -> "Revisión final completada";
-            case DEFENSE_COMPLETED -> "Sustentación completada";
-            case UNDER_EVALUATION_PRIMARY_EXAMINERS -> "En evaluación por jurados principales";
-            case DISAGREEMENT_REQUIRES_TIEBREAKER -> "Desacuerdo – Requiere jurado de desempate";
-            case UNDER_EVALUATION_TIEBREAKER -> "En evaluación por jurado de desempate";
-            case EVALUATION_COMPLETED -> "Evaluación completada";
-            case PENDING_DISTINCTION_COMMITTEE_REVIEW -> "Aprobado – Distinción honorífica pendiente del comité";
-            case GRADED_APPROVED -> "Aprobado";
-            case GRADED_FAILED -> "Reprobado";
-            case MODALITY_CLOSED -> "Modalidad cerrada";
-            case SEMINAR_CANCELED -> "Seminario cancelado";
-            case MODALITY_CANCELLED -> "Modalidad cancelada";
-            case CANCELLATION_REQUESTED -> "Cancelación solicitada";
-            case CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR -> "Cancelación aprobada por Director";
-            case CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR -> "Cancelación rechazada por Director";
-            case CANCELLED_WITHOUT_REPROVAL -> "Cancelada sin reprobación";
-            case CANCELLATION_REJECTED -> "Cancelación rechazada";
-            case CANCELLED_BY_CORRECTION_TIMEOUT -> "Cancelada por vencimiento de plazo";
-        };
     }
 
     private String getNextAction(ModalityProcessStatus status) {

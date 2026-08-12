@@ -6,9 +6,10 @@ import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
+import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.notifications.service.AcademicCertificatePdfService;
 import com.SIGMA.USCO.security.SecurityUtils;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -58,11 +59,11 @@ public class AcademicCertificateTestController {
     public ResponseEntity<InputStreamResource> generateTestCertificate(
             @Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId) throws IOException {
         StudentModality modality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         User current = SecurityUtils.getCurrentUser();
         if (!isAuthorizedForCertificate(modality, current)) {
-            throw new AccessDeniedException("No está autorizado para descargar este certificado.");
+            throw new ForbiddenException("No está autorizado para descargar este certificado.");
         }
 
         boolean isComplete = isCompleteModality(modality);

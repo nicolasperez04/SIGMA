@@ -36,16 +36,6 @@ public class ModalityReportFilterDTO {
     private List<String> processStatuses;
 
     /**
-     * Fecha de inicio del rango de búsqueda (opcional)
-     */
-    private String startDate;
-
-    /**
-     * Fecha de fin del rango de búsqueda (opcional)
-     */
-    private String endDate;
-
-    /**
      * Indica si se deben incluir modalidades sin director asignado
      */
     private Boolean includeWithoutDirector;

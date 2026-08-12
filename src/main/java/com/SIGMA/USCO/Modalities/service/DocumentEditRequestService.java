@@ -1,16 +1,17 @@
 package com.SIGMA.USCO.Modalities.service;
 
 import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory;
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
 import com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType;
 import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
-import com.SIGMA.USCO.Modalities.Repository.ModalityProcessStatusHistoryRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerFinalDocumentEvaluationResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerProposalEvaluationResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ProposalEvaluationInfo;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.documents.entity.DocumentEditRequest;
@@ -37,6 +38,9 @@ import com.SIGMA.USCO.documents.dto.DocumentEditResolutionDTO;
 import com.SIGMA.USCO.documents.dto.DocumentEditRequestResponseDTO;
 import com.SIGMA.USCO.common.exception.BusinessException;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
@@ -70,8 +74,9 @@ public class DocumentEditRequestService {
     private final ExaminerDocumentReviewRepository examinerDocumentReviewRepository;
     private final ProposalEvaluationRepository proposalEvaluationRepository;
     private final FinalDocumentEvaluationRepository secondaryDocumentEvaluationRepository;
-    private final ModalityProcessStatusHistoryRepository historyRepository;
+    private final ModalityStatusTransition modalityStatusTransition;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final ResourceAccessPolicy resourceAccessPolicy;
 
     /**
      * El jurado autenticado obtiene su veredicto sobre documentos MANDATORY (propuesta de grado).
@@ -79,11 +84,11 @@ public class DocumentEditRequestService {
      * Ruta: GET /modalities/documents/{studentDocumentId}/examiner-proposal-evaluation
      */
     @Transactional(readOnly = true)
-    public Map<String, Object> getMyProposalEvaluation(Long studentDocumentId) {
+    public Object getMyProposalEvaluation(Long studentDocumentId) {
         User examiner = SecurityUtils.getCurrentUser();
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
-                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Documento no encontrado"));
 
         StudentModality studentModality = document.getStudentModality();
 
@@ -93,13 +98,8 @@ public class DocumentEditRequestService {
         }
 
         // Validar que el examiner esté asignado a la modalidad
-        DefenseExaminer defenseExaminer = defenseExaminerRepository
-                .findByStudentModalityIdAndExaminerId(studentModality.getId(), examiner.getId())
-                .orElse(null);
-
-        if (defenseExaminer == null) {
-            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
-        }
+        DefenseExaminer defenseExaminer = resourceAccessPolicy.requireAssignedExaminer(
+                studentModality.getId(), examiner, "No estás asignado como jurado a esta modalidad");
 
         // Obtener la review del jurado para este documento
         ExaminerDocumentReview review = examinerDocumentReviewRepository
@@ -118,43 +118,34 @@ public class DocumentEditRequestService {
                 .findByStudentDocumentIdAndExaminerId(studentDocumentId, examiner.getId())
                 .orElse(null);
 
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("success", true);
-        response.put("documentId", document.getId());
-        response.put("documentName", document.getDocumentConfig().getDocumentName());
-        response.put("documentType", DocumentType.MANDATORY.name());
-        response.put("examinerName", examiner.getName() + " " + examiner.getLastName());
-        response.put("examinerEmail", examiner.getEmail());
-        response.put("examinerType", defenseExaminer.getExaminerType().name());
-        response.put("isTiebreaker", defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER);
-
-        // Veredicto individual
-        response.put("decision", review.getDecision().name());
-        response.put("decisionDescription", ModalityServiceUtils.translateExaminerDocumentDecision(review.getDecision()));
-        response.put("notes", review.getNotes());
-        response.put("reviewedAt", review.getReviewedAt());
-
-        // Evaluación de propuesta si existe
-        if (proposalEvaluation != null) {
-            Map<String, Object> evaluationData = new LinkedHashMap<>();
-            evaluationData.put("summary", proposalEvaluation.getSummary());
-            evaluationData.put("backgroundJustification", proposalEvaluation.getBackgroundJustification());
-            evaluationData.put("problemStatement", proposalEvaluation.getProblemStatement());
-            evaluationData.put("objectives", proposalEvaluation.getObjectives());
-            evaluationData.put("methodology", proposalEvaluation.getMethodology());
-            evaluationData.put("bibliographyReferences", proposalEvaluation.getBibliographyReferences());
-            evaluationData.put("documentOrganization", proposalEvaluation.getDocumentOrganization());
-            evaluationData.put("evaluatedAt", proposalEvaluation.getEvaluatedAt());
-            response.put("proposalEvaluation", evaluationData);
-        } else {
-            response.put("proposalEvaluation", null);
-        }
-
-        // Estado actual del documento
-        response.put("documentStatus", document.getStatus().name());
-        response.put("documentNotes", document.getNotes());
-
-        return response;
+        return ExaminerProposalEvaluationResponse.builder()
+                .success(true)
+                .documentId(document.getId())
+                .documentName(document.getDocumentConfig().getDocumentName())
+                .documentType(DocumentType.MANDATORY.name())
+                .examinerName(examiner.getName() + " " + examiner.getLastName())
+                .examinerEmail(examiner.getEmail())
+                .examinerType(defenseExaminer.getExaminerType().name())
+                .isTiebreaker(defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER)
+                .decision(review.getDecision().name())
+                .decisionDescription(ModalityServiceUtils.translateExaminerDocumentDecision(review.getDecision()))
+                .notes(review.getNotes())
+                .reviewedAt(review.getReviewedAt())
+                .proposalEvaluation(proposalEvaluation != null
+                        ? ProposalEvaluationInfo.builder()
+                                .summary(proposalEvaluation.getSummary())
+                                .backgroundJustification(proposalEvaluation.getBackgroundJustification())
+                                .problemStatement(proposalEvaluation.getProblemStatement())
+                                .objectives(proposalEvaluation.getObjectives())
+                                .methodology(proposalEvaluation.getMethodology())
+                                .bibliographyReferences(proposalEvaluation.getBibliographyReferences())
+                                .documentOrganization(proposalEvaluation.getDocumentOrganization())
+                                .evaluatedAt(proposalEvaluation.getEvaluatedAt())
+                                .build()
+                        : null)
+                .documentStatus(document.getStatus().name())
+                .documentNotes(document.getNotes())
+                .build();
     }
 
     /**
@@ -163,7 +154,7 @@ public class DocumentEditRequestService {
      * Ruta: GET /modalities/documents/{studentDocumentId}/examiner-final-evaluation
      */
     @Transactional(readOnly = true)
-    public Map<String, Object> getMyFinalDocumentEvaluation(Long studentDocumentId) {
+    public Object getMyFinalDocumentEvaluation(Long studentDocumentId) {
         User examiner = SecurityUtils.getCurrentUser();
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
@@ -177,13 +168,8 @@ public class DocumentEditRequestService {
         }
 
         // Validar que el examiner esté asignado a la modalidad
-        DefenseExaminer defenseExaminer = defenseExaminerRepository
-                .findByStudentModalityIdAndExaminerId(studentModality.getId(), examiner.getId())
-                .orElse(null);
-
-        if (defenseExaminer == null) {
-            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
-        }
+        DefenseExaminer defenseExaminer = resourceAccessPolicy.requireAssignedExaminer(
+                studentModality.getId(), examiner, "No estás asignado como jurado a esta modalidad");
 
         // Obtener la review del jurado para este documento
         ExaminerDocumentReview review = examinerDocumentReviewRepository
@@ -202,34 +188,25 @@ public class DocumentEditRequestService {
                 .findByStudentDocumentIdAndExaminerId(studentDocumentId, examiner.getId())
                 .orElse(null);
 
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("success", true);
-        response.put("documentId", document.getId());
-        response.put("documentName", document.getDocumentConfig().getDocumentName());
-        response.put("documentType", DocumentType.SECONDARY.name());
-        response.put("examinerName", examiner.getName() + " " + examiner.getLastName());
-        response.put("examinerEmail", examiner.getEmail());
-        response.put("examinerType", defenseExaminer.getExaminerType().name());
-        response.put("isTiebreaker", defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER);
-
-        // Veredicto individual
-        response.put("decision", review.getDecision().name());
-        response.put("decisionDescription", ModalityServiceUtils.translateExaminerDocumentDecision(review.getDecision()));
-        response.put("notes", review.getNotes());
-        response.put("reviewedAt", review.getReviewedAt());
-
-        // Evaluación final si existe
-        if (finalEvaluation != null) {
-            response.put("finalEvaluation", ModalityServiceUtils.buildFinalEvaluationInfoMap(finalEvaluation));
-        } else {
-            response.put("finalEvaluation", null);
-        }
-
-        // Estado actual del documento
-        response.put("documentStatus", document.getStatus().name());
-        response.put("documentNotes", document.getNotes());
-
-        return response;
+        return ExaminerFinalDocumentEvaluationResponse.builder()
+                .success(true)
+                .documentId(document.getId())
+                .documentName(document.getDocumentConfig().getDocumentName())
+                .documentType(DocumentType.SECONDARY.name())
+                .examinerName(examiner.getName() + " " + examiner.getLastName())
+                .examinerEmail(examiner.getEmail())
+                .examinerType(defenseExaminer.getExaminerType().name())
+                .isTiebreaker(defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER)
+                .decision(review.getDecision().name())
+                .decisionDescription(ModalityServiceUtils.translateExaminerDocumentDecision(review.getDecision()))
+                .notes(review.getNotes())
+                .reviewedAt(review.getReviewedAt())
+                .finalEvaluation(finalEvaluation != null
+                        ? ModalityServiceUtils.buildFinalEvaluationInfo(finalEvaluation)
+                        : null)
+                .documentStatus(document.getStatus().name())
+                .documentNotes(document.getNotes())
+                .build();
     }
     // =========================================================================
     // SOLICITUD DE EDICIÓN DE PROPUESTA APROBADA (STUDENT → EXAMINER)
@@ -307,9 +284,11 @@ public class DocumentEditRequestService {
         );
 
         // Cambiar el estado de la MODALIDAD a EDIT_REQUESTED_BY_STUDENT
-        studentModality.setStatus(ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT, student,
+                "Estudiante solicitó edición del documento '" +
+                        document.getDocumentConfig().getDocumentName() +
+                        ". Motivo: " + request.getReason() +
+                        ". La solicitud fue enviada a los jurados para su evaluación.");
 
         // Crear la solicitud de edición
         DocumentEditRequest editRequest = DocumentEditRequest.builder()
@@ -320,20 +299,6 @@ public class DocumentEditRequestService {
                 .createdAt(LocalDateTime.now())
                 .build();
         documentEditRequestRepository.save(editRequest);
-
-        // Trazabilidad en el historial de la MODALIDAD
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(student)
-                        .observations("Estudiante solicitó edición del documento '" +
-                                document.getDocumentConfig().getDocumentName() +
-                                ". Motivo: " + request.getReason() +
-                                ". La solicitud fue enviada a los jurados para su evaluación.")
-                        .build()
-        );
 
         // Notificar a los jurados
         applicationEventPublisher.publishEvent(
@@ -399,12 +364,8 @@ public class DocumentEditRequestService {
         StudentModality studentModality = document.getStudentModality();
 
         // Validar que el jurado esté asignado a la modalidad
-        DefenseExaminer defenseExaminer = defenseExaminerRepository
-                .findByStudentModalityIdAndExaminerId(studentModality.getId(), examiner.getId())
-                .orElse(null);
-        if (defenseExaminer == null) {
-            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
-        }
+        DefenseExaminer defenseExaminer = resourceAccessPolicy.requireAssignedExaminer(
+                studentModality.getId(), examiner, "No estás asignado como jurado a esta modalidad");
 
         ExaminerType examinerType = defenseExaminer.getExaminerType();
         boolean isTiebreaker = examinerType == ExaminerType.TIEBREAKER_EXAMINER;
@@ -534,17 +495,10 @@ public class DocumentEditRequestService {
         );
 
         // Trazabilidad en historial de la MODALIDAD
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(studentModality.getStatus())
-                        .changeDate(LocalDateTime.now())
-                        .responsible(examiner)
-                        .observations("Solicitud de edición del documento '" +
-                                document.getDocumentConfig().getDocumentName() +
-                                "': votos de jurados principales divididos. Se requiere veredicto del jurado de desempate para resolver.")
-                        .build()
-        );
+        modalityStatusTransition.recordHistory(studentModality, studentModality.getStatus(), examiner,
+                "Solicitud de edición del documento '" +
+                        document.getDocumentConfig().getDocumentName() +
+                        "': votos de jurados principales divididos. Se requiere veredicto del jurado de desempate para resolver.");
 
         // Notificar al jurado de desempate
         applicationEventPublisher.publishEvent(
@@ -628,22 +582,15 @@ public class DocumentEditRequestService {
                 ? ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT
                 : ModalityProcessStatus.EXAMINERS_ASSIGNED;
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(newModalityStatus)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(responsible)
-                        .observations("Solicitud de edición del documento '" +
-                                document.getDocumentConfig().getDocumentName() + "' " +
-                                (approved ? "APROBADA" : "RECHAZADA") +
-                                (wasTiebreaker ? " por el jurado de desempate" : " por consenso de jurados principales") +
-                                (approved
-                                        ? ". El estudiante puede resubir el documento con los cambios necesarios."
-                                        : ". El documento permanece aprobado y la modalidad vuelve a su estado anterior.") +
-                                (finalNotes != null && !finalNotes.isBlank() ? " Observaciones: " + finalNotes : ""))
-                        .build()
-        );
+        modalityStatusTransition.recordHistory(studentModality, newModalityStatus, responsible,
+                "Solicitud de edición del documento '" +
+                        document.getDocumentConfig().getDocumentName() + "' " +
+                        (approved ? "APROBADA" : "RECHAZADA") +
+                        (wasTiebreaker ? " por el jurado de desempate" : " por consenso de jurados principales") +
+                        (approved
+                                ? ". El estudiante puede resubir el documento con los cambios necesarios."
+                                : ". El documento permanece aprobado y la modalidad vuelve a su estado anterior.") +
+                        (finalNotes != null && !finalNotes.isBlank() ? " Observaciones: " + finalNotes : ""));
 
         // Notificar a los estudiantes del resultado
         applicationEventPublisher.publishEvent(
@@ -707,13 +654,8 @@ public class DocumentEditRequestService {
 
         User examiner = SecurityUtils.getCurrentUser();
 
-        DefenseExaminer defenseExaminer = defenseExaminerRepository
-                .findByStudentModalityIdAndExaminerId(studentModalityId, examiner.getId())
-                .orElse(null);
-
-        if (defenseExaminer == null) {
-            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
-        }
+        DefenseExaminer defenseExaminer = resourceAccessPolicy.requireAssignedExaminer(
+                studentModalityId, examiner, "No estás asignado como jurado a esta modalidad");
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
@@ -754,7 +696,7 @@ public class DocumentEditRequestService {
                 voteMap.put("examinerEmail", v.getExaminer().getEmail());
                 String examinerTypeLabel = defenseExaminerRepository
                         .findByStudentModalityIdAndExaminerId(studentModalityId, v.getExaminer().getId())
-                        .map(de -> de.getExaminerType().toSpanish())
+                        .map(de -> TranslationUtils.translateExaminerType(de.getExaminerType()))
                         .orElse("Jurado");
                 voteMap.put("examinerTypeLabel", examinerTypeLabel);
                 voteMap.put("decision", v.getDecision().name());
@@ -820,7 +762,7 @@ public class DocumentEditRequestService {
         examinerContext.put("examinerName", examiner.getName() + " " + examiner.getLastName());
         examinerContext.put("examinerEmail", examiner.getEmail());
         examinerContext.put("examinerType", defenseExaminer.getExaminerType().name());
-        examinerContext.put("examinerTypeLabel", defenseExaminer.getExaminerType().toSpanish());
+        examinerContext.put("examinerTypeLabel", TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()));
         examinerContext.put("isTiebreaker", defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER);
 
         // Información de la modalidad
@@ -861,12 +803,8 @@ public class DocumentEditRequestService {
 
         User examiner = SecurityUtils.getCurrentUser();
 
-        DefenseExaminer defenseExaminer = defenseExaminerRepository
-                .findByStudentModalityIdAndExaminerId(studentModalityId, examiner.getId())
-                .orElse(null);
-        if (defenseExaminer == null) {
-            throw new ForbiddenException("No estás asignado como jurado a esta modalidad");
-        }
+        DefenseExaminer defenseExaminer = resourceAccessPolicy.requireAssignedExaminer(
+                studentModalityId, examiner, "No estás asignado como jurado a esta modalidad");
 
         boolean isTiebreaker = defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER;
 
@@ -1108,7 +1046,7 @@ public class DocumentEditRequestService {
                             "examinerLastName", examiner.getExaminer().getLastName(),
                             "examinerEmail", examiner.getExaminer().getEmail(),
                             "examinerType", examiner.getExaminerType().name(),
-                            "examinerTypeDescription", ModalityServiceUtils.translateExaminerType(examiner.getExaminerType()),
+                            "examinerTypeDescription", TranslationUtils.translateExaminerType(examiner.getExaminerType()),
                             "assignmentDate", examiner.getAssignmentDate()
                     ))
                     .collect(Collectors.toList());

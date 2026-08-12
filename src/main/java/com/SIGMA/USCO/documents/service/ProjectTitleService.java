@@ -2,6 +2,10 @@ package com.SIGMA.USCO.documents.service;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +23,7 @@ public class ProjectTitleService {
 
     private final PdfTitleExtractorService pdfTitleExtractorService;
     private final StudentModalityRepository studentModalityRepository;
+    private final ResourceAccessPolicy resourceAccessPolicy;
 
     /**
      * Intenta extraer el título del proyecto desde un documento de propuesta
@@ -72,7 +77,7 @@ public class ProjectTitleService {
     @Transactional
     public void updateProjectTitleManually(Long studentModalityId, String projectTitle) {
         StudentModality modality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         if (projectTitle == null || projectTitle.trim().isEmpty()) {
             log.warn("Intento de asignar título vacío a modalidad ID {}", studentModalityId);
@@ -98,10 +103,37 @@ public class ProjectTitleService {
      * @return Título del proyecto, o null si no está definido
      */
     @Transactional(readOnly = true)
-    public String getProjectTitle(Long studentModalityId) {
-        return studentModalityRepository.findById(studentModalityId)
-                .map(StudentModality::getModalityTitle)
-                .orElse(null);
+    public String getProjectTitle(Long studentModalityId, User currentUser) {
+        StudentModality modality = studentModalityRepository.findById(studentModalityId).orElse(null);
+        if (modality != null && !isAuthorized(modality, currentUser)) {
+            throw new ForbiddenException("No autorizado");
+        }
+        return modality != null ? modality.getModalityTitle() : null;
+    }
+
+    private boolean isAuthorized(StudentModality modality, User current) {
+        boolean isStaff = current.getAuthorities().stream().anyMatch(a ->
+                a.getAuthority().equals("ROLE_ADMIN")
+                        || a.getAuthority().equals("ROLE_PROGRAM_HEAD")
+                        || a.getAuthority().equals("PERM_VIEW_REPORT"));
+        return isStaff || isParticipant(modality, current);
+    }
+
+    private boolean isParticipant(StudentModality modality, User current) {
+        return tryRequire(() -> resourceAccessPolicy.requireLeader(modality, current, "No autorizado"))
+                || tryRequire(() -> resourceAccessPolicy.requireActiveMember(modality.getId(), current, "No autorizado"))
+                || tryRequire(() -> resourceAccessPolicy.requireAssignedExaminer(modality.getId(), current, "No autorizado"))
+                || (modality.getProjectDirector() != null
+                && modality.getProjectDirector().getId().equals(current.getId()));
+    }
+
+    private boolean tryRequire(Runnable check) {
+        try {
+            check.run();
+            return true;
+        } catch (ForbiddenException e) {
+            return false;
+        }
     }
 
 }

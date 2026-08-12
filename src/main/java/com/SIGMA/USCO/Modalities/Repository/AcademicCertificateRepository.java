@@ -14,5 +14,7 @@ public interface AcademicCertificateRepository extends JpaRepository<AcademicCer
     Optional<AcademicCertificate> findByCertificateNumber(String certificateNumber);
 
     boolean existsByStudentModalityId(Long studentModalityId);
+
+    Optional<String> findTopByCertificateNumberStartingWithOrderByCertificateNumberDesc(String prefix);
 }
 

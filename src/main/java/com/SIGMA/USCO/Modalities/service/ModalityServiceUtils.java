@@ -1,17 +1,15 @@
 package com.SIGMA.USCO.Modalities.service;
 
 import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
-import com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.dto.response.FinalEvaluationInfo;
 import com.SIGMA.USCO.documents.entity.FinalDocumentEvaluation;
 import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
 import com.SIGMA.USCO.documents.entity.enums.ExaminerDocumentDecision;
 import com.SIGMA.USCO.documents.entity.enums.FinalDocumentRubricType;
 
 import java.text.Normalizer;
-import java.util.LinkedHashMap;
 import java.util.Locale;
-import java.util.Map;
 
 public final class ModalityServiceUtils {
 
@@ -201,55 +199,34 @@ public final class ModalityServiceUtils {
     }
 
     /**
-     * Traduce el enum ExaminerType al español para mejor legibilidad.
+     * Construye la información de una evaluación de documento final.
      */
-    public static String translateExaminerType(ExaminerType type) {
-        return switch (type) {
-            case PRIMARY_EXAMINER_1 -> "Jurado Principal 1";
-            case PRIMARY_EXAMINER_2 -> "Jurado Principal 2";
-            case TIEBREAKER_EXAMINER -> "Jurado de Desempate";
-        };
-    }
-
-    /**
-     * Construye el mapa de información de una evaluación de documento final.
-     */
-    public static Map<String, Object> buildFinalEvaluationInfoMap(FinalDocumentEvaluation evaluation) {
-        Map<String, Object> info = new LinkedHashMap<>();
+    public static FinalEvaluationInfo buildFinalEvaluationInfo(FinalDocumentEvaluation evaluation) {
         FinalDocumentRubricType rubricType = evaluation.getRubricType() != null
                 ? evaluation.getRubricType()
                 : FinalDocumentRubricType.STANDARD;
 
-        info.put("id", evaluation.getId());
-        info.put("rubricType", rubricType.name());
+        FinalEvaluationInfo.FinalEvaluationInfoBuilder builder = FinalEvaluationInfo.builder()
+                .id(evaluation.getId())
+                .rubricType(rubricType.name())
+                .summary(evaluation.getSummary())
+                .introduction(evaluation.getIntroduction())
+                .materialsAndMethods(evaluation.getMaterialsAndMethods())
+                .resultsAndDiscussion(evaluation.getResultsAndDiscussion())
+                .conclusions(evaluation.getConclusions())
+                .bibliographyReferences(evaluation.getBibliographyReferences())
+                .documentOrganization(evaluation.getDocumentOrganization())
+                .prototypeOrSoftware(evaluation.getPrototypeOrSoftware())
+                .evaluatedAt(evaluation.getEvaluatedAt());
 
         if (rubricType == FinalDocumentRubricType.PROFESSIONAL_PRACTICE) {
-            info.put("generalObjective", evaluation.getGeneralObjective());
-            info.put("activitiesObjectiveCoherence", evaluation.getActivitiesObjectiveCoherence());
-            info.put("criticalActivitiesDescription", evaluation.getCriticalActivitiesDescription());
-            info.put("practiceComplianceEvidence", evaluation.getPracticeComplianceEvidence());
-            info.put("organizationAndWriting", evaluation.getOrganizationAndWriting());
-            // Campos legacy para no romper consumidores existentes.
-            info.put("summary", evaluation.getSummary());
-            info.put("introduction", evaluation.getIntroduction());
-            info.put("materialsAndMethods", evaluation.getMaterialsAndMethods());
-            info.put("resultsAndDiscussion", evaluation.getResultsAndDiscussion());
-            info.put("conclusions", evaluation.getConclusions());
-            info.put("bibliographyReferences", evaluation.getBibliographyReferences());
-            info.put("documentOrganization", evaluation.getDocumentOrganization());
-            info.put("prototypeOrSoftware", evaluation.getPrototypeOrSoftware());
-        } else {
-            info.put("summary", evaluation.getSummary());
-            info.put("introduction", evaluation.getIntroduction());
-            info.put("materialsAndMethods", evaluation.getMaterialsAndMethods());
-            info.put("resultsAndDiscussion", evaluation.getResultsAndDiscussion());
-            info.put("conclusions", evaluation.getConclusions());
-            info.put("bibliographyReferences", evaluation.getBibliographyReferences());
-            info.put("documentOrganization", evaluation.getDocumentOrganization());
-            info.put("prototypeOrSoftware", evaluation.getPrototypeOrSoftware());
+            builder.generalObjective(evaluation.getGeneralObjective())
+                    .activitiesObjectiveCoherence(evaluation.getActivitiesObjectiveCoherence())
+                    .criticalActivitiesDescription(evaluation.getCriticalActivitiesDescription())
+                    .practiceComplianceEvidence(evaluation.getPracticeComplianceEvidence())
+                    .organizationAndWriting(evaluation.getOrganizationAndWriting());
         }
 
-        info.put("evaluatedAt", evaluation.getEvaluatedAt());
-        return info;
+        return builder.build();
     }
 }

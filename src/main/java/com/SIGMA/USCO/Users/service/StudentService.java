@@ -8,6 +8,8 @@ import com.SIGMA.USCO.academic.entity.Faculty;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.academic.dto.StudentProfileRequest;
+import com.SIGMA.USCO.Users.dto.response.AcademicHistoryProfileResponse;
+import com.SIGMA.USCO.Users.dto.response.StudentDocumentDTO;
 import com.SIGMA.USCO.Users.dto.response.StudentResponse;
 import com.SIGMA.USCO.academic.dto.AcademicHistoryExtractionResult;
 import com.SIGMA.USCO.academic.repository.AcademicProgramRepository;
@@ -15,7 +17,6 @@ import com.SIGMA.USCO.academic.repository.FacultyRepository;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.academic.service.AcademicHistoryPdfParserService;
 import com.SIGMA.USCO.Users.repository.UserRepository;
-import com.SIGMA.USCO.common.exception.ForbiddenException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
@@ -24,6 +25,7 @@ import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.academic.entity.AcademicHistoryPdf;
 import com.SIGMA.USCO.academic.repository.AcademicHistoryPdfRepository;
+import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
 import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.io.FilenameUtils;
@@ -37,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -68,8 +71,10 @@ public class StudentService {
     private final FacultyRepository facultyRepository;
     private final AcademicProgramRepository academicProgramRepository;
     private final AcademicHistoryPdfParserService academicHistoryPdfParserService;
+    private final ResourceAccessPolicy resourceAccessPolicy;
 
-    public String updateStudentProfile(StudentProfileRequest request) {
+    @Transactional
+    public void updateStudentProfile(StudentProfileRequest request) {
 
         User user = SecurityUtils.getCurrentUser();
         String email = user.getEmail();
@@ -102,12 +107,6 @@ public class StudentService {
                 );
             }
         }
-
-        if (effectiveSemester < 1 || effectiveSemester > 10) {
-            throw new ValidationException("El semestre debe estar entre 1 y 10.");
-        }
-
-
 
         Faculty faculty = facultyRepository.findById(request.getFacultyId())
                 .orElseThrow(() ->
@@ -147,12 +146,10 @@ public class StudentService {
         studentProfile.setApprovedCredits(request.getApprovedCredits());
 
         studentProfileRepository.save(studentProfile);
-
-        return "Perfil académico actualizado correctamente";
     }
 
     @Transactional
-    public Map<String, Object> updateStudentProfileFromAcademicHistory(MultipartFile file) {
+    public AcademicHistoryProfileResponse updateStudentProfileFromAcademicHistory(MultipartFile file) {
 
         User user = SecurityUtils.getCurrentUser();
         String email = user.getEmail();
@@ -182,7 +179,8 @@ public class StudentService {
                     "Intenta nuevamente con el historial académico original en PDF."
             );
         } catch (Exception e) {
-            throw new RuntimeException("No fue posible procesar el PDF: " + e.getMessage());
+            logger.error("Error inesperado al procesar el PDF del historial académico", e);
+            throw new ValidationException("No fue posible procesar el PDF.");
         }
 
         Optional<AcademicProgram> programOpt = findProgramByExtractedName(extracted.getProgramName());
@@ -242,29 +240,30 @@ public class StudentService {
         // Guardar el PDF del historial académico en filesystem y BD
         String filePath = saveAcademicHistoryPdf(file, user, studentCode);
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "Perfil académico actualizado automáticamente desde historial académico");
-        response.put("programNameExtracted", extracted.getProgramName());
-        response.put("academicProgramMatched", program.getName());
-        response.put("faculty", faculty.getName());
-        response.put("approvedCredits", extracted.getApprovedCredits());
-        response.put("programTotalCreditsInPdf", extracted.getTotalCreditsInPdf());
-        response.put("programTotalCreditsInSigma", program.getTotalCredits());
-        response.put("gpa", extracted.getGpa());
-        response.put("semester", inferredSemester);
-        response.put("semesterSource", "STUDENT_CODE");
+        AcademicHistoryProfileResponse.AcademicHistoryProfileResponseBuilder response =
+                AcademicHistoryProfileResponse.builder()
+                        .message("Perfil académico actualizado automáticamente desde historial académico")
+                        .programNameExtracted(extracted.getProgramName())
+                        .academicProgramMatched(program.getName())
+                        .faculty(faculty.getName())
+                        .approvedCredits(extracted.getApprovedCredits())
+                        .programTotalCreditsInPdf(extracted.getTotalCreditsInPdf())
+                        .programTotalCreditsInSigma(program.getTotalCredits())
+                        .gpa(extracted.getGpa())
+                        .semester(inferredSemester)
+                        .semesterSource("STUDENT_CODE");
 
         // Agregar información del archivo guardado a la respuesta
         if (filePath != null) {
-            response.put("pdfFilePath", filePath);
-            response.put("pdfFileName", file.getOriginalFilename());
-            response.put("pdfStored", true);
+            response.pdfFilePath(filePath);
+            response.pdfFileName(file.getOriginalFilename());
+            response.pdfStored(true);
         } else {
-            response.put("pdfStored", false);
-            response.put("pdfWarning", "El PDF se procesó pero no se logró almacenar en el servidor");
+            response.pdfStored(false);
+            response.pdfWarning("El PDF se procesó pero no se logró almacenar en el servidor");
         }
 
-        return response;
+        return response.build();
     }
 
 
@@ -417,7 +416,7 @@ public class StudentService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> getMyDocuments(){
+    public List<StudentDocumentDTO> getMyDocuments(){
 
         User currentUser = SecurityUtils.getCurrentUser();
 
@@ -439,43 +438,41 @@ public class StudentService {
         return documents.stream()
                 .filter(doc -> doc.getDocumentConfig().getDocumentType() == DocumentType.MANDATORY ||
                               doc.getDocumentConfig().getDocumentType() == DocumentType.SECONDARY)
-                .map(doc -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("notes", doc.getNotes());
-                    map.put("filePath", doc.getFilePath());
-                    map.put("studentDocumentId", doc.getId());
-                    map.put("uploadedAt", doc.getUploadDate());
-                    map.put("documentName", doc.getDocumentConfig().getDocumentName());
-                    map.put("documentType", doc.getDocumentConfig().getDocumentType());
-                    map.put("status", doc.getStatus());
-                    return map;
-                })
+                .map(doc -> StudentDocumentDTO.builder()
+                        .notes(doc.getNotes())
+                        .filePath(doc.getFilePath())
+                        .studentDocumentId(doc.getId())
+                        .uploadedAt(doc.getUploadDate())
+                        .documentName(doc.getDocumentConfig().getDocumentName())
+                        .documentType(doc.getDocumentConfig().getDocumentType())
+                        .status(doc.getStatus())
+                        .build())
                 .toList();
 
     }
 
     @Transactional(readOnly = true)
-    public Resource viewMyDocument(Long studentDocumentId) throws java.net.MalformedURLException {
+    public Resource viewMyDocument(Long studentDocumentId) {
 
         User currentUser = SecurityUtils.getCurrentUser();
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
                 .orElseThrow(() -> new NotFoundException("Documento no encontrado"));
 
-        // Verificar que el usuario sea un miembro activo de la modalidad
-        Long studentModalityId = document.getStudentModality().getId();
-        boolean isActiveMember = studentModalityMemberRepository.isActiveMember(
-                studentModalityId,
-                currentUser.getId()
+        resourceAccessPolicy.requireActiveMember(
+                document.getStudentModality().getId(),
+                currentUser,
+                "No tienes permiso para ver este documento"
         );
-
-        if (!isActiveMember) {
-            throw new ForbiddenException("No tienes permiso para ver este documento");
-        }
 
         // Leer el archivo desde el sistema de archivos
         Path filePath = Paths.get(document.getFilePath());
-        Resource resource = new UrlResource(filePath.toUri());
+        Resource resource;
+        try {
+            resource = new UrlResource(filePath.toUri());
+        } catch (MalformedURLException e) {
+            throw new NotFoundException("Archivo no encontrado o no legible");
+        }
 
         if (!resource.exists() || !resource.isReadable()) {
             throw new NotFoundException("Archivo no encontrado o no legible");

@@ -3,11 +3,14 @@ package com.SIGMA.USCO.Users.controller;
 import com.SIGMA.USCO.Modalities.dto.StudentModalityDTO;
 import com.SIGMA.USCO.Modalities.service.CancellationService;
 import com.SIGMA.USCO.Modalities.service.StudentModalityListingService;
+import com.SIGMA.USCO.Users.dto.response.AcademicHistoryProfileResponse;
+import com.SIGMA.USCO.Users.dto.response.StudentDocumentDTO;
 import com.SIGMA.USCO.Users.dto.response.StudentResponse;
 import com.SIGMA.USCO.Users.service.StudentService;
 import com.SIGMA.USCO.academic.dto.StudentProfileRequest;
 import com.SIGMA.USCO.documents.dto.StatusHistoryDTO;
 import com.SIGMA.USCO.documents.service.DocumentService;
+import com.SIGMA.USCO.security.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -51,7 +54,8 @@ public class StudentController {
     @PostMapping("/profile")
     @PreAuthorize("hasRole('STUDENT')")
     public ResponseEntity<String> updateStudentProfile(@RequestBody @Valid StudentProfileRequest request){
-        return ResponseEntity.ok(studentService.updateStudentProfile(request));
+        studentService.updateStudentProfile(request);
+        return ResponseEntity.ok("Perfil académico actualizado correctamente");
     }
 
     @Operation(summary = "Crear perfil desde historial académico", description = "Carga un archivo de historial académico para crear/actualizar el perfil del estudiante")
@@ -62,7 +66,7 @@ public class StudentController {
     })
     @PostMapping("/profile/from-academic-history")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<Map<String, Object>> updateStudentProfileFromAcademicHistory(
+    public ResponseEntity<AcademicHistoryProfileResponse> updateStudentProfileFromAcademicHistory(
             @Parameter(description = "Archivo PDF del historial académico") @RequestParam("file") MultipartFile file
     ) {
         return ResponseEntity.ok(studentService.updateStudentProfileFromAcademicHistory(file));
@@ -87,7 +91,7 @@ public class StudentController {
     @ApiResponse(responseCode = "200", description = "Historial obtenido exitosamente")
     @GetMapping("/documents/{studentDocumentId}/history")
     public ResponseEntity<List<StatusHistoryDTO>> getDocumentHistory(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) {
-        return ResponseEntity.ok(documentService.getDocumentHistory(studentDocumentId));
+        return ResponseEntity.ok(documentService.getDocumentHistory(studentDocumentId, SecurityUtils.getCurrentUser()));
     }
 
     @Operation(summary = "Solicitar cancelación de modalidad", description = "El estudiante solicita cancelar su inscripción en una modalidad de grado")
@@ -105,7 +109,7 @@ public class StudentController {
     @ApiResponse(responseCode = "200", description = "Lista de documentos obtenida")
     @GetMapping("/my-documents")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<List<Map<String, Object>>> getMyDocuments() {
+    public ResponseEntity<List<StudentDocumentDTO>> getMyDocuments() {
         return ResponseEntity.ok(studentService.getMyDocuments());
     }
 
@@ -119,7 +123,7 @@ public class StudentController {
     public ResponseEntity<?> uploadCancellationDocument(
             @Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId,
             @Parameter(description = "Archivo de justificación en PDF") @RequestParam("file") MultipartFile file) {
-        documentService.uploadCancellationDocument(studentModalityId, file);
+        documentService.uploadCancellationDocument(studentModalityId, file, SecurityUtils.getCurrentUser());
         return ResponseEntity.ok(
                 Map.of(
                         "success", true,
@@ -136,7 +140,7 @@ public class StudentController {
     })
     @GetMapping("/documents/{studentDocumentId}/view")
     @PreAuthorize("hasRole('STUDENT')")
-    public ResponseEntity<Resource> viewMyDocument(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) throws java.net.MalformedURLException {
+    public ResponseEntity<Resource> viewMyDocument(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) {
         Resource resource = studentService.viewMyDocument(studentDocumentId);
 
         String contentType = "application/octet-stream";

@@ -40,7 +40,8 @@ public class AcademicProgramController {
 
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 Map.of(
-                        "message", "Programa académico creado exitosamente."
+                        "message", "Programa académico creado exitosamente.",
+                        "program", program
                 )
         );
     }
@@ -81,10 +82,11 @@ public class AcademicProgramController {
     @PutMapping("/update/{id}")
     @PreAuthorize("hasAuthority('PERM_UPDATE_PROGRAM')")
     public ResponseEntity<?> updateProgram(@Parameter(description = "ID del programa") @PathVariable Long id, @RequestBody @Valid ProgramDTO request) {
-        academicProgramService.updateProgram(id, request);
+        ProgramDTO program = academicProgramService.updateProgram(id, request);
         return ResponseEntity.ok(
                 Map.of(
-                        "message", "Programa académico actualizado exitosamente."
+                        "message", "Programa académico actualizado exitosamente.",
+                        "program", program
                 )
         );
     }

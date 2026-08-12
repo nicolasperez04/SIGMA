@@ -1,8 +1,7 @@
-package com.SIGMA.USCO.notifications.service;
+package com.SIGMA.USCO.documents.service;
 
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
-import com.SIGMA.USCO.documents.service.ProjectTitleService;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import lombok.RequiredArgsConstructor;

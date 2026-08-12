@@ -1,7 +1,6 @@
 package com.SIGMA.USCO.academic.repository;
 
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

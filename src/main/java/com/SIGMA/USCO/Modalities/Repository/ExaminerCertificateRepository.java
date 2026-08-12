@@ -33,5 +33,7 @@ public interface ExaminerCertificateRepository extends JpaRepository<ExaminerCer
      */
     @Query("SELECT ec FROM ExaminerCertificate ec WHERE ec.examiner.id = :examinerId")
     List<ExaminerCertificate> findByExaminerId(@Param("examinerId") Long examinerId);
+
+    Optional<String> findTopByCertificateNumberStartingWithOrderByCertificateNumberDesc(String prefix);
 }
 

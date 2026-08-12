@@ -34,7 +34,8 @@ public class DocumentController {
     @PostMapping("/create")
     @PreAuthorize("hasAuthority('PERM_CREATE_REQUIRED_DOCUMENT') or hasAuthority('PERM_UPDATE_REQUIRED_DOCUMENT')")
     public ResponseEntity<String> createRequiredDocument(@Valid @RequestBody RequiredDocumentDTO request) {
-        return ResponseEntity.ok(documentService.createRequiredDocument(request));
+        documentService.createRequiredDocument(request);
+        return ResponseEntity.ok("Documento obligatorio registrado correctamente.");
     }
 
     @Operation(summary = "Actualizar documento requerido", description = "Actualiza un documento requerido existente")
@@ -47,7 +48,8 @@ public class DocumentController {
     @PutMapping("/update/{documentId}")
     @PreAuthorize("hasAuthority('PERM_UPDATE_REQUIRED_DOCUMENT')")
     public ResponseEntity<String> updateRequiredDocument(@Parameter(description = "ID del documento requerido") @PathVariable Long documentId, @Valid @RequestBody RequiredDocumentDTO request) {
-        return ResponseEntity.ok(documentService.updateRequiredDocument(documentId, request));
+        documentService.updateRequiredDocument(documentId, request);
+        return ResponseEntity.ok("Documento obligatorio actualizado correctamente.");
     }
 
     @Operation(summary = "Eliminar documento requerido", description = "Elimina un documento requerido del sistema")
@@ -59,7 +61,8 @@ public class DocumentController {
     @PutMapping("/delete/{documentId}")
     @PreAuthorize("hasAuthority('PERM_DELETE_REQUIRED_DOCUMENT')")
     public ResponseEntity<String> deleteRequiredDocument(@Parameter(description = "ID del documento requerido") @PathVariable Long documentId) {
-        return ResponseEntity.ok(documentService.deleteRequiredDocument(documentId));
+        documentService.deleteRequiredDocument(documentId);
+        return ResponseEntity.ok("Documento obligatorio desactivado correctamente.");
     }
 
     @Operation(summary = "Obtener documentos por modalidad", description = "Retorna todos los documentos requeridos para una modalidad específica")

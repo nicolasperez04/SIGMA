@@ -38,12 +38,6 @@ public class CompletedModalitiesFilterDTO {
     private Integer semester;
 
     /**
-     * Filtrar por rango de fechas de finalización
-     */
-    private String startDate; // formato: yyyy-MM-dd
-    private String endDate;   // formato: yyyy-MM-dd
-
-    /**
      * Incluir solo con distinción académica
      */
     private Boolean onlyWithDistinction;

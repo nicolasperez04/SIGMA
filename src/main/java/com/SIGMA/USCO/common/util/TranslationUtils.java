@@ -118,11 +118,17 @@ public final class TranslationUtils {
     }
 
     public static String getStudentList(StudentModality modality) {
+        return getStudentList(modality, true);
+    }
+
+    public static String getStudentList(StudentModality modality, boolean includeEmail) {
         if (modality.getMembers() == null || modality.getMembers().isEmpty()) {
             return "Sin estudiantes asociados";
         }
         return modality.getMembers().stream()
-            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
+            .map(m -> includeEmail
+                    ? m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")"
+                    : m.getStudent().getName() + " " + m.getStudent().getLastName())
             .collect(Collectors.joining(", "));
     }
 

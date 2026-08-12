@@ -27,8 +27,13 @@ import com.SIGMA.USCO.security.SecurityUtils;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
 import org.springframework.stereotype.Service;
 
+import java.net.MalformedURLException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +50,7 @@ public class CancellationService {
     private final UserRepository userRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final ModalityStatusTransition modalityStatusTransition;
 
     @Transactional
     public Map<String, Object> requestCancellation(Long studentModalityId) {
@@ -108,21 +114,8 @@ public class CancellationService {
             }
         }
 
-        // Cambiar estado de la modalidad
-        studentModality.setStatus(ModalityProcessStatus.CANCELLATION_REQUESTED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        // Registrar en historial
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.CANCELLATION_REQUESTED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(student)
-                        .observations("Solicitud de cancelación enviada por el estudiante con documento justificativo")
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CANCELLATION_REQUESTED, student,
+                "Solicitud de cancelación enviada por el estudiante con documento justificativo");
 
         // Notificar a las partes interesadas
         applicationEventPublisher.publishEvent(
@@ -135,6 +128,15 @@ public class CancellationService {
                         "studentModalityId", studentModalityId,
                         "newStatus", ModalityProcessStatus.CANCELLATION_REQUESTED
                 );
+    }
+
+    public Resource getCancellationDocumentResource(StudentDocument document) throws MalformedURLException {
+        Path filePath = Paths.get(document.getFilePath());
+        Resource resource = new UrlResource(filePath.toUri());
+        if (!resource.exists() || !resource.isReadable()) {
+            throw new NotFoundException("No se pudo leer el archivo");
+        }
+        return resource;
     }
 
     @Transactional
@@ -156,19 +158,8 @@ public class CancellationService {
             );
         }
 
-        studentModality.setStatus(ModalityProcessStatus.CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(projectDirector)
-                        .observations("El director de proyecto aprobó la solicitud de cancelación. Pendiente de revisión del comité de currículo")
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR, projectDirector,
+                "El director de proyecto aprobó la solicitud de cancelación. Pendiente de revisión del comité de currículo");
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_APPROVED, studentModality.getId(), projectDirector.getId(), Map.of(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, projectDirector.getId()))
@@ -215,33 +206,11 @@ public class CancellationService {
             previousStatus = history.get(history.size() - 2).getStatus();
         }
 
-        studentModality.setStatus(ModalityProcessStatus.CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR, projectDirector,
+                "El director de proyecto rechazó la solicitud de cancelación. Motivo: " + reason);
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(projectDirector)
-                        .observations("El director de proyecto rechazó la solicitud de cancelación. Motivo: " + reason)
-                        .build()
-        );
-
-        studentModality.setStatus(previousStatus);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(previousStatus)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(projectDirector)
-                        .observations("Modalidad restaurada al estado anterior tras rechazo de cancelación")
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, previousStatus, projectDirector,
+                "Modalidad restaurada al estado anterior tras rechazo de cancelación");
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_REJECTED, studentModality.getId(), projectDirector.getId(), Map.of(ModalityEvent.KEY_REASON, reason, ModalityEvent.KEY_COMMITTEE_MEMBER_ID, projectDirector.getId()))
@@ -281,19 +250,8 @@ public class CancellationService {
             );
         }
 
-        modality.setStatus(ModalityProcessStatus.MODALITY_CANCELLED);
-        modality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(modality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(modality)
-                        .status(ModalityProcessStatus.MODALITY_CANCELLED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations("Cancelación aprobada por el comité de currículo del programa")
-                        .build()
-        );
+        modalityStatusTransition.transition(modality, ModalityProcessStatus.MODALITY_CANCELLED, committeeMember,
+                "Cancelación aprobada por el comité de currículo del programa");
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_APPROVED, modality.getId(), committeeMember.getId(), Map.of(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, committeeMember.getId()))
@@ -369,35 +327,13 @@ public class CancellationService {
                 : nonCancellationHistory.get(0).getStatus();
 
         // 1. Registrar el rechazo en el historial
-        modality.setStatus(ModalityProcessStatus.CANCELLATION_REJECTED);
-        modality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(modality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(modality)
-                        .status(ModalityProcessStatus.CANCELLATION_REJECTED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations("Solicitud de cancelación rechazada por el comité de currículo. Motivo: " + reason)
-                        .build()
-        );
+        modalityStatusTransition.transition(modality, ModalityProcessStatus.CANCELLATION_REJECTED, committeeMember,
+                "Solicitud de cancelación rechazada por el comité de currículo. Motivo: " + reason);
 
         // 2. Restaurar automáticamente al estado previo a la solicitud de cancelación
-        modality.setStatus(stateToRestore);
-        modality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(modality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(modality)
-                        .status(stateToRestore)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations("Modalidad restaurada automáticamente al estado previo a la solicitud de cancelación: " +
-                                stateToRestore.name() + ". La modalidad continúa su proceso normal.")
-                        .build()
-        );
+        modalityStatusTransition.transition(modality, stateToRestore, committeeMember,
+                "Modalidad restaurada automáticamente al estado previo a la solicitud de cancelación: " +
+                        stateToRestore.name() + ". La modalidad continúa su proceso normal.");
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_REJECTED, modality.getId(), committeeMember.getId(), Map.of(ModalityEvent.KEY_REASON, reason, ModalityEvent.KEY_COMMITTEE_MEMBER_ID, committeeMember.getId()))
@@ -519,10 +455,6 @@ public class CancellationService {
         User previousDirector = studentModality.getProjectDirector();
 
         studentModality.setProjectDirector(director);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        // Cambiar estado a READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE
-        studentModality.setStatus(ModalityProcessStatus.READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE);
-        studentModalityRepository.save(studentModality);
 
         String observation =
                 previousDirector == null
@@ -532,15 +464,7 @@ public class CancellationService {
                         " → " +
                         director.getEmail();
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations(observation)
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE, committeeMember, observation);
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.DIRECTOR_ASSIGNED, studentModality.getId(), committeeMember.getId(), Map.of(
@@ -643,15 +567,7 @@ public class CancellationService {
                 reason
         );
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(studentModality.getStatus())
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations(observation)
-                        .build()
-        );
+        modalityStatusTransition.recordHistory(studentModality, studentModality.getStatus(), committeeMember, observation);
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.DIRECTOR_ASSIGNED, studentModality.getId(), committeeMember.getId(), Map.of(

@@ -1,8 +1,6 @@
 package com.SIGMA.USCO.notifications.listeners;
 
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.repository.UserRepository;
@@ -16,7 +14,6 @@ import com.SIGMA.USCO.notifications.service.NotificationBuilderHelper;
 import com.SIGMA.USCO.notifications.service.NotificationFactory;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -26,7 +23,6 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -37,7 +33,6 @@ public class DirectorNotificationListener {
     private final NotificationFactory notificationFactory;
     private final UserRepository userRepository;
     private final StudentDocumentRepository studentDocumentRepository;
-    private final StudentModalityMemberRepository studentModalityMemberRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
@@ -63,10 +58,7 @@ public class DirectorNotificationListener {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         if (sm.getProjectDirector() == null) return;
 
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(sm.getId(), MemberStatus.ACTIVE);
-        String miembros = members.stream()
-            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
-            .collect(Collectors.joining(", "));
+        String miembros = TranslationUtils.getStudentList(sm);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
         String subject = "Concepto del Director de Proyecto sobre solicitud de cancelación de modalidad";
@@ -119,10 +111,7 @@ public class DirectorNotificationListener {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         if (sm.getProjectDirector() == null) return;
 
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(sm.getId(), MemberStatus.ACTIVE);
-        String miembros = members.stream()
-            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
-            .collect(Collectors.joining(", "));
+        String miembros = TranslationUtils.getStudentList(sm);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
         String subject = "Concepto del Director de Proyecto sobre solicitud de cancelación de modalidad";
@@ -178,10 +167,7 @@ public class DirectorNotificationListener {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         if (sm.getProjectDirector() == null) return;
 
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(sm.getId(), MemberStatus.ACTIVE);
-        String miembros = members.stream()
-            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
-            .collect(Collectors.joining(", "));
+        String miembros = TranslationUtils.getStudentList(sm);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
         String subject = "Solicitud de cancelación de modalidad recibida";
@@ -232,10 +218,7 @@ public class DirectorNotificationListener {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
         User director = userRepository.findById(event.get(ModalityEvent.KEY_DIRECTOR_ID, Long.class)).orElseThrow();
 
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-        String miembros = members.stream()
-            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
-            .collect(Collectors.joining(", "));
+        String miembros = TranslationUtils.getStudentList(modality);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String directorSubject = "Asignación como Director de Proyecto a modalidad de grado";
@@ -297,10 +280,7 @@ public class DirectorNotificationListener {
         User director = modality.getProjectDirector();
         if (director == null) return;
 
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-        String miembros = members.stream()
-            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
-            .collect(Collectors.joining(", "));
+        String miembros = TranslationUtils.getStudentList(modality);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Resultado de la sustentación final – Estudiantes asignados";

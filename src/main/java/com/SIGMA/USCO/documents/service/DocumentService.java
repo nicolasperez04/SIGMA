@@ -4,6 +4,8 @@ import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Repository.DegreeModalityRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 
 import com.SIGMA.USCO.documents.dto.StatusHistoryDTO;
@@ -17,7 +19,8 @@ import com.SIGMA.USCO.documents.repository.StudentDocumentStatusHistoryRepositor
 import com.SIGMA.USCO.common.exception.ForbiddenException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
-import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.common.util.MimeTypeGuard;
+import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.io.FilenameUtils;
@@ -46,12 +49,14 @@ public class DocumentService {
     private final StudentDocumentRepository studentDocumentRepository;
     private final StudentDocumentStatusHistoryRepository documentHistoryRepository;
     private final StudentModalityRepository studentModalityRepository;
+    private final ResourceAccessPolicy resourceAccessPolicy;
+    private final ProgramAuthorityRepository programAuthorityRepository;
 
     @Value("${file.upload-dir}")
     private String uploadDir;
 
     @Transactional
-    public String createRequiredDocument(RequiredDocumentDTO request) {
+    public void createRequiredDocument(RequiredDocumentDTO request) {
 
         var modality = degreeModalityRepository.findById(request.getModalityId())
                 .orElseThrow(() -> new NotFoundException(
@@ -73,11 +78,10 @@ public class DocumentService {
 
         requiredDocumentRepository.save(document);
 
-        return "Documento obligatorio registrado correctamente.";
     }
 
     @Transactional
-    public String updateRequiredDocument(Long documentId, RequiredDocumentDTO request) {
+    public void updateRequiredDocument(Long documentId, RequiredDocumentDTO request) {
 
         var document = requiredDocumentRepository.findById(documentId)
                 .orElseThrow(() -> new NotFoundException(
@@ -95,11 +99,11 @@ public class DocumentService {
 
         requiredDocumentRepository.save(document);
 
-        return "Documento obligatorio actualizado correctamente.";
     }
 
 
-    public String deleteRequiredDocument(Long documentId) {
+    @Transactional
+    public void deleteRequiredDocument(Long documentId) {
 
         RequiredDocument document = requiredDocumentRepository.findById(documentId)
                 .orElseThrow(() ->
@@ -115,7 +119,6 @@ public class DocumentService {
 
         requiredDocumentRepository.save(document);
 
-        return "Documento obligatorio desactivado correctamente.";
     }
 
     @Transactional(readOnly = true)
@@ -200,16 +203,15 @@ public class DocumentService {
     }
 
     @Transactional(readOnly = true)
-    public List<StatusHistoryDTO> getDocumentHistory(Long studentDocumentId) {
+    public List<StatusHistoryDTO> getDocumentHistory(Long studentDocumentId, User currentUser) {
 
-        User student = SecurityUtils.getCurrentUser();
+        User student = currentUser;
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
                 .orElseThrow(() -> new NotFoundException("Document not found"));
 
-        if (!document.getStudentModality().getLeader().getId().equals(student.getId())) {
-            throw new ForbiddenException("No authorized access to document history.");
-        }
+        resourceAccessPolicy.requireLeader(document.getStudentModality(), student,
+                "No authorized access to document history.");
 
         return documentHistoryRepository
                         .findByStudentDocumentIdOrderByChangeDateAsc(studentDocumentId)
@@ -230,9 +232,33 @@ public class DocumentService {
     }
 
     @Transactional(readOnly = true)
-    public StudentDocument getDocumentCancellation(Long studentModalityId) {
+    public StudentDocument getDocumentCancellation(Long studentModalityId, User currentUser) {
         // ponytail: devuelve la entidad solo para servir bytes (filePath/fileName) en el controller;
         // no se serializa al JSON, así que no viola el contrato de DTOs de respuesta.
+
+        User current = currentUser;
+
+        StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+
+        boolean isLeader = studentModality.getLeader() != null
+                && studentModality.getLeader().getId().equals(current.getId());
+        boolean isDirector = studentModality.getProjectDirector() != null
+                && studentModality.getProjectDirector().getId().equals(current.getId());
+        boolean isProgramAuthority = studentModality.getAcademicProgram() != null
+                && programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRoleIn(
+                        current.getId(),
+                        studentModality.getAcademicProgram().getId(),
+                        List.of(ProgramRole.PROGRAM_HEAD, ProgramRole.PROGRAM_CURRICULUM_COMMITTEE));
+        // ponytail: SUPERADMIN/EXAMINER entran por rol (poseen PERM_VIEW_CANCELLATIONS y hoy ven
+        // cancelaciones de terceros); restringir por programa requeriría inyectar más repos.
+        boolean isStaff = current.getRoles().stream()
+                .anyMatch(role -> role.getName().equals("SUPERADMIN")
+                        || role.getName().equals("EXAMINER"));
+
+        if (!(isLeader || isDirector || isProgramAuthority || isStaff)) {
+            throw new ForbiddenException("No autorizado");
+        }
 
         return studentDocumentRepository
                 .findByStudentModalityIdAndDocumentConfig_DocumentType(
@@ -248,17 +274,12 @@ public class DocumentService {
     }
 
     @Transactional
-    public void uploadCancellationDocument(Long studentModalityId, MultipartFile file) {
-
-        User uploader = SecurityUtils.getCurrentUser();
-        String email = uploader.getEmail();
+    public void uploadCancellationDocument(Long studentModalityId, MultipartFile file, User currentUser) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
-        if (!studentModality.getLeader().getEmail().equals(email)) {
-            throw new ForbiddenException("No autorizado");
-        }
+        resourceAccessPolicy.requireLeader(studentModality, currentUser, "No autorizado");
 
         // Usar DocumentType.CANCELLATION en lugar de buscar por nombre
         Long modalityId = studentModality.getProgramDegreeModality().getDegreeModality().getId();
@@ -276,15 +297,21 @@ public class DocumentService {
 
         validateFile(file, cancellationDocumentConfig);
 
-        String fileName = UUID.randomUUID() + "_" + file.getOriginalFilename();
+        String safeOriginal = FilenameUtils.getName(
+                file.getOriginalFilename() != null ? file.getOriginalFilename() : "");
+        safeOriginal = safeOriginal.replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (safeOriginal.isEmpty()) {
+            safeOriginal = "documento";
+        }
+        String fileName = UUID.randomUUID() + "_" + safeOriginal;
 
         // Crear estructura de carpetas para documentos de cancelación
         String modalityFolder = studentModality.getProgramDegreeModality()
                 .getDegreeModality().getName().replaceAll("[^a-zA-Z0-9]", "_");
-        String studentFolder = studentModality.getLeader().getName() +
+        String studentFolder = (studentModality.getLeader().getName() +
                 studentModality.getLeader().getLastName() + "_" +
                 studentModality.getLeader().getLastName() + "_" +
-                studentModality.getId();
+                studentModality.getId()).replaceAll("[^a-zA-Z0-9]", "_");
 
         Path destination = Paths.get(uploadDir, modalityFolder, studentFolder, "cancelaciones", fileName);
 
@@ -355,6 +382,10 @@ public class DocumentService {
                         .toList();
 
         if (!allowed.contains(extension)) {
+            throw new ValidationException("Formato no permitido");
+        }
+
+        if (!MimeTypeGuard.isMimeAllowed(file, extension)) {
             throw new ValidationException("Formato no permitido");
         }
 

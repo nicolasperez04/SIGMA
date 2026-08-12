@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static com.SIGMA.USCO.common.util.TranslationUtils.translateExaminerType;
@@ -93,12 +94,11 @@ public class ExaminerCertificatePdfService {
             log.info("Registro de acta anterior de jurado eliminado de BD");
         }
 
-        String examinerName = defenseExaminer.getExaminer().getName() + " " + defenseExaminer.getExaminer().getLastName();
-        String certNumber = generateCertificateNumber("ACTA-JUR",
-                refreshedModality.getProgramDegreeModality().getAcademicProgram().getId(),
-                certificateRepository.findAll().stream()
-                        .map(ExaminerCertificate::getCertificateNumber)
-                        .collect(Collectors.toList()));
+        Long programId = refreshedModality.getProgramDegreeModality().getAcademicProgram().getId();
+        int year = LocalDateTime.now().getYear();
+        Optional<String> currentMax = certificateRepository
+                .findTopByCertificateNumberStartingWithOrderByCertificateNumberDesc("ACTA-JUR" + programId + "-" + year + "-");
+        String certNumber = generateCertificateNumber("ACTA-JUR", programId, currentMax);
 
         Path outDir = Paths.get(uploadDir, "certificates",
                 String.valueOf(refreshedModality.getProgramDegreeModality().getAcademicProgram().getId()),

@@ -375,19 +375,4 @@ ORDER BY sm.updatedAt DESC
             @Param("statuses") List<ModalityProcessStatus> statuses,
             @Param("name") String name
     );
-
-    /**
-     * Obtiene estadísticas de modalidades grupales por programa
-     * @param programId ID del programa académico
-     * @return Array con [total modalidades grupales, total individuales, promedio miembros por grupo]
-     */
-    @Query("""
-        SELECT
-            SUM(CASE WHEN sm.modalityType = 'GROUP' THEN 1 ELSE 0 END) as groupCount,
-            SUM(CASE WHEN sm.modalityType = 'INDIVIDUAL' THEN 1 ELSE 0 END) as individualCount,
-            COUNT(sm) as total
-        FROM StudentModality sm
-        WHERE sm.academicProgram.id = :programId
-        """)
-    Object[] getModalityStatisticsByProgram(@Param("programId") Long programId);
 }

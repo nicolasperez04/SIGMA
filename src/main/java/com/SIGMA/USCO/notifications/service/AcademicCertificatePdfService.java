@@ -30,6 +30,7 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static com.SIGMA.USCO.notifications.service.CertificatePdfSupport.*;
@@ -59,47 +60,7 @@ public class AcademicCertificatePdfService {
 
     @Transactional
     public AcademicCertificate generateCertificate(StudentModality studentModality) throws IOException {
-        // Eliminar certificado previo si existe
-        AcademicCertificate existing = certificateRepository.findByStudentModalityId(studentModality.getId()).orElse(null);
-        if (existing != null) {
-            try {
-                Path old = Paths.get(existing.getFilePath());
-                if (Files.exists(old)) Files.delete(old);
-                log.info("PDF anterior eliminado: {}", old);
-            } catch (IOException ex) {
-                log.warn("No se pudo eliminar PDF anterior: {}", ex.getMessage());
-            }
-            certificateRepository.delete(existing);
-            certificateRepository.flush();
-            log.info("Registro de certificado antiguo eliminado de BD");
-        }
-
-        User leader = studentModality.getLeader();
-        String certNumber = generateCertificateNumber("ACTA-PROG",
-                studentModality.getProgramDegreeModality().getAcademicProgram().getId(),
-                certificateRepository.findAll().stream()
-                        .map(AcademicCertificate::getCertificateNumber)
-                        .collect(Collectors.toList()));
-
-        Path outDir = Paths.get(uploadDir, "certificates",
-                String.valueOf(studentModality.getProgramDegreeModality().getAcademicProgram().getId()));
-        Files.createDirectories(outDir);
-        String fileName = "ACTA_" + certNumber + "_" + leader.getId() + ".pdf";
-        Path filePath  = outDir.resolve(fileName);
-
-        buildPdf(filePath, studentModality, certNumber);
-        log.info("Certificado PDF generado: {}", filePath);
-
-        String hash = calculateFileHash(filePath);
-        AcademicCertificate cert = AcademicCertificate.builder()
-                .studentModality(studentModality)
-                .certificateNumber(certNumber)
-                .issueDate(LocalDateTime.now())
-                .filePath(filePath.toString())
-                .fileHash(hash)
-                .status(CertificateStatus.GENERATED)
-                .build();
-        return certificateRepository.save(cert);
+        return generate(studentModality, "ACTA_", false);
     }
 
     /**
@@ -108,6 +69,17 @@ public class AcademicCertificatePdfService {
      */
     @Transactional
     public AcademicCertificate generateCertificateForCommitteeApproval(StudentModality studentModality) throws IOException {
+        return generate(studentModality, "ACTA_COMITE_", true);
+    }
+
+    private AcademicCertificate generate(StudentModality studentModality, String filePrefix, boolean simplified) throws IOException {
+        Long programId = studentModality.getProgramDegreeModality().getAcademicProgram().getId();
+        int year = LocalDateTime.now().getYear();
+        Optional<String> currentMax = certificateRepository
+                .findTopByCertificateNumberStartingWithOrderByCertificateNumberDesc(
+                        "ACTA-PROG" + programId + "-" + year + "-");
+        String certNumber = generateCertificateNumber("ACTA-PROG", programId, currentMax);
+
         // Eliminar certificado previo si existe
         AcademicCertificate existing = certificateRepository.findByStudentModalityId(studentModality.getId()).orElse(null);
         if (existing != null) {
@@ -124,20 +96,18 @@ public class AcademicCertificatePdfService {
         }
 
         User leader = studentModality.getLeader();
-        String certNumber = generateCertificateNumber("ACTA-PROG",
-                studentModality.getProgramDegreeModality().getAcademicProgram().getId(),
-                certificateRepository.findAll().stream()
-                        .map(AcademicCertificate::getCertificateNumber)
-                        .collect(Collectors.toList()));
-
-        Path outDir = Paths.get(uploadDir, "certificates",
-                String.valueOf(studentModality.getProgramDegreeModality().getAcademicProgram().getId()));
+        Path outDir = Paths.get(uploadDir, "certificates", String.valueOf(programId));
         Files.createDirectories(outDir);
-        String fileName = "ACTA_COMITE_" + certNumber + "_" + leader.getId() + ".pdf";
-        Path filePath  = outDir.resolve(fileName);
+        String fileName = filePrefix + certNumber + "_" + leader.getId() + ".pdf";
+        Path filePath = outDir.resolve(fileName);
 
-        buildSimplifiedPdf(filePath, studentModality, certNumber);
-        log.info("Certificado simplificado (comité) PDF generado: {}", filePath);
+        if (simplified) {
+            buildSimplifiedPdf(filePath, studentModality, certNumber);
+            log.info("Certificado simplificado (comité) PDF generado: {}", filePath);
+        } else {
+            buildPdf(filePath, studentModality, certNumber);
+            log.info("Certificado PDF generado: {}", filePath);
+        }
 
         String hash = calculateFileHash(filePath);
         AcademicCertificate cert = AcademicCertificate.builder()

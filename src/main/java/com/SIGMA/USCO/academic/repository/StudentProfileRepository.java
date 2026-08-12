@@ -13,4 +13,6 @@ public interface StudentProfileRepository extends JpaRepository<StudentProfile, 
     boolean existsByUserId(Long userId);
 
     List<StudentProfile> findByAcademicProgramId(Long academicProgramId);
+
+    List<StudentProfile> findAllByUserIdIn(List<Long> userIds);
 }

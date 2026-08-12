@@ -31,6 +31,7 @@ import com.SIGMA.USCO.notifications.service.ExaminerCertificatePdfService;
 import com.SIGMA.USCO.Modalities.Entity.ExaminerCertificate;
 import com.SIGMA.USCO.Modalities.Entity.enums.CertificateStatus;
 import com.SIGMA.USCO.Modalities.Repository.ExaminerCertificateRepository;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import java.nio.file.Path;
 
 @Component
@@ -101,10 +102,7 @@ public class ExaminerNotificationListener {
         for (DefenseExaminer examinerAssignment : examiners) {
             User examiner = examinerAssignment.getExaminer();
 
-            String examinerRoleLabel = switch (examinerAssignment.getExaminerType()) {
-                case PRIMARY_EXAMINER_1, PRIMARY_EXAMINER_2 -> "Jurado Principal";
-                case TIEBREAKER_EXAMINER -> "Jurado de Desempate";
-            };
+            String examinerRoleLabel = TranslationUtils.translateExaminerType(examinerAssignment.getExaminerType());
 
             String subject = "Designación oficial como Jurado Evaluador – Modalidad de Grado";
 
@@ -154,10 +152,7 @@ public class ExaminerNotificationListener {
         // ── Construir resumen de jurados asignados para el mensaje de estudiantes y director ──
         String examinersListForOthers = examiners.stream()
                 .map(e -> {
-                    String roleLabel = switch (e.getExaminerType()) {
-                        case PRIMARY_EXAMINER_1, PRIMARY_EXAMINER_2 -> "Jurado Principal";
-                        case TIEBREAKER_EXAMINER -> "Jurado de Desempate";
-                    };
+                    String roleLabel = TranslationUtils.translateExaminerType(e.getExaminerType());
                     return "- " + e.getExaminer().getName() + " " + e.getExaminer().getLastName()
                             + " (" + roleLabel + ")";
                 })
@@ -261,10 +256,7 @@ public class ExaminerNotificationListener {
         User examiner = userRepository.findById(event.get(ModalityEvent.KEY_EXAMINER_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Jurado no encontrado"));
 
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-        String miembros = members.stream()
-            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
-            .collect(Collectors.joining(", "));
+        String miembros = TranslationUtils.getStudentList(modality);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
@@ -312,10 +304,7 @@ public class ExaminerNotificationListener {
         User director = userRepository.findById(event.get(ModalityEvent.KEY_PROJECT_DIRECTOR_ID, Long.class))
                 .orElseThrow(() -> new RuntimeException("Director de proyecto no encontrado"));
 
-        List<StudentModalityMember> members = studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);
-        String miembros = members.stream()
-            .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() + " (" + m.getStudent().getEmail() + ")")
-            .collect(Collectors.joining(", "));
+        String miembros = TranslationUtils.getStudentList(modality);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
@@ -481,11 +470,7 @@ public class ExaminerNotificationListener {
 
         List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(event.getStudentModalityId());
 
-        String studentNames = studentModalityMemberRepository
-                .findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE)
-                .stream()
-                .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName())
-                .collect(Collectors.joining(", "));
+        String studentNames = TranslationUtils.getStudentList(modality, false);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
@@ -628,10 +613,7 @@ public class ExaminerNotificationListener {
      * Construye el mensaje para el jurado sobre su participación
      */
     private String buildExaminerParticipationMessage(User examiner, StudentModality modality, DefenseExaminer defenseExaminer) {
-        String examinerRole = switch (defenseExaminer.getExaminerType()) {
-            case PRIMARY_EXAMINER_1, PRIMARY_EXAMINER_2 -> "Jurado Principal";
-            case TIEBREAKER_EXAMINER -> "Jurado de Desempate";
-        };
+        String examinerRole = TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType());
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 

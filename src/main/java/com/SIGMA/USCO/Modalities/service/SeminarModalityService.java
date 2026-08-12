@@ -275,7 +275,7 @@ public class SeminarModalityService {
 
 
 
-            seminarRepository.enrollStudent(seminarId, studentProfile.getId());
+            seminar.getEnrolledStudents().add(studentProfile);
 
 
             seminar.setCurrentParticipants(seminar.getCurrentParticipants() + 1);

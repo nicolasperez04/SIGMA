@@ -15,8 +15,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * Soporte compartido de generación de actas/certificados PDF institucionales USCO.
@@ -247,17 +247,22 @@ public final class CertificatePdfSupport {
         }
     }
 
-    /** Busca el siguiente número de acta disponible en el programa para el año */
-    public static String generateCertificateNumber(String prefix, Long programId, List<String> existingNumbers) {
+    /** Calcula el siguiente número de acta para el programa en el año (max actual + 1) */
+    public static String generateCertificateNumber(String prefix, Long programId, Optional<String> currentMax) {
         int year = LocalDateTime.now().getYear();
         int nextNumber = 1;
-        while (true) {
-            String candidate = String.format("%s%d-%d-%04d", prefix, programId, year, nextNumber);
-            if (!existingNumbers.contains(candidate)) {
-                return candidate;
+        if (currentMax != null && currentMax.isPresent()) {
+            String max = currentMax.get();
+            int lastDash = max.lastIndexOf('-');
+            if (lastDash >= 0) {
+                try {
+                    nextNumber = Integer.parseInt(max.substring(lastDash + 1)) + 1;
+                } catch (NumberFormatException ignored) {
+                    // número no numérico → reiniciar secuencia
+                }
             }
-            nextNumber++;
         }
+        return String.format("%s%d-%d-%04d", prefix, programId, year, nextNumber);
     }
 
     /** Traducción del tipo de modalidad (Individual/Grupal) */

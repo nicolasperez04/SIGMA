@@ -38,6 +38,7 @@ import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import com.SIGMA.USCO.notifications.event.ModalityEvent;
 import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.util.TranslationUtils;
 import com.SIGMA.USCO.security.SecurityUtils;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -72,6 +73,7 @@ public class DefenseModalityService {
     private final StudentProfileRepository studentProfileRepository;
     private final UserRepository userRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final ModalityStatusTransition modalityStatusTransition;
 
     @Transactional
     public Map<String, Object> scheduleDefense(Long studentModalityId, ScheduleDefenseDTO request) {
@@ -92,23 +94,11 @@ public class DefenseModalityService {
         }
         studentModality.setDefenseDate(request.getDefenseDate());
         studentModality.setDefenseLocation(request.getDefenseLocation());
-        studentModality.setStatus(ModalityProcessStatus.DEFENSE_SCHEDULED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.DEFENSE_SCHEDULED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(projectDirector)
-                        .observations(
-                                "Director de proyecto programó la sustentación para el "
-                                        + request.getDefenseDate()
-                                        + " en "
-                                        + request.getDefenseLocation()
-                        )
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DEFENSE_SCHEDULED, projectDirector,
+                "Director de proyecto programó la sustentación para el "
+                        + request.getDefenseDate()
+                        + " en "
+                        + request.getDefenseLocation());
         // Notificar al estudiante líder
         User student = studentModality.getLeader();
         applicationEventPublisher.publishEvent(
@@ -245,26 +235,13 @@ public class DefenseModalityService {
         LocalDateTime approvedDate = studentModality.getDefenseDate();
         String approvedLocation = studentModality.getDefenseLocation();
 
-        studentModality.setStatus(ModalityProcessStatus.DEFENSE_SCHEDULED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.DEFENSE_SCHEDULED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations(
-                                String.format(
-                                        "Comité de currículo aprobó la propuesta del director de proyecto. " +
-                                        "Sustentación programada para el %s en %s",
-                                        approvedDate,
-                                        approvedLocation
-                                )
-                        )
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DEFENSE_SCHEDULED, committeeMember,
+                String.format(
+                        "Comité de currículo aprobó la propuesta del director de proyecto. " +
+                        "Sustentación programada para el %s en %s",
+                        approvedDate,
+                        approvedLocation
+                ));
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.DEFENSE_SCHEDULED, studentModality.getId(), committeeMember.getId(), Map.of(
@@ -327,9 +304,6 @@ public class DefenseModalityService {
 
         studentModality.setDefenseDate(request.getDefenseDate());
         studentModality.setDefenseLocation(request.getDefenseLocation());
-        studentModality.setStatus(ModalityProcessStatus.DEFENSE_SCHEDULED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
 
         String observation;
         if (hadProposal && originalProposedDate != null && originalProposedLocation != null) {
@@ -350,15 +324,7 @@ public class DefenseModalityService {
             );
         }
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.DEFENSE_SCHEDULED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations(observation)
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DEFENSE_SCHEDULED, committeeMember, observation);
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.DEFENSE_SCHEDULED, studentModality.getId(), committeeMember.getId(), Map.of(
@@ -455,7 +421,7 @@ public class DefenseModalityService {
                     .build();
 
             defenseExaminerRepository.save(defenseExaminer);
-            examinerAssignmentMessages.add("Jurado Principal 1: " + examiner1.getName() + " " + examiner1.getLastName());
+            examinerAssignmentMessages.add(TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()) + ": " + examiner1.getName() + " " + examiner1.getLastName());
         }
 
         if (request.getPrimaryExaminer2Id() != null) {
@@ -487,7 +453,7 @@ public class DefenseModalityService {
                     .build();
 
             defenseExaminerRepository.save(defenseExaminer);
-            examinerAssignmentMessages.add("Jurado Principal 2: " + examiner2.getName() + " " + examiner2.getLastName());
+            examinerAssignmentMessages.add(TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()) + ": " + examiner2.getName() + " " + examiner2.getLastName());
         }
 
         if (request.getTiebreakerExaminerId() != null) {
@@ -519,25 +485,13 @@ public class DefenseModalityService {
                     .build();
 
             defenseExaminerRepository.save(defenseExaminer);
-            examinerAssignmentMessages.add("Jurado de Desempate: " + examiner3.getName() + " " + examiner3.getLastName());
+            examinerAssignmentMessages.add(TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()) + ": " + examiner3.getName() + " " + examiner3.getLastName());
         }
-
-        studentModality.setStatus(ModalityProcessStatus.EXAMINERS_ASSIGNED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
 
         String observationMessage = "Jurados asignados por el comité de currículo:\n" +
                 String.join("\n", examinerAssignmentMessages);
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.EXAMINERS_ASSIGNED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations(observationMessage)
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.EXAMINERS_ASSIGNED, committeeMember, observationMessage);
 
         // Notificar a los jurados asignados, estudiantes y director
         applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.EXAMINER_ASSIGNED, studentModalityId, committeeMember.getId(), Map.of()));
@@ -799,12 +753,6 @@ public class DefenseModalityService {
             }
         }
 
-        studentModality.setStatus(finalStatus);
-        studentModality.setAcademicDistinction(distinction);
-        studentModality.setFinalGrade(averageGrade);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
         // Construir la observación con los argumentos de los jurados sobre la mención
         String mentionNotes = primaryEvaluations.stream()
                 .filter(e -> e.getObservations() != null && !e.getObservations().isBlank())
@@ -832,15 +780,9 @@ public class DefenseModalityService {
             );
         }
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(finalStatus)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(examiner)
-                        .observations(observations)
-                        .build()
-        );
+        studentModality.setAcademicDistinction(distinction);
+        studentModality.setFinalGrade(averageGrade);
+        modalityStatusTransition.transition(studentModality, finalStatus, examiner, observations);
 
         // Publicar siempre: incluso si la distinción queda pendiente de comité,
         // el estudiante debe recibir correo y acta de aprobación inicial.
@@ -875,11 +817,6 @@ public class DefenseModalityService {
 
     private Map<String, Object> requestTiebreakerExaminer(StudentModality studentModality, List<DefenseEvaluationCriteria> primaryEvaluations, User examiner) {
 
-        studentModality.setStatus(ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER);
-        studentModality.setAcademicDistinction(AcademicDistinction.DISAGREEMENT_PENDING_TIEBREAKER);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
         String observations = String.format(
                 "DESACUERDO entre jurados principales. Jurado 1: %s (%.2f). Jurado 2: %s (%.2f). " +
                 "Se requiere asignar un tercer jurado para desempatar.",
@@ -889,15 +826,8 @@ public class DefenseModalityService {
                 primaryEvaluations.get(1).getGrade()
         );
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(examiner)
-                        .observations(observations)
-                        .build()
-        );
+        studentModality.setAcademicDistinction(AcademicDistinction.DISAGREEMENT_PENDING_TIEBREAKER);
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER, examiner, observations);
 
         return (
                 Map.of(
@@ -946,13 +876,6 @@ public class DefenseModalityService {
             }
         }
 
-        // La nota final en studentModality es la del tercer jurado (punto 5)
-        studentModality.setStatus(finalStatus);
-        studentModality.setAcademicDistinction(distinction);
-        studentModality.setFinalGrade(tiebreakerGrade);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
         String observations;
         if (pendingDistinctionReview) {
             String mentionNote = tiebreakerEvaluation.getObservations() != null
@@ -975,15 +898,9 @@ public class DefenseModalityService {
             );
         }
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(finalStatus)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(examiner)
-                        .observations(observations)
-                        .build()
-        );
+        studentModality.setAcademicDistinction(distinction);
+        studentModality.setFinalGrade(tiebreakerGrade);
+        modalityStatusTransition.transition(studentModality, finalStatus, examiner, observations);
 
         // Publicar siempre: si queda pendiente de comité también se debe enviar acta inicial.
         applicationEventPublisher.publishEvent(
@@ -1401,11 +1318,6 @@ public class DefenseModalityService {
             throw new ValidationException("No se puede determinar la distinción a confirmar. Estado de distinción inválido: " + proposedDistinction);
         }
 
-        studentModality.setStatus(ModalityProcessStatus.GRADED_APPROVED);
-        studentModality.setAcademicDistinction(confirmedDistinction);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
         String observations = String.format(
                 "El Comité de Currículo ACEPTÓ la distinción honorífica propuesta por los jurados. " +
                 "Distinción propuesta: %s → Distinción confirmada: %s. %s",
@@ -1414,13 +1326,8 @@ public class DefenseModalityService {
                 notes != null && !notes.isBlank() ? "Observaciones del comité: " + notes : ""
         );
 
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.GRADED_APPROVED)
-                .changeDate(LocalDateTime.now())
-                .responsible(committeeMember)
-                .observations(observations)
-                .build());
+        studentModality.setAcademicDistinction(confirmedDistinction);
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.GRADED_APPROVED, committeeMember, observations);
 
         // Notificar resultado final definitivo
         applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.DEFENSE_COMPLETED, studentModality.getId(), committeeMember.getId(), Map.of(
@@ -1474,11 +1381,6 @@ public class DefenseModalityService {
         AcademicDistinction proposedDistinction = studentModality.getAcademicDistinction();
         AcademicDistinction rejectedDistinction = resolveRejectedDistinction(proposedDistinction);
 
-        studentModality.setStatus(ModalityProcessStatus.GRADED_APPROVED);
-        studentModality.setAcademicDistinction(rejectedDistinction);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
         String observations = String.format(
                 "El Comité de Currículo RECHAZÓ la distinción honorífica propuesta por los jurados. " +
                 "Distinción propuesta: %s → Distinción final: %s (sin mención especial). " +
@@ -1488,13 +1390,8 @@ public class DefenseModalityService {
                 reason
         );
 
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.GRADED_APPROVED)
-                .changeDate(LocalDateTime.now())
-                .responsible(committeeMember)
-                .observations(observations)
-                .build());
+        studentModality.setAcademicDistinction(rejectedDistinction);
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.GRADED_APPROVED, committeeMember, observations);
 
         // Notificar resultado final definitivo sin mención
         applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.DEFENSE_COMPLETED, studentModality.getId(), committeeMember.getId(), Map.of(
@@ -1581,19 +1478,8 @@ public class DefenseModalityService {
         }
 
         // Cambiar estado al paso intermedio: jefatura debe revisar antes de notificar a jurados
-        studentModality.setStatus(ModalityProcessStatus.PENDING_PROGRAM_HEAD_FINAL_REVIEW);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.PENDING_PROGRAM_HEAD_FINAL_REVIEW)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(projectDirector)
-                        .observations("Director de proyecto notificó a jefatura que los documentos finales están listos para revisión previa a la sustentación")
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.PENDING_PROGRAM_HEAD_FINAL_REVIEW, projectDirector,
+                "Director de proyecto notificó a jefatura que los documentos finales están listos para revisión previa a la sustentación");
 
         // Notificar a jefatura de programa (no a jurados - eso lo hará jefatura en el paso siguiente)
         applicationEventPublisher.publishEvent(
@@ -1686,19 +1572,8 @@ public class DefenseModalityService {
         }
 
         // Cambiar estado a READY_FOR_DEFENSE (jurados pueden revisar)
-        studentModality.setStatus(ModalityProcessStatus.READY_FOR_DEFENSE);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.READY_FOR_DEFENSE)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(programHead)
-                        .observations("Jefatura de programa aprobó todos los documentos y notificó a los jurados para revisión de la sustentación")
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.READY_FOR_DEFENSE, programHead,
+                "Jefatura de programa aprobó todos los documentos y notificó a los jurados para revisión de la sustentación");
 
         // Notificar a los jurados asignados
         List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(studentModalityId);
@@ -1802,20 +1677,8 @@ public class DefenseModalityService {
         }
 
         // Cambiar estado
-        studentModality.setStatus(ModalityProcessStatus.FINAL_REVIEW_COMPLETED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        // Registrar en historial
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.FINAL_REVIEW_COMPLETED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(examiner)
-                        .observations("Jurado finalizó la revisión de documentos. Modalidad lista para programación de sustentación.")
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.FINAL_REVIEW_COMPLETED, examiner,
+                "Jurado finalizó la revisión de documentos. Modalidad lista para programación de sustentación.");
 
         // Notificar al director de proyecto
         User projectDirector = studentModality.getProjectDirector();

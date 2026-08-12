@@ -1,7 +1,5 @@
 package com.SIGMA.USCO.Users.repository;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
 import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -30,6 +28,8 @@ public interface ProgramAuthorityRepository extends JpaRepository<ProgramAuthori
     );
 
     List<ProgramAuthority> findByUser_Id(Long userId);
+
+    List<ProgramAuthority> findAllByUser_IdIn(List<Long> userIds);
 
 
 

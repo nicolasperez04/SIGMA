@@ -2,7 +2,6 @@ package com.SIGMA.USCO.Modalities.service;
 
 import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
 import com.SIGMA.USCO.Modalities.Entity.DegreeModality;
-import com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory;
 import com.SIGMA.USCO.Modalities.Entity.ModalityRequirements;
 import com.SIGMA.USCO.Modalities.Entity.StudentModality;
 import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
@@ -14,13 +13,14 @@ import com.SIGMA.USCO.Modalities.Entity.enums.ModalityType;
 import com.SIGMA.USCO.Modalities.Entity.enums.RuleType;
 import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
 import com.SIGMA.USCO.Modalities.Repository.DegreeModalityRepository;
-import com.SIGMA.USCO.Modalities.Repository.ModalityProcessStatusHistoryRepository;
 import com.SIGMA.USCO.Modalities.Repository.ModalityRequirementsRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
 import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
 import com.SIGMA.USCO.Modalities.dto.DocumentReviewDTO;
 import com.SIGMA.USCO.Modalities.dto.ValidationItemDTO;
-import com.SIGMA.USCO.Modalities.dto.ValidationResultDTO;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerDocumentReviewResponse;
+import com.SIGMA.USCO.Modalities.dto.response.FinalEvaluationInfo;
+import com.SIGMA.USCO.Modalities.dto.response.ProposalEvaluationInfo;
 import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
 import com.SIGMA.USCO.Users.Entity.User;
 import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
@@ -68,6 +68,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.util.MimeTypeGuard;
+import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
 
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -106,7 +108,6 @@ public class DocumentModalityService {
     private final StudentModalityRepository studentModalityRepository;
     private final StudentModalityMemberRepository studentModalityMemberRepository;
     private final StudentDocumentRepository studentDocumentRepository;
-    private final ModalityProcessStatusHistoryRepository historyRepository;
     private final StudentDocumentStatusHistoryRepository documentHistoryRepository;
     private final ProgramDegreeModalityRepository programDegreeModalityRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
@@ -116,6 +117,8 @@ public class DocumentModalityService {
     private final DocumentEditRequestRepository documentEditRequestRepository;
     private final DocumentEditRequestVoteRepository documentEditRequestVoteRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final ResourceAccessPolicy resourceAccessPolicy;
+    private final ModalityStatusTransition modalityStatusTransition;
 
     @Value("${file.upload-dir}")
     private String uploadDir;
@@ -242,15 +245,8 @@ public class DocumentModalityService {
 
         studentModalityMemberRepository.save(member);
 
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(student)
-                        .observations("Modalidad individual iniciada por el estudiante")
-                        .build()
-        );
+        modalityStatusTransition.recordHistory(studentModality, ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD, student,
+                "Modalidad individual iniciada por el estudiante");
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.MODALITY_STARTED, studentModality.getId(), student.getId(), Map.of())
@@ -324,6 +320,10 @@ public class DocumentModalityService {
             throw new ValidationException("Formato de archivo no permitido");
         }
 
+        if (!MimeTypeGuard.isMimeAllowed(file, extension)) {
+            throw new ValidationException("Formato de archivo no permitido");
+        }
+
         if (requiredDocument.getMaxFileSizeMB() != null &&
                 file.getSize() > requiredDocument.getMaxFileSizeMB() * 1024L * 1024L) {
             throw new ValidationException("El archivo supera el tamaño permitido");
@@ -332,9 +332,9 @@ public class DocumentModalityService {
         String modalityFolder = modality.getName()
                 .replaceAll("[^a-zA-Z0-9]", "_");
 
-        String studentFolder = student.getName() + student.getLastName() + "_" +
+        String studentFolder = (student.getName() + student.getLastName() + "_" +
                 student.getLastName() + "_" +
-                student.getId();
+                student.getId()).replaceAll("[^a-zA-Z0-9]", "_");
 
         Path basePath = Paths.get(
                 uploadDir,
@@ -344,7 +344,13 @@ public class DocumentModalityService {
 
         Files.createDirectories(basePath);
 
-        String finalFileName = UUID.randomUUID() + "_" + originalFilename;
+        String safeOriginal = FilenameUtils.getName(originalFilename != null ? originalFilename : "")
+                .replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (safeOriginal.isEmpty()) {
+            safeOriginal = "documento";
+        }
+        // ponytail: setFileName persiste el nombre original (visible), solo la ruta en disco se sane
+        String finalFileName = UUID.randomUUID() + "_" + safeOriginal;
         Path fullPath = basePath.resolve(finalFileName);
 
         Files.copy(file.getInputStream(), fullPath, StandardCopyOption.REPLACE_EXISTING);
@@ -414,9 +420,12 @@ public class DocumentModalityService {
                     });
 
             // Cambiar el estado de la modalidad a EXAMINERS_ASSIGNED para que los jurados revisen
-            studentModality.setStatus(ModalityProcessStatus.EXAMINERS_ASSIGNED);
-            studentModality.setUpdatedAt(LocalDateTime.now());
-            studentModalityRepository.save(studentModality);
+            modalityStatusTransition.transition(studentModality, ModalityProcessStatus.EXAMINERS_ASSIGNED, uploader,
+                    (isAssignedDirector && !isActiveMember ? "Director" : "Estudiante") +
+                            " actualizó el documento '" +
+                            studentDocument.getDocumentConfig().getDocumentName() +
+                            "' con los cambios aprobados por los jurados. " +
+                            "La modalidad regresa al estado de revisión por jurados.");
 
             // Trazabilidad en el historial del DOCUMENTO
             documentHistoryRepository.save(
@@ -429,21 +438,6 @@ public class DocumentModalityService {
                                     " resubió el documento '" +
                                     originalFilename +
                                     "' tras aprobación de solicitud de edición. Pendiente de re-revisión por jurados.")
-                            .build()
-            );
-
-            // Trazabilidad en el historial de la MODALIDAD
-            historyRepository.save(
-                    ModalityProcessStatusHistory.builder()
-                            .studentModality(studentModality)
-                            .status(ModalityProcessStatus.EXAMINERS_ASSIGNED)
-                            .changeDate(LocalDateTime.now())
-                            .responsible(uploader)
-                            .observations((isAssignedDirector && !isActiveMember ? "Director" : "Estudiante") +
-                                    " actualizó el documento '" +
-                                    studentDocument.getDocumentConfig().getDocumentName() +
-                                    "' con los cambios aprobados por los jurados. " +
-                                    "La modalidad regresa al estado de revisión por jurados.")
                             .build()
             );
 
@@ -505,21 +499,10 @@ public class DocumentModalityService {
             };
 
             // Cambiar el estado de la modalidad al estado específico
-            studentModality.setStatus(newModalityStatusAfterResubmit);
-            studentModality.setUpdatedAt(LocalDateTime.now());
-            studentModalityRepository.save(studentModality);
-
-            historyRepository.save(
-                    ModalityProcessStatusHistory.builder()
-                            .studentModality(studentModality)
-                            .status(newModalityStatusAfterResubmit)
-                            .changeDate(LocalDateTime.now())
-                            .responsible(uploader)
-                            .observations("Correcciones enviadas por " +
-                                    (isAssignedDirector && !isActiveMember ? "el director" : "el estudiante") +
-                                    " tras solicitud de: " + requesterLabel)
-                            .build()
-            );
+            modalityStatusTransition.transition(studentModality, newModalityStatusAfterResubmit, uploader,
+                    "Correcciones enviadas por " +
+                            (isAssignedDirector && !isActiveMember ? "el director" : "el estudiante") +
+                            " tras solicitud de: " + requesterLabel);
 
             applicationEventPublisher.publishEvent(
                     new ModalityEvent(NotificationType.CORRECTION_RESUBMITTED, studentModality.getId(), student.getId(), Map.of(ModalityEvent.KEY_DOCUMENT_ID, studentDocument.getId(), ModalityEvent.KEY_STUDENT_ID, uploader.getId(), ModalityEvent.KEY_DOCUMENT_NAME, studentDocument.getDocumentConfig().getDocumentName()))
@@ -590,21 +573,9 @@ public class DocumentModalityService {
 
         if (allMandatoryDocsUploaded) {
             // Cambiar el estado de la modalidad a UNDER_REVIEW_PROGRAM_HEAD
-            studentModality.setStatus(ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD);
-            studentModality.setUpdatedAt(LocalDateTime.now());
-            studentModalityRepository.save(studentModality);
-
-            // Registrar en el historial
-            historyRepository.save(
-                    ModalityProcessStatusHistory.builder()
-                            .studentModality(studentModality)
-                            .status(ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD)
-                            .changeDate(LocalDateTime.now())
-                            .responsible(responsibleUser)
-                            .observations("Todos los documentos obligatorios han sido subidos. " +
-                                         "La modalidad pasa automáticamente a revisión del jefe de programa.")
-                            .build()
-            );
+            modalityStatusTransition.transition(studentModality, ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD, responsibleUser,
+                    "Todos los documentos obligatorios han sido subidos. " +
+                         "La modalidad pasa automáticamente a revisión del jefe de programa.");
 
             log.info("Modalidad {} cambió automáticamente a UNDER_REVIEW_PROGRAM_HEAD - Todos los documentos MANDATORY subidos",
                     studentModality.getId());
@@ -820,23 +791,27 @@ public class DocumentModalityService {
         if (modality == null || modality.getId() == null) {
             return false;
         }
-        Long modalityId = modality.getId();
-        Long userId = currentUser.getId();
-
-        boolean isLeader = modality.getLeader() != null
-                && modality.getLeader().getId().equals(userId);
         boolean isDirector = modality.getProjectDirector() != null
-                && modality.getProjectDirector().getId().equals(userId);
-        boolean isExaminer = defenseExaminerRepository.existsByStudentModalityIdAndExaminerId(modalityId, userId);
-        boolean isActiveMember = studentModalityMemberRepository.isActiveMember(modalityId, userId);
-
+                && modality.getProjectDirector().getId().equals(currentUser.getId());
         boolean isProgramAuthority = modality.getAcademicProgram() != null
                 && programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRoleIn(
-                        userId,
+                        currentUser.getId(),
                         modality.getAcademicProgram().getId(),
                         List.of(ProgramRole.PROGRAM_HEAD, ProgramRole.PROGRAM_CURRICULUM_COMMITTEE));
 
-        return isLeader || isDirector || isExaminer || isActiveMember || isProgramAuthority;
+        return isDirector || isProgramAuthority
+                || tryRequire(() -> resourceAccessPolicy.requireLeader(modality, currentUser, "No tienes permiso para ver este documento"))
+                || tryRequire(() -> resourceAccessPolicy.requireActiveMember(modality.getId(), currentUser, "No tienes permiso para ver este documento"))
+                || tryRequire(() -> resourceAccessPolicy.requireAssignedExaminer(modality.getId(), currentUser, "No tienes permiso para ver este documento"));
+    }
+
+    private boolean tryRequire(Runnable check) {
+        try {
+            check.run();
+            return true;
+        } catch (ForbiddenException e) {
+            return false;
+        }
     }
 
     @Transactional
@@ -877,11 +852,8 @@ public class DocumentModalityService {
 
         AcademicProgram documentProgram = document.getStudentModality().getAcademicProgram();
 
-        boolean authorized = programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRole(reviewer.getId(), documentProgram.getId(), ProgramRole.PROGRAM_HEAD);
-
-        if (!authorized) {
-            throw new ForbiddenException("No tienes permisos para revisar documentos de este programa académico");
-        }
+        resourceAccessPolicy.requireProgramAuthority(reviewer, documentProgram.getId(), ProgramRole.PROGRAM_HEAD,
+                "No tienes permisos para revisar documentos de este programa académico");
 
         if ((request.getStatus() == DocumentStatus.REJECTED_FOR_PROGRAM_HEAD_REVIEW ||
                 request.getStatus() == DocumentStatus.CORRECTIONS_REQUESTED_BY_PROGRAM_HEAD)
@@ -901,24 +873,13 @@ public class DocumentModalityService {
 
             LocalDateTime now = LocalDateTime.now();
 
-            studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD);
             studentModality.setCorrectionRequestDate(now);
             studentModality.setCorrectionDeadline(now.plusDays(30));
             studentModality.setCorrectionReminderSent(false);
-            studentModality.setUpdatedAt(now);
-            studentModalityRepository.save(studentModality);
-
-            historyRepository.save(
-                    ModalityProcessStatusHistory.builder()
-                            .studentModality(studentModality)
-                            .status(ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD)
-                            .changeDate(now)
-                            .responsible(reviewer)
-                            .observations("Jefe de programa solicitó correcciones en documento: " +
-                                    document.getDocumentConfig().getDocumentName() +
-                                    ". Notas: " + request.getNotes())
-                            .build()
-            );
+            modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD, reviewer,
+                    "Jefe de programa solicitó correcciones en documento: " +
+                            document.getDocumentConfig().getDocumentName() +
+                            ". Notas: " + request.getNotes());
 
             List<StudentModalityMember> activeMembers = studentModalityMemberRepository
                     .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -962,16 +923,8 @@ public class DocumentModalityService {
 
         Long academicProgramId = studentModality.getAcademicProgram().getId();
 
-        boolean isAuthorized =
-                programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRole(
-                                programHead.getId(),
-                                academicProgramId,
-                                ProgramRole.PROGRAM_HEAD
-                        );
-
-        if (!isAuthorized) {
-            throw new ForbiddenException("No tienes permisos para aprobar modalidades de este programa académico");
-        }
+        resourceAccessPolicy.requireProgramAuthority(programHead, academicProgramId, ProgramRole.PROGRAM_HEAD,
+                "No tienes permisos para aprobar modalidades de este programa académico");
 
         if (!(studentModality.getStatus() == ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD ||
                 studentModality.getStatus() == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
@@ -1031,19 +984,8 @@ public class DocumentModalityService {
             throw new ValidationException("Para poder aprobar la modalidad, todos los documentos obligatorios deben estar aceptados");
         }
 
-        studentModality.setStatus(ModalityProcessStatus.READY_FOR_PROGRAM_CURRICULUM_COMMITTEE);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.READY_FOR_PROGRAM_CURRICULUM_COMMITTEE)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(programHead)
-                        .observations("Modalidad aprobada por jefatura de programa")
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.READY_FOR_PROGRAM_CURRICULUM_COMMITTEE, programHead,
+                "Modalidad aprobada por jefatura de programa");
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.MODALITY_APPROVED_BY_PROGRAM_HEAD, studentModality.getId(), programHead.getId(), Map.of())
@@ -1065,17 +1007,8 @@ public class DocumentModalityService {
 
         Long academicProgramId = studentModality.getAcademicProgram().getId();
 
-        boolean isAuthorized =
-                programAuthorityRepository
-                        .existsByUser_IdAndAcademicProgram_IdAndRole(
-                                committeeMember.getId(),
-                                academicProgramId,
-                                ProgramRole.PROGRAM_CURRICULUM_COMMITTEE
-                        );
-
-        if (!isAuthorized) {
-            throw new ForbiddenException("No tienes permisos para aprobar modalidades de este programa académico");
-        }
+        resourceAccessPolicy.requireProgramAuthority(committeeMember, academicProgramId, ProgramRole.PROGRAM_CURRICULUM_COMMITTEE,
+                "No tienes permisos para aprobar modalidades de este programa académico");
 
         if (studentModality.getStatus() != ModalityProcessStatus.READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE) {
 
@@ -1089,19 +1022,8 @@ public class DocumentModalityService {
             throw new ValidationException("No se puede aprobar la modalidad. Todos los documentos deben estar aprobados por el comité de currículo de programa.");
         }
 
-        studentModality.setStatus(ModalityProcessStatus.READY_FOR_EXAMINERS);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.READY_FOR_EXAMINERS)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations("Modalidad aprobada por el Comité de currículo de programa")
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.READY_FOR_EXAMINERS, committeeMember,
+                "Modalidad aprobada por el Comité de currículo de programa");
 
         return Map.of(
                         "approved", true,
@@ -1111,7 +1033,7 @@ public class DocumentModalityService {
     }
 
     @Transactional
-    public Map<String, Object> reviewStudentDocumentByExaminer(Long studentDocumentId, DocumentReviewDTO request) {
+    public Object reviewStudentDocumentByExaminer(Long studentDocumentId, DocumentReviewDTO request) {
 
         User examiner = SecurityUtils.getCurrentUser();
 
@@ -1127,13 +1049,8 @@ public class DocumentModalityService {
 
         StudentModality studentModality = document.getStudentModality();
 
-        DefenseExaminer defenseExaminer = defenseExaminerRepository
-                .findByStudentModalityIdAndExaminerId(studentModality.getId(), examiner.getId())
-                .orElse(null);
-
-        if (defenseExaminer == null) {
-            throw new ForbiddenException("No estás asignado como jurado de esta modalidad");
-        }
+        DefenseExaminer defenseExaminer = resourceAccessPolicy.requireAssignedExaminer(
+                studentModality.getId(), examiner, "No estás asignado como jurado de esta modalidad");
 
         ExaminerType examinerType = defenseExaminer.getExaminerType();
 
@@ -1289,33 +1206,29 @@ public class DocumentModalityService {
                 .findByStudentDocumentIdAndExaminerId(document.getId(), examiner.getId())
                 .orElse(null);
 
-        Map<String, Object> responseBody = new java.util.HashMap<>();
-        responseBody.put("success", true);
-        responseBody.put("documentId", document.getId());
-        responseBody.put("documentName", document.getDocumentConfig().getDocumentName());
-        responseBody.put("examinerDecision", individualDecision.name());
-        responseBody.put("currentDocumentStatus", document.getStatus());
-        responseBody.put("examinerName", examiner.getName() + " " + examiner.getLastName());
-        responseBody.put("examinerType", examinerType.name());
-        responseBody.put("message", message);
-
-        if (savedProposalEvaluation != null) {
-            Map<String, Object> proposalEvaluationInfo = new java.util.HashMap<>();
-            proposalEvaluationInfo.put("id", savedProposalEvaluation.getId());
-            proposalEvaluationInfo.put("summary", savedProposalEvaluation.getSummary());
-            proposalEvaluationInfo.put("backgroundJustification", savedProposalEvaluation.getBackgroundJustification());
-            proposalEvaluationInfo.put("problemStatement", savedProposalEvaluation.getProblemStatement());
-            proposalEvaluationInfo.put("objectives", savedProposalEvaluation.getObjectives());
-            proposalEvaluationInfo.put("methodology", savedProposalEvaluation.getMethodology());
-            proposalEvaluationInfo.put("bibliographyReferences", savedProposalEvaluation.getBibliographyReferences());
-            proposalEvaluationInfo.put("documentOrganization", savedProposalEvaluation.getDocumentOrganization());
-            proposalEvaluationInfo.put("evaluatedAt", savedProposalEvaluation.getEvaluatedAt());
-            responseBody.put("proposalEvaluation", proposalEvaluationInfo);
-        } else {
-            responseBody.put("proposalEvaluation", null);
-        }
-
-        return responseBody;
+        return ExaminerDocumentReviewResponse.builder()
+                .success(true)
+                .documentId(document.getId())
+                .documentName(document.getDocumentConfig().getDocumentName())
+                .examinerDecision(individualDecision.name())
+                .currentDocumentStatus(document.getStatus())
+                .examinerName(examiner.getName() + " " + examiner.getLastName())
+                .examinerType(examinerType.name())
+                .message(message)
+                .proposalEvaluation(savedProposalEvaluation != null
+                        ? ProposalEvaluationInfo.builder()
+                                .id(savedProposalEvaluation.getId())
+                                .summary(savedProposalEvaluation.getSummary())
+                                .backgroundJustification(savedProposalEvaluation.getBackgroundJustification())
+                                .problemStatement(savedProposalEvaluation.getProblemStatement())
+                                .objectives(savedProposalEvaluation.getObjectives())
+                                .methodology(savedProposalEvaluation.getMethodology())
+                                .bibliographyReferences(savedProposalEvaluation.getBibliographyReferences())
+                                .documentOrganization(savedProposalEvaluation.getDocumentOrganization())
+                                .evaluatedAt(savedProposalEvaluation.getEvaluatedAt())
+                                .build()
+                        : null)
+                .build();
     }
 
     @Transactional
@@ -1365,7 +1278,7 @@ public class DocumentModalityService {
         String previousDocumentNotes = document.getNotes();
         ModalityProcessStatus previousModalityStatus = studentModality.getStatus();
 
-        Map<String, Object> reviewResult = reviewStudentDocumentByExaminer(studentDocumentId, request);
+        Object reviewResult = reviewStudentDocumentByExaminer(studentDocumentId, request);
 
         // Releer para reflejar estados resultantes del consenso entre jurados.
         StudentDocument updatedDocument = studentDocumentRepository.findById(studentDocumentId)
@@ -1417,7 +1330,7 @@ public class DocumentModalityService {
             );
         }
 
-        Map<String, Object> secondaryEvaluationInfo = ModalityServiceUtils.buildFinalEvaluationInfoMap(secondaryEvaluation);
+        FinalEvaluationInfo secondaryEvaluationInfo = ModalityServiceUtils.buildFinalEvaluationInfo(secondaryEvaluation);
 
         Map<String, Object> traceability = new LinkedHashMap<>();
         traceability.put("previousDocumentStatus", previousDocumentStatus != null ? previousDocumentStatus.name() : null);
@@ -1426,7 +1339,9 @@ public class DocumentModalityService {
         traceability.put("currentModalityStatus", updatedModality.getStatus() != null ? updatedModality.getStatus().name() : null);
         traceability.put("examinerNotes", request.getNotes());
 
-        Map<String, Object> mergedBody = new LinkedHashMap<>(reviewResult);
+        Map<String, Object> mergedBody = reviewResult instanceof ExaminerDocumentReviewResponse response
+                ? response.toMap()
+                : new LinkedHashMap<>((Map<String, Object>) reviewResult);
         mergedBody.put("secondaryEvaluation", secondaryEvaluationInfo);
         mergedBody.put("finalEvaluation", secondaryEvaluationInfo);
         mergedBody.put("currentModalityStatus", updatedModality.getStatus().name());
@@ -1661,19 +1576,10 @@ public class DocumentModalityService {
             document.setNotes("Decisión dividida: un jurado aprobó y el otro rechazó. Se requiere jurado de desempate.");
             studentDocumentRepository.save(document);
 
-            studentModality.setStatus(ModalityProcessStatus.DOCUMENT_REVIEW_TIEBREAKER_REQUIRED);
-            studentModality.setUpdatedAt(LocalDateTime.now());
-            studentModalityRepository.save(studentModality);
-
-            historyRepository.save(ModalityProcessStatusHistory.builder()
-                    .studentModality(studentModality)
-                    .status(ModalityProcessStatus.DOCUMENT_REVIEW_TIEBREAKER_REQUIRED)
-                    .changeDate(LocalDateTime.now())
-                    .responsible(examiner)
-                    .observations("Un jurado aprobó y el otro rechazó el documento '" +
+            modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DOCUMENT_REVIEW_TIEBREAKER_REQUIRED, examiner,
+                    "Un jurado aprobó y el otro rechazó el documento '" +
                             document.getDocumentConfig().getDocumentName() +
-                            "'. Se requiere jurado de desempate para resolver.")
-                    .build());
+                            "'. Se requiere jurado de desempate para resolver.");
             return null;
         }
 
@@ -1700,23 +1606,14 @@ public class DocumentModalityService {
 
             if (newAttempts > 3) {
                 // Agotó intentos → rechazo definitivo
-                studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL);
                 studentModality.setCorrectionAttempts(newAttempts);
-                studentModality.setUpdatedAt(LocalDateTime.now());
-                studentModalityRepository.save(studentModality);
+                modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL, examiner,
+                        "Rechazado definitivamente tras agotar 3 intentos de corrección. " +
+                                "Documento: " + document.getDocumentConfig().getDocumentName());
 
                 document.setStatus(DocumentStatus.CORRECTIONS_REQUESTED_BY_EXAMINER);
                 document.setNotes(correctionNotes);
                 studentDocumentRepository.save(document);
-
-                historyRepository.save(ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(examiner)
-                        .observations("Rechazado definitivamente tras agotar 3 intentos de corrección. " +
-                                "Documento: " + document.getDocumentConfig().getDocumentName())
-                        .build());
 
                 List<StudentModalityMember> members = studentModalityMemberRepository
                         .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -1746,23 +1643,14 @@ public class DocumentModalityService {
             studentDocumentRepository.save(document);
 
             studentModality.setCorrectionAttempts(newAttempts);
-            studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS);
             LocalDateTime now = LocalDateTime.now();
             studentModality.setCorrectionRequestDate(now);
             studentModality.setCorrectionDeadline(now.plusDays(30));
             studentModality.setCorrectionReminderSent(false);
-            studentModality.setUpdatedAt(now);
-            studentModalityRepository.save(studentModality);
-
-            historyRepository.save(ModalityProcessStatusHistory.builder()
-                    .studentModality(studentModality)
-                    .status(ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS)
-                    .changeDate(now)
-                    .responsible(examiner)
-                    .observations("Un jurado rechazó y el otro solicitó correcciones (intento " + newAttempts +
+            modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS, examiner,
+                    "Un jurado rechazó y el otro solicitó correcciones (intento " + newAttempts +
                             " de 3). El estudiante debe corregir para que el jurado que solicitó correcciones " +
-                            "decida si aprueba o rechaza. Observaciones: " + correctionNotes)
-                    .build());
+                            "decida si aprueba o rechaza. Observaciones: " + correctionNotes);
 
             List<StudentModalityMember> activeMembers = studentModalityMemberRepository
                     .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -1792,14 +1680,9 @@ public class DocumentModalityService {
                 document.setNotes("Aprobado por el jurado de desempate");
                 studentDocumentRepository.save(document);
 
-                historyRepository.save(ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(studentModality.getStatus())
-                        .changeDate(LocalDateTime.now())
-                        .responsible(tiebreaker)
-                        .observations("Jurado de desempate aprobó el documento: " +
-                                document.getDocumentConfig().getDocumentName())
-                        .build());
+                modalityStatusTransition.recordHistory(studentModality, studentModality.getStatus(), tiebreaker,
+                        "Jurado de desempate aprobó el documento: " +
+                                document.getDocumentConfig().getDocumentName());
 
                 checkAndTransitionIfAllMandatoryApprovedByExaminers(document, studentModality, tiebreaker);
             }
@@ -1827,19 +1710,10 @@ public class DocumentModalityService {
         int newAttempts = shouldIncrementAttempt ? currentAttempts + 1 : currentAttempts;
 
         if (newAttempts > 3) {
-            studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL);
             studentModality.setCorrectionAttempts(newAttempts);
-            studentModality.setUpdatedAt(LocalDateTime.now());
-            studentModalityRepository.save(studentModality);
-
-            historyRepository.save(ModalityProcessStatusHistory.builder()
-                    .studentModality(studentModality)
-                    .status(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL)
-                    .changeDate(LocalDateTime.now())
-                    .responsible(examiner)
-                    .observations("Rechazado definitivamente. El estudiante agotó 3 oportunidades de corrección. Documento: " +
-                            document.getDocumentConfig().getDocumentName())
-                    .build());
+            modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL, examiner,
+                    "Rechazado definitivamente. El estudiante agotó 3 oportunidades de corrección. Documento: " +
+                            document.getDocumentConfig().getDocumentName());
 
             List<StudentModalityMember> members = studentModalityMemberRepository
                     .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -1872,26 +1746,17 @@ public class DocumentModalityService {
         studentDocumentRepository.save(document);
 
         studentModality.setCorrectionAttempts(newAttempts);
-        studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS);
         LocalDateTime now = LocalDateTime.now();
         studentModality.setCorrectionRequestDate(now);
         studentModality.setCorrectionDeadline(now.plusDays(30));
         studentModality.setCorrectionReminderSent(false);
-        studentModality.setUpdatedAt(now);
-        studentModalityRepository.save(studentModality);
 
         // Trazabilidad: indicar si este es un nuevo intento o una solicitud adicional del mismo intento
         String attemptMessage = shouldIncrementAttempt
                 ? "Jurados solicitaron correcciones (intento " + newAttempts + " de 3): " + combinedNotes
                 : "Jurado adicional solicitó correcciones para el intento " + newAttempts + " (ya en proceso): " + combinedNotes;
 
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS)
-                .changeDate(now)
-                .responsible(examiner)
-                .observations(attemptMessage)
-                .build());
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS, examiner, attemptMessage);
 
         List<StudentModalityMember> activeMembers = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -1928,9 +1793,11 @@ public class DocumentModalityService {
     private Map<String, Object> cancelModalityByFinalDocumentRejection(StudentDocument document, StudentModality studentModality, User examiner, String reason) {
 
         // Cambiar estado de modalidad a MODALITY_CANCELLED
-        studentModality.setStatus(ModalityProcessStatus.MODALITY_CANCELLED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
+        String observations = "Modalidad cancelada por rechazo de documento final. " +
+                "Documento: " + document.getDocumentConfig().getDocumentName() + ". " +
+                (reason != null && !reason.isBlank() ? "Motivo: " + reason : "Documento rechazado por los jurados.");
+
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.MODALITY_CANCELLED, examiner, observations);
 
         // Obtener y eliminar miembros activos (relación estudiante-modalidad)
         List<StudentModalityMember> members = studentModalityMemberRepository
@@ -1939,21 +1806,6 @@ public class DocumentModalityService {
         for (StudentModalityMember member : members) {
             studentModalityMemberRepository.delete(member);
         }
-
-        // Registrar en historial
-        String observations = "Modalidad cancelada por rechazo de documento final. " +
-                "Documento: " + document.getDocumentConfig().getDocumentName() + ". " +
-                (reason != null && !reason.isBlank() ? "Motivo: " + reason : "Documento rechazado por los jurados.");
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.MODALITY_CANCELLED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(examiner)
-                        .observations(observations)
-                        .build()
-        );
 
         // Actualizar estado del documento
         document.setStatus(DocumentStatus.REJECTED_FOR_EXAMINER_REVIEW);
@@ -2002,26 +1854,17 @@ public class DocumentModalityService {
         studentDocumentRepository.save(document);
 
         studentModality.setCorrectionAttempts(newAttempts);
-        studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS);
         LocalDateTime now = LocalDateTime.now();
         studentModality.setCorrectionRequestDate(now);
         studentModality.setCorrectionDeadline(now.plusDays(30));
         studentModality.setCorrectionReminderSent(false);
-        studentModality.setUpdatedAt(now);
-        studentModalityRepository.save(studentModality);
 
         // Trazabilidad: indicar si este es un nuevo intento o una solicitud adicional del mismo intento
         String attemptMessage = shouldIncrementAttempt
                 ? "Jurado de desempate solicitó correcciones (intento " + newAttempts + " de 3): " + notes
                 : "Jurado de desempate solicitó correcciones para el intento " + newAttempts + " (ya en proceso): " + notes;
 
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS)
-                .changeDate(now)
-                .responsible(tiebreaker)
-                .observations(attemptMessage)
-                .build());
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS, tiebreaker, attemptMessage);
 
         List<StudentModalityMember> activeMembers = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -2048,22 +1891,13 @@ public class DocumentModalityService {
         }
 
         // Lógica existente para documentos MANDATORY
-        studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL, examiner,
+                "Ambos jurados principales rechazaron el documento: " +
+                        document.getDocumentConfig().getDocumentName());
 
         document.setStatus(DocumentStatus.REJECTED_FOR_EXAMINER_REVIEW);
         document.setNotes("Rechazado por ambos jurados principales");
         studentDocumentRepository.save(document);
-
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL)
-                .changeDate(LocalDateTime.now())
-                .responsible(examiner)
-                .observations("Ambos jurados principales rechazaron el documento: " +
-                        document.getDocumentConfig().getDocumentName())
-                .build());
 
         List<StudentModalityMember> members = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -2098,22 +1932,13 @@ public class DocumentModalityService {
         }
 
         // Lógica existente para documentos MANDATORY
-        studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL, tiebreaker,
+                "Jurado de desempate rechazó el documento: " +
+                        document.getDocumentConfig().getDocumentName() + ". " + (notes != null ? notes : ""));
 
         document.setStatus(DocumentStatus.REJECTED_FOR_EXAMINER_REVIEW);
         document.setNotes("Rechazado por el jurado de desempate");
         studentDocumentRepository.save(document);
-
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL)
-                .changeDate(LocalDateTime.now())
-                .responsible(tiebreaker)
-                .observations("Jurado de desempate rechazó el documento: " +
-                        document.getDocumentConfig().getDocumentName() + ". " + (notes != null ? notes : ""))
-                .build());
 
         List<StudentModalityMember> members = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -2208,30 +2033,12 @@ public class DocumentModalityService {
         }
 
         // ✅ Todos los documentos MANDATORY evaluables han sido aprobados
-        studentModality.setStatus(ModalityProcessStatus.DOCUMENTS_APPROVED_BY_EXAMINERS);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.DOCUMENTS_APPROVED_BY_EXAMINERS)
-                .changeDate(LocalDateTime.now())
-                .responsible(responsible)
-                .observations("Los documentos de propuesta obligatorios han sido aprobados por los jurados.")
-                .build());
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DOCUMENTS_APPROVED_BY_EXAMINERS, responsible,
+                "Los documentos de propuesta obligatorios han sido aprobados por los jurados.");
 
         // → PROPOSAL_APPROVED automático
-        studentModality.setStatus(ModalityProcessStatus.PROPOSAL_APPROVED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.PROPOSAL_APPROVED)
-                .changeDate(LocalDateTime.now())
-                .responsible(responsible)
-                .observations("Propuesta aprobada automáticamente por consenso de jurados.")
-                .build());
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.PROPOSAL_APPROVED, responsible,
+                "Propuesta aprobada automáticamente por consenso de jurados.");
 
         List<StudentModalityMember> activeMembers = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -2279,31 +2086,13 @@ public class DocumentModalityService {
         }
 
         // ✅ Todos los SECONDARY aprobados → estado intermedio trazable
-        studentModality.setStatus(ModalityProcessStatus.SECONDARY_DOCUMENTS_APPROVED_BY_EXAMINERS);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.SECONDARY_DOCUMENTS_APPROVED_BY_EXAMINERS)
-                .changeDate(LocalDateTime.now())
-                .responsible(responsible)
-                .observations("Todos los documentos finales han sido aprobados por consenso de jurados.")
-                .build());
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.SECONDARY_DOCUMENTS_APPROVED_BY_EXAMINERS, responsible,
+                "Todos los documentos finales han sido aprobados por consenso de jurados.");
 
         // → FINAL_REVIEW_COMPLETED automático
-        studentModality.setStatus(ModalityProcessStatus.FINAL_REVIEW_COMPLETED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(ModalityProcessStatusHistory.builder()
-                .studentModality(studentModality)
-                .status(ModalityProcessStatus.FINAL_REVIEW_COMPLETED)
-                .changeDate(LocalDateTime.now())
-                .responsible(responsible)
-                .observations("Revisión final completada automáticamente por aprobación de jurados. " +
-                        "Notificando al director de proyecto para programar la sustentación.")
-                .build());
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.FINAL_REVIEW_COMPLETED, responsible,
+                "Revisión final completada automáticamente por aprobación de jurados. " +
+                        "Notificando al director de proyecto para programar la sustentación.");
 
         // → Notificar al director para que programe la sustentación
         User projectDirector = studentModality.getProjectDirector();
@@ -2392,19 +2181,8 @@ public class DocumentModalityService {
             throw new ValidationException("Para poder aprobar la modalidad, todos los documentos de propuesta de grado evaluables por los jurados deben estar aceptados");
         }
 
-        studentModality.setStatus(ModalityProcessStatus.PROPOSAL_APPROVED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.PROPOSAL_APPROVED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(examiner)
-                        .observations("Modalidad aprobada por los jurados")
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.PROPOSAL_APPROVED, examiner,
+                "Modalidad aprobada por los jurados");
 
         // Notificar a todos los estudiantes miembros activos
         List<StudentModalityMember> activeMembers = studentModalityMemberRepository
@@ -2494,25 +2272,13 @@ if (!isAuthorized) {
 
             LocalDateTime now = LocalDateTime.now();
 
-            studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE);
             studentModality.setCorrectionRequestDate(now);
             studentModality.setCorrectionDeadline(now.plusDays(30));
             studentModality.setCorrectionReminderSent(false);
-            studentModality.setUpdatedAt(now);
-            studentModalityRepository.save(studentModality);
-
-            // Registrar cambio de estado en el historial
-            historyRepository.save(
-                    ModalityProcessStatusHistory.builder()
-                            .studentModality(studentModality)
-                            .status(ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE)
-                            .changeDate(now)
-                            .responsible(committeeMember)
-                            .observations("Comité de currículo solicitó correcciones en documento: " +
-                                    document.getDocumentConfig().getDocumentName() +
-                                    ". Notas: " + request.getNotes())
-                            .build()
-            );
+            modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE, committeeMember,
+                    "Comité de currículo solicitó correcciones en documento: " +
+                            document.getDocumentConfig().getDocumentName() +
+                            ". Notas: " + request.getNotes());
 
             List<StudentModalityMember> activeMembers = studentModalityMemberRepository
                     .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -2560,20 +2326,9 @@ if (!isAuthorized) {
 
                 if (requiresDefenseProcess) {
                     // Flujo completo: requiere director, jurados y sustentación
-                    studentModality.setStatus(ModalityProcessStatus.READY_FOR_DIRECTOR_ASSIGNMENT);
-                    studentModality.setUpdatedAt(LocalDateTime.now());
-                    studentModalityRepository.save(studentModality);
-
-                    historyRepository.save(
-                            ModalityProcessStatusHistory.builder()
-                                    .studentModality(studentModality)
-                                    .status(ModalityProcessStatus.READY_FOR_DIRECTOR_ASSIGNMENT)
-                                    .changeDate(LocalDateTime.now())
-                                    .responsible(committeeMember)
-                                    .observations("Todos los documentos obligatorios han sido aprobados por el Comité de Currículo. " +
-                                            "La modalidad está lista para la asignación del Director de Proyecto.")
-                                    .build()
-                    );
+                    modalityStatusTransition.transition(studentModality, ModalityProcessStatus.READY_FOR_DIRECTOR_ASSIGNMENT, committeeMember,
+                            "Todos los documentos obligatorios han sido aprobados por el Comité de Currículo. " +
+                                    "La modalidad está lista para la asignación del Director de Proyecto.");
 
                     return Map.of(
                                     "success", true,
@@ -2586,20 +2341,9 @@ if (!isAuthorized) {
                             );
                 } else {
                     // Flujo simplificado: el comité toma decisión final directamente
-                    studentModality.setStatus(ModalityProcessStatus.APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE);
-                    studentModality.setUpdatedAt(LocalDateTime.now());
-                    studentModalityRepository.save(studentModality);
-
-                    historyRepository.save(
-                            ModalityProcessStatusHistory.builder()
-                                    .studentModality(studentModality)
-                                    .status(ModalityProcessStatus.APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE)
-                                    .changeDate(LocalDateTime.now())
-                                    .responsible(committeeMember)
-                                    .observations("Todos los documentos obligatorios han sido aprobados por el Comité de Currículo. " +
-                                            "Puedes continuar con el proceso de la modalidad ")
-                                    .build()
-                    );
+                    modalityStatusTransition.transition(studentModality, ModalityProcessStatus.APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE, committeeMember,
+                            "Todos los documentos obligatorios han sido aprobados por el Comité de Currículo. " +
+                                    "Puedes continuar con el proceso de la modalidad ");
 
                     // Notificar a los estudiantes sobre el nuevo estado
                     List<StudentModalityMember> activeMembers = studentModalityMemberRepository
@@ -2857,7 +2601,12 @@ return Map.of(
         }
 
         String originalFilename = file.getOriginalFilename();
-        String finalFileName = UUID.randomUUID() + "_" + originalFilename;
+        String safeOriginal = FilenameUtils.getName(originalFilename != null ? originalFilename : "")
+                .replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (safeOriginal.isEmpty()) {
+            safeOriginal = "documento";
+        }
+        String finalFileName = UUID.randomUUID() + "_" + safeOriginal;
 
         String modalityPath = document.getStudentModality()
                 .getProgramDegreeModality()
@@ -2865,8 +2614,8 @@ return Map.of(
                 .getName()
                 .replaceAll("[^a-zA-Z0-9]", "_");
 
-        String studentPath = student.getName() + student.getLastName() + "_" +
-                student.getLastName() + "_" + studentModalityId;
+        String studentPath = (student.getName() + student.getLastName() + "_" +
+                student.getLastName() + "_" + studentModalityId).replaceAll("[^a-zA-Z0-9]", "_");
 
         Path basePath = Paths.get(uploadDir, modalityPath, studentPath);
         Files.createDirectories(basePath);
@@ -2880,9 +2629,8 @@ return Map.of(
         document.setUploadDate(LocalDateTime.now());
         studentDocumentRepository.save(document);
 
-        studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_SUBMITTED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_SUBMITTED, student,
+                "Correcciones enviadas por el estudiante para revisión");
 
         documentHistoryRepository.save(
                 StudentDocumentStatusHistory.builder()
@@ -2891,16 +2639,6 @@ return Map.of(
                         .changeDate(LocalDateTime.now())
                         .responsible(student)
                         .observations("Documento corregido reenviado por el estudiante dentro del plazo establecido")
-                        .build()
-        );
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.CORRECTIONS_SUBMITTED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(student)
-                        .observations("Correcciones enviadas por el estudiante para revisión")
                         .build()
         );
 
@@ -2994,13 +2732,12 @@ return Map.of(
         studentModality.setCorrectionReminderSent(null);
 
         if (newDocumentStatus == DocumentStatus.ACCEPTED_FOR_PROGRAM_HEAD_REVIEW) {
-            studentModality.setStatus(ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD);
+            modalityStatusTransition.transition(studentModality, ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD, reviewer,
+                    "Correcciones aprobadas. Continúa el proceso de revisión.");
         } else {
-            studentModality.setStatus(ModalityProcessStatus.UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE);
+            modalityStatusTransition.transition(studentModality, ModalityProcessStatus.UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE, reviewer,
+                    "Correcciones aprobadas. Continúa el proceso de revisión.");
         }
-
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
 
         documentHistoryRepository.save(
                 StudentDocumentStatusHistory.builder()
@@ -3009,16 +2746,6 @@ return Map.of(
                         .changeDate(LocalDateTime.now())
                         .responsible(reviewer)
                         .observations("Correcciones aprobadas. El documento cumple con los requisitos.")
-                        .build()
-        );
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(studentModality.getStatus())
-                        .changeDate(LocalDateTime.now())
-                        .responsible(reviewer)
-                        .observations("Correcciones aprobadas. Continúa el proceso de revisión.")
                         .build()
         );
 
@@ -3098,9 +2825,8 @@ return Map.of(
         document.setUploadDate(LocalDateTime.now());
         studentDocumentRepository.save(document);
 
-        studentModality.setStatus(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL, reviewer,
+                "Modalidad cancelada por rechazo definitivo de correcciones. Motivo: " + reason);
 
         documentHistoryRepository.save(
                 StudentDocumentStatusHistory.builder()
@@ -3109,16 +2835,6 @@ return Map.of(
                         .changeDate(LocalDateTime.now())
                         .responsible(reviewer)
                         .observations("Rechazo definitivo: " + reason)
-                        .build()
-        );
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(reviewer)
-                        .observations("Modalidad cancelada por rechazo definitivo de correcciones. Motivo: " + reason)
                         .build()
         );
 
@@ -3221,23 +2937,12 @@ return Map.of(
 
         ModalityProcessStatus previousStatus = studentModality.getStatus();
 
-        studentModality.setStatus(ModalityProcessStatus.MODALITY_CLOSED);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.MODALITY_CLOSED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations(String.format(
-                                "Modalidad cerrada por el comité de currículo del programa.  Motivo: %s",
-                                previousStatus,
-                                reason
-                        ))
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.MODALITY_CLOSED, committeeMember,
+                String.format(
+                        "Modalidad cerrada por el comité de currículo del programa.  Motivo: %s",
+                        previousStatus,
+                        reason
+                ));
 
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.MODALITY_CLOSED_BY_COMMITTEE, studentModality.getId(), committeeMember.getId(), Map.of(
@@ -3308,24 +3013,13 @@ return Map.of(
 
         ModalityProcessStatus previousStatus = studentModality.getStatus();
 
-        studentModality.setStatus(ModalityProcessStatus.GRADED_APPROVED);
         studentModality.setAcademicDistinction(AcademicDistinction.NO_DISTINCTION);
         studentModality.setFinalGrade(null);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.GRADED_APPROVED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations(String.format(
-                                "Modalidad aprobada definitivamente por el comité de currículo del programa. " +
-                                observations != null ? "Observaciones: " + observations : ""
-                        ))
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.GRADED_APPROVED, committeeMember,
+                String.format(
+                        "Modalidad aprobada definitivamente por el comité de currículo del programa. " +
+                        observations != null ? "Observaciones: " + observations : ""
+                ));
 
         List<StudentModalityMember> activeMembers = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
@@ -3409,26 +3103,15 @@ return Map.of(
 
         ModalityProcessStatus previousStatus = studentModality.getStatus();
 
-        studentModality.setStatus(ModalityProcessStatus.GRADED_FAILED);
         studentModality.setFinalGrade(null);
         studentModality.setAcademicDistinction(AcademicDistinction.REJECTED_BY_COMMITTEE);
-        studentModality.setUpdatedAt(LocalDateTime.now());
-        studentModalityRepository.save(studentModality);
-
-        historyRepository.save(
-                ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(ModalityProcessStatus.GRADED_FAILED)
-                        .changeDate(LocalDateTime.now())
-                        .responsible(committeeMember)
-                        .observations(String.format(
-                                "Modalidad rechazada definitivamente por el comité de currículo del programa. " +
-                                " Motivo: %s",
-                                previousStatus,
-                                reason
-                        ))
-                        .build()
-        );
+        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.GRADED_FAILED, committeeMember,
+                String.format(
+                        "Modalidad rechazada definitivamente por el comité de currículo del programa. " +
+                        " Motivo: %s",
+                        previousStatus,
+                        reason
+                ));
 
         List<StudentModalityMember> activeMembers = studentModalityMemberRepository
                 .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);

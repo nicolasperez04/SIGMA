@@ -2,6 +2,7 @@ package com.SIGMA.USCO.documents.controller;
 
 import com.SIGMA.USCO.documents.dto.ProjectTitleRequest;
 import com.SIGMA.USCO.documents.service.ProjectTitleService;
+import com.SIGMA.USCO.security.SecurityUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -35,7 +36,7 @@ public class ProjectTitleController {
     @PreAuthorize("hasRole('STUDENT') or hasRole('ADMIN') or hasRole('PROGRAM_HEAD') or hasRole('JURY')")
     public ResponseEntity<?> getProjectTitle(
             @Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId) {
-        String projectTitle = projectTitleService.getProjectTitle(studentModalityId);
+        String projectTitle = projectTitleService.getProjectTitle(studentModalityId, SecurityUtils.getCurrentUser());
         return ResponseEntity.ok(Map.of(
                 "success", true,
                 "projectTitle", projectTitle != null ? projectTitle : "No registrado"

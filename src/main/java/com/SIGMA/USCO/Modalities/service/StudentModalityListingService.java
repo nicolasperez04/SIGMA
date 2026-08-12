@@ -44,17 +44,11 @@ import com.SIGMA.USCO.documents.entity.enums.EditRequestVoteDecision;
 import com.SIGMA.USCO.documents.entity.enums.ExaminerDocumentDecision;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
-import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
-import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.listeners.ExaminerNotificationListener;
 import com.SIGMA.USCO.security.SecurityUtils;
 import org.springframework.context.ApplicationEventPublisher;
-import com.SIGMA.USCO.notifications.repository.NotificationRepository;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;

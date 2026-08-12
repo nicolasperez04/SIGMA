@@ -49,14 +49,13 @@ public class ModalityGroupService {
     private final StudentModalityMemberRepository studentModalityMemberRepository;
     private final ModalityInvitationRepository modalityInvitationRepository;
     private final StudentDocumentRepository studentDocumentRepository;
-    private final ModalityProcessStatusHistoryRepository historyRepository;
+    private final ModalityStatusTransition modalityStatusTransition;
     private final StudentDocumentStatusHistoryRepository documentHistoryRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final FacultyRepository facultyRepository;
     private final ProgramDegreeModalityRepository programDegreeModalityRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
     private final DefenseExaminerRepository defenseExaminerRepository;
-    private final ExaminerEvaluationRepository examinerEvaluationRepository;
 
 
     @Value("${file.upload-dir}")
@@ -194,15 +193,9 @@ public class ModalityGroupService {
         studentModalityMemberRepository.save(member);
 
 
-        historyRepository.save(
-                com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus.MODALITY_SELECTED)
-                        .changeDate(java.time.LocalDateTime.now())
-                        .responsible(student)
-                        .observations("Modalidad grupal iniciada por el líder del grupo")
-                        .build()
-        );
+        modalityStatusTransition.recordHistory(studentModality,
+                com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus.MODALITY_SELECTED, student,
+                "Modalidad grupal iniciada por el líder del grupo");
 
 
         applicationEventPublisher.publishEvent(
@@ -496,16 +489,9 @@ public class ModalityGroupService {
 
 
 
-        historyRepository.save(
-                com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(studentModality.getStatus())
-                        .changeDate(java.time.LocalDateTime.now())
-                        .responsible(student)
-                        .observations("El estudiante " + student.getName() + " " + student.getLastName() +
-                                      " aceptó la invitación y se unió al grupo")
-                        .build()
-        );
+        modalityStatusTransition.recordHistory(studentModality, studentModality.getStatus(), student,
+                "El estudiante " + student.getName() + " " + student.getLastName() +
+                        " aceptó la invitación y se unió al grupo");
 
 
         long pendingInvitations = modalityInvitationRepository
@@ -516,15 +502,8 @@ public class ModalityGroupService {
 
 
         if (pendingInvitations == 0) {
-            historyRepository.save(
-                    com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory.builder()
-                            .studentModality(studentModality)
-                            .status(studentModality.getStatus())
-                            .changeDate(java.time.LocalDateTime.now())
-                            .responsible(student)
-                            .observations("Todas las invitaciones han sido respondidas. El grupo está formado y puede comenzar a trabajar en los documentos.")
-                            .build()
-            );
+            modalityStatusTransition.recordHistory(studentModality, studentModality.getStatus(), student,
+                    "Todas las invitaciones han sido respondidas. El grupo está formado y puede comenzar a trabajar en los documentos.");
         }
 
 
@@ -575,16 +554,9 @@ public class ModalityGroupService {
         modalityInvitationRepository.save(invitation);
 
 
-        historyRepository.save(
-                com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory.builder()
-                        .studentModality(studentModality)
-                        .status(studentModality.getStatus())
-                        .changeDate(LocalDateTime.now())
-                        .responsible(student)
-                        .observations("El estudiante " + student.getName() + " " + student.getLastName() +
-                                      " rechazó la invitación para unirse al grupo")
-                        .build()
-        );
+        modalityStatusTransition.recordHistory(studentModality, studentModality.getStatus(), student,
+                "El estudiante " + student.getName() + " " + student.getLastName() +
+                        " rechazó la invitación para unirse al grupo");
 
 
         applicationEventPublisher.publishEvent(

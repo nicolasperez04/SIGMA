@@ -73,14 +73,13 @@ public class CommitteeNotificationListener {
 
                 "%s"
 
-                ha sido revisada y aprobada por la Jefatura del Programa.
+                ha solicitado la cancelación de su modalidad de grado. En consecuencia,
+                la solicitud será revisada y gestionada por el Comité de Currículo del Programa.
 
-                En consecuencia, el proceso ha sido habilitado para la revisión y gestión
-                por parte del Comité de Currículo del Programa. Se solicita a los miembros
-                del comité proceder con las etapas correspondientes del proceso académico,
-                de acuerdo con las funciones y responsabilidades establecidas.
+                Se solicita a los miembros del comité proceder con las etapas correspondientes
+                del proceso académico, de acuerdo con las funciones y responsabilidades establecidas.
 
-                Por favor, ingrese al sistema  para consultar los detalles de la
+                Por favor, ingrese al sistema para consultar los detalles de la
                 modalidad registrada y continuar con el flujo de evaluación y seguimiento.
 
                 Sistema SIGMA

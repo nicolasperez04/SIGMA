@@ -91,6 +91,7 @@ public class FacultyService {
 
     }
 
+    @Transactional
     public void deactivateFaculty(Long id) {
         Faculty faculty = facultyRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Facultad no encontrada"));

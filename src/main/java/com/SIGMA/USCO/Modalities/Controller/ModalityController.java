@@ -1,9 +1,5 @@
 package com.SIGMA.USCO.Modalities.Controller;
 
-import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.dto.*;
 import com.SIGMA.USCO.Modalities.dto.response.FinalDefenseResponse;
@@ -16,21 +12,12 @@ import com.SIGMA.USCO.Modalities.service.DocumentModalityService;
 import com.SIGMA.USCO.Modalities.service.ModalityCatalogService;
 import com.SIGMA.USCO.Modalities.service.StudentModalityListingService;
 import com.SIGMA.USCO.Modalities.service.SeminarModalityService;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
-import com.SIGMA.USCO.academic.entity.AcademicHistoryPdf;
-import com.SIGMA.USCO.academic.entity.AcademicProgram;
-import com.SIGMA.USCO.academic.entity.StudentProfile;
-import com.SIGMA.USCO.documents.dto.DetailDocumentDTO;
-import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
-import com.SIGMA.USCO.documents.entity.RequiredDocument;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.service.DocumentService;
+import com.SIGMA.USCO.security.SecurityUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -45,22 +32,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 
 import java.io.IOException;
-import com.SIGMA.USCO.common.exception.NotFoundException;
 import java.net.MalformedURLException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Tag(name = "Modalidades", description = "Gestión completa de modalidades de grado: creación, documentos, sustentación, cancelaciones y evaluaciones")
 @RestController
 @RequestMapping("/modalities")
 @RequiredArgsConstructor
-@Slf4j
 @SecurityRequirement(name = "bearer-jwt")
 public class ModalityController {
 
@@ -275,7 +254,7 @@ public class ModalityController {
 
     @PutMapping("/documents/{studentDocumentId}/review-examiner")
     @PreAuthorize("hasAuthority('PERM_REVIEW_DOCUMENTS')")
-    public ResponseEntity<Map<String, Object>> reviewDocumentExaminer(@PathVariable Long studentDocumentId, @Valid @RequestBody DocumentReviewDTO request) {
+    public ResponseEntity<Object> reviewDocumentExaminer(@PathVariable Long studentDocumentId, @Valid @RequestBody DocumentReviewDTO request) {
         return ResponseEntity.ok(documentModalityService.reviewStudentDocumentByExaminer(studentDocumentId, request));
     }
 
@@ -384,14 +363,9 @@ public class ModalityController {
     @PreAuthorize("hasAuthority('PERM_VIEW_CANCELLATIONS')")
     public ResponseEntity<Resource> getCancellationDocument(@PathVariable Long studentModalityId) throws MalformedURLException {
 
-        StudentDocument document = documentService.getDocumentCancellation(studentModalityId);
+        StudentDocument document = documentService.getDocumentCancellation(studentModalityId, SecurityUtils.getCurrentUser());
 
-        Path filePath = Paths.get(document.getFilePath());
-        Resource resource = new UrlResource(filePath.toUri());
-
-        if (!resource.exists() || !resource.isReadable()) {
-            throw new NotFoundException("No se pudo leer el archivo");
-        }
+        Resource resource = cancellationService.getCancellationDocumentResource(document);
 
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF)
                 .header(
@@ -416,7 +390,7 @@ public class ModalityController {
 
     @PostMapping("/{studentModalityId}/propose-defense-director")
     @PreAuthorize("hasAuthority('PERM_PROPOSE_DEFENSE')")
-    public ResponseEntity<Map<String, Object>> proposeDefenseByDirector(@PathVariable Long studentModalityId, @RequestBody ScheduleDefenseDTO request) {
+    public ResponseEntity<Map<String, Object>> proposeDefenseByDirector(@PathVariable Long studentModalityId, @Valid @RequestBody ScheduleDefenseDTO request) {
         return ResponseEntity.ok(defenseModalityService.scheduleDefense(studentModalityId, request));
     }
 
@@ -435,13 +409,13 @@ public class ModalityController {
 
     @PostMapping("/{studentModalityId}/defense-proposals/reschedule")
     @PreAuthorize("hasAuthority('PERM_SCHEDULE_DEFENSE')")
-    public ResponseEntity<Map<String, Object>> rescheduleDefense(@PathVariable Long studentModalityId, @RequestBody ScheduleDefenseDTO request) {
+    public ResponseEntity<Map<String, Object>> rescheduleDefense(@PathVariable Long studentModalityId, @Valid @RequestBody ScheduleDefenseDTO request) {
         return ResponseEntity.ok(defenseModalityService.rescheduleDefense(studentModalityId, request));
     }
 
     @PostMapping("/{studentModalityId}/examiners/assign")
     @PreAuthorize("hasAuthority('PERM_SCHEDULE_DEFENSE')")
-    public ResponseEntity<Map<String, Object>> assignExaminers(@PathVariable Long studentModalityId, @RequestBody ScheduleDefenseDTO request) {
+    public ResponseEntity<Map<String, Object>> assignExaminers(@PathVariable Long studentModalityId, @Valid @RequestBody ScheduleDefenseDTO request) {
         return ResponseEntity.ok(defenseModalityService.assignExaminers(studentModalityId, request));
     }
 
@@ -676,13 +650,13 @@ public class ModalityController {
      */
     @GetMapping("/documents/{studentDocumentId}/examiner-proposal-evaluation")
 
-    public ResponseEntity<Map<String, Object>> getMyProposalEvaluation(@PathVariable Long studentDocumentId) {
+    public ResponseEntity<Object> getMyProposalEvaluation(@PathVariable Long studentDocumentId) {
         return ResponseEntity.ok(documentEditRequestService.getMyProposalEvaluation(studentDocumentId));
     }
 
     @GetMapping("/documents/{studentDocumentId}/examiner-final-evaluation")
 
-    public ResponseEntity<Map<String, Object>> getMyFinalDocumentEvaluation(@PathVariable Long studentDocumentId) {
+    public ResponseEntity<Object> getMyFinalDocumentEvaluation(@PathVariable Long studentDocumentId) {
         return ResponseEntity.ok(documentEditRequestService.getMyFinalDocumentEvaluation(studentDocumentId));
     }
 

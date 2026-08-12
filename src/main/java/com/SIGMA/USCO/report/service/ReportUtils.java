@@ -6,10 +6,12 @@ import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.Entity.enums.ModalityType;
 import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
 import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.report.dto.StudentInfoDTO;
 import com.SIGMA.USCO.security.SecurityUtils;
 import com.itextpdf.text.BaseColor;
@@ -131,9 +133,18 @@ public class ReportUtils {
         User user = SecurityUtils.getCurrentUser();
         List<ProgramAuthority> authorities = programAuthorityRepository.findByUser_Id(user.getId());
         if (authorities.isEmpty()) {
-            throw new IllegalArgumentException("El usuario no tiene asignado ningún programa académico");
+            throw new ValidationException("El usuario no tiene ningún programa académico asignado");
         }
-        return authorities.get(0).getAcademicProgram();
+        if (authorities.size() == 1) {
+            return authorities.get(0).getAcademicProgram();
+        }
+        List<ProgramAuthority> programHeads = authorities.stream()
+                .filter(pa -> pa.getRole() == ProgramRole.PROGRAM_HEAD)
+                .collect(Collectors.toList());
+        if (programHeads.size() == 1) {
+            return programHeads.get(0).getAcademicProgram();
+        }
+        throw new ValidationException("El usuario tiene más de un programa académico asignado; no se puede determinar el programa del reporte");
     }
 
     public static int getSemesterFromDate(LocalDateTime date) {

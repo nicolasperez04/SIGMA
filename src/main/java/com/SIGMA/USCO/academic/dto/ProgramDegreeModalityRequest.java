@@ -3,7 +3,6 @@ package com.SIGMA.USCO.academic.dto;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.*;
-import org.springframework.stereotype.Service;
 
 @Data
 @Builder

@@ -10,8 +10,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.nio.file.Path;
-
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -58,34 +56,5 @@ public class NotificationFactory {
     public void saveAndDispatch(Notification notification) {
         notificationRepository.save(notification);
         dispatcher.dispatch(notification);
-    }
-
-    public Notification buildAndDispatchWithAttachment(NotificationType type,
-                                                        NotificationRecipientType recipientType,
-                                                        User recipient,
-                                                        User triggeredBy,
-                                                        StudentModality modality,
-                                                        String subject,
-                                                        String message,
-                                                        Path attachmentPath,
-                                                        String attachmentName) {
-        Notification notification = NotificationBuilderHelper.buildNotification(
-                type, recipientType, recipient, triggeredBy, modality, subject, message);
-        notificationRepository.save(notification);
-        // dispatchWithAttachment es @Async; fallos de email se manejan dentro (emailSent=false + log)
-        dispatcher.dispatchWithAttachment(notification, attachmentPath, attachmentName);
-        return notification;
-    }
-
-    public Notification buildAndDispatchWithAttachment(NotificationType type,
-                                                        NotificationRecipientType recipientType,
-                                                        User recipient,
-                                                        StudentModality modality,
-                                                        String subject,
-                                                        String message,
-                                                        Path attachmentPath,
-                                                        String attachmentName) {
-        return buildAndDispatchWithAttachment(type, recipientType, recipient, null, modality,
-                subject, message, attachmentPath, attachmentName);
     }
 }

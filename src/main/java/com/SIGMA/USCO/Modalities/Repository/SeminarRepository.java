@@ -2,7 +2,6 @@ package com.SIGMA.USCO.Modalities.Repository;
 
 import com.SIGMA.USCO.Modalities.Entity.*;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -28,10 +27,6 @@ public interface SeminarRepository extends JpaRepository<Seminar, Long> {
         Integer result = isStudentEnrolledNative(seminarId, studentId);
         return result != null && result > 0;
     }
-
-    @Modifying
-    @Query(value = "INSERT INTO seminar_students (seminar_id, student_id) VALUES (:seminarId, :studentId)", nativeQuery = true)
-    void enrollStudent(@Param("seminarId") Long seminarId, @Param("studentId") Long studentId);
 
     @Query(value = """
         SELECT sp.* FROM student_profiles sp
