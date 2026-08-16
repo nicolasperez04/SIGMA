@@ -1,6 +1,6 @@
 package com.SIGMA.USCO.Users.dto.response;
 
-import com.SIGMA.USCO.Users.Entity.enums.Status;
+import com.SIGMA.USCO.Users.entity.enums.Status;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

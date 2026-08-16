@@ -1,7 +1,7 @@
 package com.SIGMA.USCO.academic.service;
 
-import com.SIGMA.USCO.Modalities.Entity.DegreeModality;
-import com.SIGMA.USCO.Modalities.Repository.DegreeModalityRepository;
+import com.SIGMA.USCO.Modalities.entity.DegreeModality;
+import com.SIGMA.USCO.Modalities.repository.DegreeModalityRepository;
 import com.SIGMA.USCO.academic.dto.ProgramDegreeModalityDTO;
 import com.SIGMA.USCO.academic.dto.ProgramDegreeModalityRequest;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -67,7 +66,7 @@ public class ProgramDegreeModalityService {
         return programDegreeModalityRepository.findByFilters(active, degreeModalityId, facultyId, academicProgramId)
                 .stream()
                 .map(this::mapToDTO)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional(readOnly = true)

@@ -1,14 +1,17 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.InvitationStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.InvitationStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.MemberStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
 import com.SIGMA.USCO.Modalities.dto.groups.EligibleStudentDTO;
-import com.SIGMA.USCO.Modalities.Entity.ModalityInvitation;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Repository.*;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.dto.response.AcceptInvitationResponse;
+import com.SIGMA.USCO.Modalities.dto.response.InviteStudentResponse;
+import com.SIGMA.USCO.Modalities.dto.response.StartGroupModalityResponse;
+import com.SIGMA.USCO.Modalities.entity.ModalityInvitation;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.repository.*;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
@@ -19,12 +22,13 @@ import com.SIGMA.USCO.common.exception.BusinessException;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.common.security.Roles;
+import com.SIGMA.USCO.common.web.OperationResultResponse;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentStatusHistoryRepository;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.security.SecurityUtils;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +39,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -62,15 +68,13 @@ public class ModalityGroupService {
     private String uploadDir;
 
     @Transactional
-    public Map<String, Object> startStudentModalityGroup(Long modalityId) {
-
-        User student = SecurityUtils.getCurrentUser();
+    public StartGroupModalityResponse startStudentModalityGroup(Long modalityId, User student) {
 
         StudentProfile profile = studentProfileRepository.findByUserId(student.getId())
                 .orElseThrow(() -> new ValidationException("Debe completar su perfil académico antes de seleccionar una modalidad"));
 
 
-        com.SIGMA.USCO.Modalities.Entity.DegreeModality modality = degreeModalityRepository.findById(modalityId)
+        com.SIGMA.USCO.Modalities.entity.DegreeModality modality = degreeModalityRepository.findById(modalityId)
                 .orElseThrow(() -> new NotFoundException("La modalidad con ID " + modalityId + " no existe"));
 
 
@@ -82,11 +86,13 @@ public class ModalityGroupService {
 
 
         // Verificar si el estudiante tiene modalidades activas (en proceso)
-        // Estados finalizados que SÍ permiten iniciar nueva modalidad: MODALITY_CLOSED, MODALITY_CANCELLED, GRADED_APPROVED, GRADED_FAILED
+        // Estados finalizados que SÍ permiten iniciar nueva modalidad: MODALITY_CLOSED, MODALITY_CANCELLED, GRADED_APPROVED, GRADED_FAILED, CORRECTIONS_REJECTED_FINAL
+        // ponytail: alineado a la variante individual (DocumentWorkflowService.startStudentModalityIndividual) que sí incluye CORRECTIONS_REJECTED_FINAL. GRADED_APPROVED se omite deliberadamente (éxito, permite reiniciar).
         List<ModalityProcessStatus> finalizedStatuses = List.of(
                 ModalityProcessStatus.MODALITY_CLOSED,
                 ModalityProcessStatus.MODALITY_CANCELLED,
-                ModalityProcessStatus.GRADED_FAILED
+                ModalityProcessStatus.GRADED_FAILED,
+                ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL
         );
 
         // Obtener todas las modalidades del estudiante como miembro activo
@@ -117,63 +123,17 @@ public class ModalityGroupService {
         }
 
 
-        List<com.SIGMA.USCO.Modalities.Entity.ModalityRequirements> requirements =
+        List<com.SIGMA.USCO.Modalities.entity.ModalityRequirements> requirements =
                 modalityRequirementsRepository.findByModalityIdAndActiveTrue(modalityId);
 
-        List<com.SIGMA.USCO.Modalities.dto.ValidationItemDTO> results = new ArrayList<>();
-        boolean allValid = true;
-
-        for (com.SIGMA.USCO.Modalities.Entity.ModalityRequirements req : requirements) {
-
-            if (req.getRuleType() != com.SIGMA.USCO.Modalities.Entity.enums.RuleType.NUMERIC) {
-                continue;
-            }
-
-            boolean fulfilled = true;
-            String studentValue = "";
-
-
-            if (req.getRequirementName().toLowerCase().contains("crédito")) {
-                double percentageRequired = Double.parseDouble(req.getExpectedValue());
-                long totalCredits = profile.getAcademicProgram().getTotalCredits();
-                long requiredCredits = Math.round(totalCredits * percentageRequired);
-
-                fulfilled = profile.getApprovedCredits() >= requiredCredits;
-                studentValue = profile.getApprovedCredits() + " / " + requiredCredits;
-            }
-
-
-            if (req.getRequirementName().toLowerCase().contains("promedio")) {
-                fulfilled = profile.getGpa() >= Double.parseDouble(req.getExpectedValue());
-                studentValue = String.valueOf(profile.getGpa());
-            }
-
-            results.add(
-                    com.SIGMA.USCO.Modalities.dto.ValidationItemDTO.builder()
-                            .requirementName(req.getRequirementName())
-                            .expectedValue(req.getExpectedValue())
-                            .studentValue(studentValue)
-                            .fulfilled(fulfilled)
-                            .build()
-            );
-
-            if (!fulfilled) {
-                allValid = false;
-            }
-        }
-
-        if (!allValid) {
-            // ponytail: message only; frontend falls back to .message, per-requirement .results dropped
-            throw new ValidationException("No cumples los requisitos académicos para esta modalidad");
-        }
-
+        ModalityServiceUtils.validateNumericRequirements(profile, requirements, "No cumples los requisitos académicos para esta modalidad");
 
         StudentModality studentModality = StudentModality.builder()
                 .leader(student)
-                .modalityType(com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.GROUP)
+                .modalityType(com.SIGMA.USCO.Modalities.entity.enums.ModalityType.GROUP)
                 .academicProgram(profile.getAcademicProgram())
                 .programDegreeModality(programDegreeModality)
-                .status(com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus.MODALITY_SELECTED)
+                .status(com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus.MODALITY_SELECTED)
                 .selectionDate(java.time.LocalDateTime.now())
                 .updatedAt(java.time.LocalDateTime.now())
                 .build();
@@ -181,12 +141,12 @@ public class ModalityGroupService {
         studentModalityRepository.save(studentModality);
 
 
-        com.SIGMA.USCO.Modalities.Entity.StudentModalityMember member =
-                com.SIGMA.USCO.Modalities.Entity.StudentModalityMember.builder()
+        com.SIGMA.USCO.Modalities.entity.StudentModalityMember member =
+                com.SIGMA.USCO.Modalities.entity.StudentModalityMember.builder()
                         .studentModality(studentModality)
                         .student(student)
                         .isLeader(true)
-                        .status(com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus.ACTIVE)
+                        .status(com.SIGMA.USCO.Modalities.entity.enums.MemberStatus.ACTIVE)
                         .joinedAt(java.time.LocalDateTime.now())
                         .build();
 
@@ -194,7 +154,7 @@ public class ModalityGroupService {
 
 
         modalityStatusTransition.recordHistory(studentModality,
-                com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus.MODALITY_SELECTED, student,
+                com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus.MODALITY_SELECTED, student,
                 "Modalidad grupal iniciada por el líder del grupo");
 
 
@@ -202,19 +162,17 @@ public class ModalityGroupService {
                 new ModalityEvent(NotificationType.MODALITY_STARTED, studentModality.getId(), student.getId(), Map.of())
         );
 
-        return Map.of(
-                "eligible", true,
-                "studentModalityId", studentModality.getId(),
-                "studentModalityName", modality.getName(),
-                "modalityType", "GROUP",
-                "message", "Modalidad grupal iniciada correctamente. Ahora puedes invitar a otros estudiantes (máximo 2 adicionales)."
+        return new StartGroupModalityResponse(
+                true,
+                studentModality.getId(),
+                modality.getName(),
+                "GROUP",
+                "Modalidad grupal iniciada correctamente. Ahora puedes invitar a otros estudiantes (máximo 2 adicionales)."
         );
     }
 
     @Transactional(readOnly = true)
-    public List<EligibleStudentDTO> getEligibleStudentsForInvitation(String nameFilter) {
-
-        User leader = SecurityUtils.getCurrentUser();
+    public List<EligibleStudentDTO> getEligibleStudentsForInvitation(String nameFilter, User leader) {
 
         StudentProfile leaderProfile = studentProfileRepository.findByUserId(leader.getId())
                 .orElseThrow(() -> new ValidationException("Debe completar su perfil académico antes de invitar estudiantes"));
@@ -224,6 +182,21 @@ public class ModalityGroupService {
 
         List<StudentProfile> studentProfiles = studentProfileRepository
                 .findByAcademicProgramId(leaderProgramId);
+
+        List<Long> candidateIds = studentProfiles.stream()
+                .map(sp -> sp.getUser().getId())
+                .toList();
+
+        Set<Long> leadersWithModality = candidateIds.isEmpty() ? Set.of()
+                : studentModalityRepository.findByLeaderIdIn(candidateIds)
+                        .stream()
+                        .map(sm -> sm.getLeader().getId())
+                        .collect(Collectors.toSet());
+        Set<Long> membersWithModality = candidateIds.isEmpty() ? Set.of()
+                : studentModalityMemberRepository.findByStudentIdIn(candidateIds)
+                        .stream()
+                        .map(m -> m.getStudent().getId())
+                        .collect(Collectors.toSet());
 
         List<EligibleStudentDTO> eligibleStudents = new ArrayList<>();
 
@@ -237,7 +210,7 @@ public class ModalityGroupService {
 
 
             boolean isStudent = student.getRoles().stream()
-                    .anyMatch(role -> role.getName().equals("STUDENT"));
+                    .anyMatch(role -> role.getName().equals(Roles.ROLE_STUDENT));
 
             if (!isStudent) {
                 continue;
@@ -249,15 +222,8 @@ public class ModalityGroupService {
             }
 
 
-            boolean hasAnyModalityAsLeader = studentModalityRepository
-                    .existsByLeaderId(student.getId());
-
-
-            boolean isAnyModalityMember = studentModalityMemberRepository
-                    .existsByStudentId(student.getId());
-
-
-            if (hasAnyModalityAsLeader || isAnyModalityMember) {
+            if (leadersWithModality.contains(student.getId())
+                    || membersWithModality.contains(student.getId())) {
                 continue;
             }
 
@@ -284,13 +250,15 @@ public class ModalityGroupService {
     }
 
 
-    public Map<String, Object> inviteStudentToModality(Long studentModalityId, Long inviteeId) {
-
-        User inviter = SecurityUtils.getCurrentUser();
-
+    @Transactional
+    public InviteStudentResponse inviteStudentToModality(Long studentModalityId, Long inviteeId, User inviter) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+
+        if (!studentModality.getLeader().getId().equals(inviter.getId())) {
+            throw new ForbiddenException("No eres el líder de esta modalidad de grado");
+        }
 
 
 
@@ -340,12 +308,12 @@ public class ModalityGroupService {
 
         long currentMembersCount = studentModalityMemberRepository
                 .countByStudentModalityIdAndStatus(studentModalityId,
-                        com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus.ACTIVE);
+                        com.SIGMA.USCO.Modalities.entity.enums.MemberStatus.ACTIVE);
 
 
         long pendingInvitationsCount = modalityInvitationRepository
                 .countByStudentModalityIdAndStatus(studentModalityId,
-                        com.SIGMA.USCO.Modalities.Entity.enums.InvitationStatus.PENDING);
+                        com.SIGMA.USCO.Modalities.entity.enums.InvitationStatus.PENDING);
 
 
         final int MAX_GROUP_SIZE = 3;
@@ -364,7 +332,7 @@ public class ModalityGroupService {
                 .studentModality(studentModality)
                 .inviter(inviter)
                 .invitee(invitee)
-                .status(com.SIGMA.USCO.Modalities.Entity.enums.InvitationStatus.PENDING)
+                .status(com.SIGMA.USCO.Modalities.entity.enums.InvitationStatus.PENDING)
                 .invitedAt(java.time.LocalDateTime.now())
                 .build();
 
@@ -381,19 +349,16 @@ public class ModalityGroupService {
                 ))
         );
 
-        return Map.of(
-                "success", true,
-                "invitationId", invitation.getId(),
-                "message", "Invitación enviada exitosamente a " + invitee.getName() + " " + invitee.getLastName()
+        return new InviteStudentResponse(
+                true,
+                invitation.getId(),
+                "Invitación enviada exitosamente a " + invitee.getName() + " " + invitee.getLastName()
         );
     }
 
 
     @Transactional
-    public Map<String, Object> acceptInvitation(Long invitationId) {
-
-        User student = SecurityUtils.getCurrentUser();
-
+    public AcceptInvitationResponse acceptInvitation(Long invitationId, User student) {
 
         ModalityInvitation invitation = modalityInvitationRepository.findById(invitationId)
                 .orElseThrow(() -> new NotFoundException("Invitación no encontrada"));
@@ -404,7 +369,7 @@ public class ModalityGroupService {
         }
 
 
-        if (invitation.getStatus() != com.SIGMA.USCO.Modalities.Entity.enums.InvitationStatus.PENDING) {
+        if (invitation.getStatus() != com.SIGMA.USCO.Modalities.entity.enums.InvitationStatus.PENDING) {
             throw new ValidationException("Esta invitación ya fue procesada anteriormente");
         }
 
@@ -422,55 +387,12 @@ public class ModalityGroupService {
         StudentProfile profile = studentProfileRepository.findByUserId(student.getId())
                 .orElseThrow(() -> new ValidationException("Debe completar su perfil académico"));
 
-        List<com.SIGMA.USCO.Modalities.Entity.ModalityRequirements> requirements =
+        List<com.SIGMA.USCO.Modalities.entity.ModalityRequirements> requirements =
                 modalityRequirementsRepository.findByModalityIdAndActiveTrue(
                         studentModality.getProgramDegreeModality().getDegreeModality().getId()
                 );
 
-        List<com.SIGMA.USCO.Modalities.dto.ValidationItemDTO> results = new ArrayList<>();
-        boolean allValid = true;
-
-        for (com.SIGMA.USCO.Modalities.Entity.ModalityRequirements req : requirements) {
-
-            if (req.getRuleType() != com.SIGMA.USCO.Modalities.Entity.enums.RuleType.NUMERIC) {
-                continue;
-            }
-
-            boolean fulfilled = true;
-            String studentValue = "";
-
-            if (req.getRequirementName().toLowerCase().contains("crédito")) {
-                double percentageRequired = Double.parseDouble(req.getExpectedValue());
-                long totalCredits = profile.getAcademicProgram().getTotalCredits();
-                long requiredCredits = Math.round(totalCredits * percentageRequired);
-
-                fulfilled = profile.getApprovedCredits() >= requiredCredits;
-                studentValue = profile.getApprovedCredits() + " / " + requiredCredits;
-            }
-
-            if (req.getRequirementName().toLowerCase().contains("promedio")) {
-                fulfilled = profile.getGpa() >= Double.parseDouble(req.getExpectedValue());
-                studentValue = String.valueOf(profile.getGpa());
-            }
-
-            results.add(
-                    com.SIGMA.USCO.Modalities.dto.ValidationItemDTO.builder()
-                            .requirementName(req.getRequirementName())
-                            .expectedValue(req.getExpectedValue())
-                            .studentValue(studentValue)
-                            .fulfilled(fulfilled)
-                            .build()
-            );
-
-            if (!fulfilled) {
-                allValid = false;
-            }
-        }
-
-        if (!allValid) {
-            throw new ValidationException("No cumples los requisitos académicos para unirte a esta modalidad");
-        }
-
+        ModalityServiceUtils.validateNumericRequirements(profile, requirements, "No cumples los requisitos académicos para unirte a esta modalidad");
 
         invitation.setStatus(InvitationStatus.ACCEPTED);
         invitation.setRespondedAt(LocalDateTime.now());
@@ -497,7 +419,7 @@ public class ModalityGroupService {
         long pendingInvitations = modalityInvitationRepository
                 .countByStudentModalityIdAndStatus(
                         studentModality.getId(),
-                        com.SIGMA.USCO.Modalities.Entity.enums.InvitationStatus.PENDING
+                        com.SIGMA.USCO.Modalities.entity.enums.InvitationStatus.PENDING
                 );
 
 
@@ -517,21 +439,18 @@ public class ModalityGroupService {
                 ))
         );
 
-        return Map.of(
-                "success", true,
-                "studentModalityId", studentModality.getId(),
-                "message", "Te has unido exitosamente al grupo. ¡Bienvenido!",
-                "modalityName", studentModality.getProgramDegreeModality().getDegreeModality().getName(),
-                "pendingInvitations", pendingInvitations
+        return new AcceptInvitationResponse(
+                true,
+                studentModality.getId(),
+                "Te has unido exitosamente al grupo. ¡Bienvenido!",
+                studentModality.getProgramDegreeModality().getDegreeModality().getName(),
+                pendingInvitations
         );
     }
 
 
     @Transactional
-    public Map<String, Object> rejectInvitation(Long invitationId) {
-
-        User student = SecurityUtils.getCurrentUser();
-
+    public OperationResultResponse rejectInvitation(Long invitationId, User student) {
 
         ModalityInvitation invitation = modalityInvitationRepository.findById(invitationId)
                 .orElseThrow(() -> new NotFoundException("Invitación no encontrada"));
@@ -569,9 +488,9 @@ public class ModalityGroupService {
                 ))
         );
 
-        return Map.of(
-                "success", true,
-                "message", "Has rechazado la invitación exitosamente"
+        return new OperationResultResponse(
+                true,
+                "Has rechazado la invitación exitosamente"
         );
     }
 

@@ -1,27 +1,30 @@
 package com.SIGMA.USCO.notifications.listeners;
 
-import com.SIGMA.USCO.Modalities.Entity.AcademicCertificate;
-import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
-import com.SIGMA.USCO.Modalities.Entity.enums.CertificateStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.AcademicCertificate;
+import com.SIGMA.USCO.Modalities.entity.DefenseExaminer;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction;
+import com.SIGMA.USCO.Modalities.entity.enums.CertificateStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.MemberStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.Notification;
-import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import com.SIGMA.USCO.notifications.service.AcademicCertificatePdfService;
+import com.SIGMA.USCO.notifications.service.CertificatePdfSupport;
 import com.SIGMA.USCO.notifications.service.NotificationBuilderHelper;
 import com.SIGMA.USCO.notifications.service.NotificationDispatcherService;
+import com.SIGMA.USCO.notifications.service.NotificationDispatcherService.GeneratedAttachment;
 import com.SIGMA.USCO.notifications.service.NotificationFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,10 +35,10 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 @Component
 @RequiredArgsConstructor
@@ -79,6 +82,10 @@ public class StudentNotificationListener {
             case SEMINAR_STARTED -> handleSeminarStarted(event);
             case SEMINAR_CANCELLED -> handleSeminarCancelled(event);
             case MODALITY_APPROVED_BY_EXAMINERS -> handleModalityApprovedByExaminers(event);
+            case DOCUMENT_REVIEW_TIEBREAKER_REQUIRED -> handleDocumentReviewTiebreakerRequired(event);
+            case DIRECTOR_NOTIFIES_PROGRAM_HEAD_FINAL_REVIEW -> handleFinalDocumentsSentToProgramHead(event);
+            case MODALITY_READY_FOR_DEFENSE -> handleModalityReadyForDefense(event);
+            case EXAMINER_FINAL_REVIEW_COMPLETED -> handleExaminerFinalReviewCompleted(event);
             case EXAMINER_ASSIGNED -> handleExaminersAssigned(event);
             case DOCUMENT_EDIT_APPROVED, DOCUMENT_EDIT_REJECTED -> handleDocumentEditResolved(event);
             default -> log.warn("Unhandled notification type: {}", event.getType());
@@ -91,7 +98,8 @@ public class StudentNotificationListener {
     }
 
     private void handleModalityStarted(ModalityEvent event) {
-        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         User student = modality.getLeader();
         String subject = "Modalidad iniciada – SIGMA";
         String message = NotificationMessageTemplates.modalityStarted(
@@ -107,10 +115,13 @@ public class StudentNotificationListener {
     private void handleDocumentCorrectionsRequested(ModalityEvent event) {
         StudentDocument document = studentDocumentRepository.findById(
                 event.get(ModalityEvent.KEY_STUDENT_DOCUMENT_ID, Long.class)
-        ).orElseThrow();
+        ).orElseThrow(() -> new NotFoundException("Documento no encontrado"));
         StudentModality modality = document.getStudentModality();
         String subject = "Correcciones solicitadas en documento académico – Acción requerida";
-        NotificationRecipientType requestedBy = event.get(ModalityEvent.KEY_REQUESTED_BY, NotificationRecipientType.class);
+        String requestedByName = event.get(ModalityEvent.KEY_REQUESTED_BY, String.class);
+        NotificationRecipientType requestedBy = requestedByName != null && !requestedByName.isBlank()
+                ? NotificationRecipientType.valueOf(requestedByName)
+                : null;
         String observations = event.get(ModalityEvent.KEY_OBSERVATIONS, String.class);
         String requestedByText;
         if (requestedBy == NotificationRecipientType.PROGRAM_HEAD) {
@@ -133,9 +144,66 @@ public class StudentNotificationListener {
     }
 
 
+    private void handleDocumentReviewTiebreakerRequired(ModalityEvent event) {
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
+        String subject = "Decisión dividida de jurados – Se requiere jurado de desempate";
+        dispatchToActiveMembers(modality, NotificationType.DOCUMENT_REVIEW_TIEBREAKER_REQUIRED, null, subject,
+                student -> NotificationMessageTemplates.tiebreakerRequired(
+                        student.getName(),
+                        documentName
+                ));
+    }
+
+
+    private void handleFinalDocumentsSentToProgramHead(ModalityEvent event) {
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+        User director = modality.getProjectDirector();
+        String directorNombre = director != null
+                ? director.getName() + " " + director.getLastName()
+                : "El director de proyecto";
+        String subject = "Documentos finales enviados a revisión de Jefatura de Programa";
+        dispatchToActiveMembers(modality, NotificationType.DIRECTOR_NOTIFIES_PROGRAM_HEAD_FINAL_REVIEW, null, subject,
+                student -> NotificationMessageTemplates.finalDocumentsSentToProgramHead(
+                        student.getName(),
+                        directorNombre,
+                        modalidadInfo
+                ));
+    }
+
+
+    private void handleModalityReadyForDefense(ModalityEvent event) {
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+        String subject = "Modalidad lista para revisión final por parte de los jurados – Documentos finales aprobados";
+        dispatchToActiveMembers(modality, NotificationType.MODALITY_READY_FOR_DEFENSE, null, subject,
+                student -> NotificationMessageTemplates.modalityReadyForDefense(
+                        student.getName(),
+                        modalidadInfo
+                ));
+    }
+
+
+    private void handleExaminerFinalReviewCompleted(ModalityEvent event) {
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
+        String subject = "Aprobación final de documentos – Puede programar la sustentación";
+        dispatchToActiveMembers(modality, NotificationType.EXAMINER_FINAL_REVIEW_COMPLETED, null, subject,
+                student -> NotificationMessageTemplates.studentFinalReviewCompleted(
+                        student.getName(),
+                        modalidadInfo
+                ));
+    }
+
+
     private void handleCancellationRequested(ModalityEvent event) {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String subject = "Solicitud de cancelación registrada – Modalidad de grado";
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
         dispatchToActiveMembers(sm, NotificationType.MODALITY_CANCELLATION_REQUESTED, null, subject,
@@ -145,7 +213,7 @@ public class StudentNotificationListener {
 
     private void handleCancellationApproved(ModalityEvent event) {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String subject = "Cancelación aprobada – Modalidad de grado";
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
         dispatchToActiveMembers(sm, NotificationType.MODALITY_CANCELLATION_APPROVED, null, subject,
@@ -155,7 +223,7 @@ public class StudentNotificationListener {
 
     private void handleCancellationRejected(ModalityEvent event) {
         StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String subject = "Cancelación no aprobada – Modalidad de grado";
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
         String reason = event.get(ModalityEvent.KEY_REASON, String.class);
@@ -168,16 +236,17 @@ public class StudentNotificationListener {
 
 
     private void handleDefenseScheduled(ModalityEvent event) {
-        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         User director = modality.getProjectDirector();
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String studentSubject = "Sustentación programada – Modalidad de Grado";
-        Object defenseDate = event.get(ModalityEvent.KEY_DEFENSE_DATE, Object.class);
+        LocalDateTime defenseDate = event.get(ModalityEvent.KEY_DEFENSE_DATE, LocalDateTime.class);
         String defenseLocation = event.get(ModalityEvent.KEY_DEFENSE_LOCATION, String.class);
         String directorName = director != null
                 ? director.getName() + " " + director.getLastName()
                 : "No asignado";
-        String defenseDateText = String.valueOf(defenseDate);
+        String defenseDateText = TranslationUtils.formatDateTime(defenseDate);
         dispatchToActiveMembers(modality, NotificationType.DEFENSE_SCHEDULED, null, studentSubject,
                 student -> NotificationMessageTemplates.defenseScheduled(
                         student.getName(),
@@ -191,9 +260,9 @@ public class StudentNotificationListener {
 
     private void handleDirectorAssigned(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         User director = userRepository.findById(event.get(ModalityEvent.KEY_DIRECTOR_ID, Long.class))
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Director de proyecto no encontrado"));
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String studentSubject = "Director de proyecto asignado – Modalidad de grado";
         String directorFullName = director.getName() + " " + director.getLastName();
@@ -209,7 +278,7 @@ public class StudentNotificationListener {
 
     private void handleDefenseResult(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         ModalityProcessStatus finalStatus = event.get(ModalityEvent.KEY_FINAL_STATUS, ModalityProcessStatus.class);
         boolean approved = finalStatus == ModalityProcessStatus.GRADED_APPROVED;
@@ -234,70 +303,53 @@ public class StudentNotificationListener {
             members = List.of(syntheticLeaderMember);
         }
 
-        AcademicCertificate certificate = null;
-        Path pdfPath = null;
-        if (shouldSendCertificate) {
-            try {
-                log.info("Generando acta de aprobación para la modalidad ID: {}", modality.getId());
+        // El acta se genera UNA vez (supplier memoizado) aunque haya N destinatarios;
+        // los dispatchWithAttachment corren en el executor en paralelo y comparten el cache sincronizado
+        Supplier<GeneratedAttachment> attachmentSupplier = new Supplier<>() {
+            private GeneratedAttachment cached;
 
-                boolean isComplete = isCompleteModality(modality);
-                if (isComplete) {
-                    certificate = certificatePdfService.generateCertificate(modality);
-                } else {
-                    certificate = certificatePdfService.generateCertificateForCommitteeApproval(modality);
+            @Override
+            public synchronized GeneratedAttachment get() {
+                if (cached == null) {
+                    try {
+                        StudentModality m = studentModalityRepository.findById(modality.getId())
+                                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+                        AcademicCertificate c = CertificatePdfSupport.isCompleteModality(m)
+                                ? certificatePdfService.generateCertificate(m)
+                                : certificatePdfService.generateCertificateForCommitteeApproval(m);
+                        cached = new GeneratedAttachment(
+                                certificatePdfService.getCertificatePath(m.getId()),
+                                "ACTA_DE_APROBACION.pdf",
+                                c.getId());
+                    } catch (IOException e) {
+                        throw new RuntimeException("No se pudo generar el acta de aprobación", e);
+                    }
                 }
-                pdfPath = certificatePdfService.getCertificatePath(modality.getId());
-                log.info("Acta PDF generada exitosamente para la modalidad ID: {}", modality.getId());
-            } catch (Exception e) {
-                log.error("Error generando acta PDF para modalidad ID {}: {}", modality.getId(), e.getMessage(), e);
+                return cached;
             }
-        }
-
-        User leader = modality.getLeader();
-        if (leader != null) {
-            String leaderMessage = shouldSendCertificate
-                    ? buildApprovedStudentMessage(leader, modality, event)
-                    : buildRejectedStudentMessage(leader, modality, event);
-
-            Notification leaderNotification = notificationFactory.buildAndSave(
-                    NotificationType.DEFENSE_COMPLETED, NotificationRecipientType.STUDENT,
-                    leader, null, modality, studentSubject, leaderMessage);
-
-if (shouldSendCertificate && pdfPath != null) {
-                // dispatchWithAttachment es @Async; fallos de email se manejan dentro (emailSent=false + log)
-                dispatcher.dispatchWithAttachment(
-                        leaderNotification,
-                        pdfPath,
-                        "ACTA_DE_APROBACION.pdf"
-                );
-                log.info("Acta enviada al líder {} (modalidad ID {})", leader.getId(), modality.getId());
-            } else {
-                dispatcher.dispatch(leaderNotification);
-            }
-        }
+        };
 
         for (StudentModalityMember member : members) {
-            if (leader != null && member.getStudent().getId().equals(leader.getId())) {
-                continue;
-            }
-
             User student = member.getStudent();
             String studentMessage = shouldSendCertificate
                     ? buildApprovedStudentMessage(student, modality, event)
                     : buildRejectedStudentMessage(student, modality, event);
 
-            notificationFactory.buildAndDispatch(
+            Notification notification = notificationFactory.buildAndSave(
                     NotificationType.DEFENSE_COMPLETED, NotificationRecipientType.STUDENT,
                     student, null, modality, studentSubject, studentMessage);
-            log.info("Notificación enviada al miembro {} (modalidad ID {}, sin acta adjunta)", student.getId(), modality.getId());
-        }
 
-        if (certificate != null && shouldSendCertificate) {
-            try {
-                certificatePdfService.updateCertificateStatus(certificate.getId(), CertificateStatus.SENT);
-                log.info("Estado del certificado actualizado a SENT para modalidad ID: {}", modality.getId());
-            } catch (Exception e) {
-                log.error("Error actualizando estado del certificado: {}", e.getMessage());
+            if (shouldSendCertificate) {
+                dispatcher.dispatchWithAttachment(notification, attachmentSupplier, certId -> {
+                    try {
+                        certificatePdfService.updateCertificateStatus(certId, CertificateStatus.SENT);
+                    } catch (Exception e) {
+                        log.error("Error actualizando estado del certificado: {}", e.getMessage(), e);
+                    }
+                });
+                log.info("Acta enviada al estudiante {} (modalidad ID {})", student.getId(), modality.getId());
+            } else {
+                dispatcher.dispatch(notification);
             }
         }
     }
@@ -328,14 +380,15 @@ if (shouldSendCertificate && pdfPath != null) {
 
 
     private void handleModalityApprovedByCommittee(ModalityEvent event) {
-        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Modalidad de grado aprobada – Comité de Currículo";
         String directorName = modality.getProjectDirector() != null
                 ? modality.getProjectDirector().getName() + " " +
                 modality.getProjectDirector().getLastName()
                 : "No se registra director asignado.";
-        String approvalDate = String.valueOf(modality.getUpdatedAt());
+        String approvalDate = TranslationUtils.formatDateTime(modality.getUpdatedAt());
         dispatchToActiveMembers(modality, NotificationType.MODALITY_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE, null, subject,
                 student -> NotificationMessageTemplates.modalityApprovedByCommittee(
                         student.getName(),
@@ -347,7 +400,8 @@ if (shouldSendCertificate && pdfPath != null) {
 
 
     private void handleModalityApprovedByProgramHead(ModalityEvent event) {
-        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Modalidad de grado aprobada – Jefatura de Programa y/o Coordinación de Modalidades";
         dispatchToActiveMembers(modality, NotificationType.MODALITY_APPROVED_BY_PROGRAM_HEAD, null, subject,
@@ -357,10 +411,10 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleCorrectionDeadlineReminder(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         Integer daysRemaining = event.get(ModalityEvent.KEY_DAYS_REMAINING, Integer.class, 0);
-        Object deadline = event.get(ModalityEvent.KEY_DEADLINE, Object.class);
+        LocalDateTime deadline = event.get(ModalityEvent.KEY_DEADLINE, LocalDateTime.class);
         String subject = "Recordatorio oficial – Plazo de correcciones (%d días restantes)"
                 .formatted(daysRemaining);
         for (var member : activeMembers(modality)) {
@@ -369,7 +423,7 @@ if (shouldSendCertificate && pdfPath != null) {
                     student.getName(),
                     modalidadInfo,
                     daysRemaining,
-                    String.valueOf(deadline)
+                    TranslationUtils.formatDateTime(deadline)
             );
             notificationFactory.buildAndDispatch(NotificationType.CORRECTION_DEADLINE_REMINDER, NotificationRecipientType.STUDENT, student, modality, subject, message);
 
@@ -380,16 +434,16 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleCorrectionDeadlineExpired(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Cancelación automática de modalidad por vencimiento de plazo";
-        Object requestDate = event.get(ModalityEvent.KEY_REQUEST_DATE, Object.class);
+        LocalDateTime requestDate = event.get(ModalityEvent.KEY_REQUEST_DATE, LocalDateTime.class);
         for (var member : activeMembers(modality)) {
             User student = member.getStudent();
             String message = NotificationMessageTemplates.correctionDeadlineExpired(
                     student.getName(),
                     modalidadInfo,
-                    String.valueOf(requestDate)
+                    TranslationUtils.formatDateTime(requestDate)
             );
             notificationFactory.buildAndDispatch(NotificationType.CORRECTION_DEADLINE_EXPIRED, NotificationRecipientType.STUDENT, student, modality, subject, message);
 
@@ -400,7 +454,7 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleCorrectionResubmitted(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Documento corregido recibido";
         String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
@@ -410,7 +464,7 @@ if (shouldSendCertificate && pdfPath != null) {
                     student.getName(),
                     modalidadInfo,
                     documentName,
-                    LocalDateTime.now().toLocalDate().toString()
+                    TranslationUtils.formatDateTime(LocalDateTime.now())
             );
             notificationFactory.buildAndDispatch(NotificationType.CORRECTION_RESUBMITTED, NotificationRecipientType.STUDENT, student, modality, subject, message);
 
@@ -421,7 +475,7 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleCorrectionApproved(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Correcciones aprobadas";
         String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
@@ -441,7 +495,7 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleCorrectionRejectedFinal(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Cancelación de modalidad por rechazo definitivo de correcciones";
         String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
@@ -449,35 +503,52 @@ if (shouldSendCertificate && pdfPath != null) {
         String resolvedReason = reason != null && !reason.isBlank()
                 ? reason
                 : "No se registran motivos adicionales.";
+
+        // Los miembros pueden haberse eliminado (rechazo de documento final cancela la modalidad y borra la relación).
+        // En ese caso el evento trae los ids capturados antes del borrado.
+        List<Long> notifiedStudentIds = event.get(ModalityEvent.KEY_STUDENT_IDS, List.class);
+
+        if (notifiedStudentIds != null && !notifiedStudentIds.isEmpty()) {
+            for (Object rawId : notifiedStudentIds) {
+                userRepository.findById(((Number) rawId).longValue())
+                        .ifPresent(student -> dispatchCorrectionRejectedFinal(student, modality, modalidadInfo, subject, documentName, resolvedReason));
+            }
+            return;
+        }
+
         for (var member : activeMembers(modality)) {
             User student = member.getStudent();
-            String message = NotificationMessageTemplates.correctionRejectedFinal(
-                    student.getName(),
-                    modalidadInfo,
-                    documentName,
-                    resolvedReason
-            );
-            notificationFactory.buildAndDispatch(NotificationType.CORRECTION_REJECTED_FINAL, NotificationRecipientType.STUDENT,
-                    student, modality, subject, message
-            );
-
-            log.info("Notificación de rechazo final de corrección enviada al estudiante {}", student.getId());
+            dispatchCorrectionRejectedFinal(student, modality, modalidadInfo, subject, documentName, resolvedReason);
         }
+    }
+
+    private void dispatchCorrectionRejectedFinal(User student, StudentModality modality, String modalidadInfo, String subject,
+                                                 String documentName, String resolvedReason) {
+        String message = NotificationMessageTemplates.correctionRejectedFinal(
+                student.getName(),
+                modalidadInfo,
+                documentName,
+                resolvedReason
+        );
+        notificationFactory.buildAndDispatch(NotificationType.CORRECTION_REJECTED_FINAL, NotificationRecipientType.STUDENT,
+                student, modality, subject, message
+        );
+        log.info("Notificación de rechazo final de corrección enviada al estudiante {}", student.getId());
     }
 
 
     private void handleModalityClosedByCommittee(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         User committeeMember = userRepository.findById(event.get(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, Long.class))
-                .orElseThrow();
+                .orElseThrow(() -> new NotFoundException("Miembro del comité no encontrado"));
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Notificación oficial – Cierre de modalidad por decisión del Comité de Currículo";
         String reason = event.get(ModalityEvent.KEY_REASON, String.class);
         String resolvedReason = reason != null && !reason.isBlank()
                 ? reason
                 : "No se registran motivos adicionales.";
-        String decisionDate = LocalDateTime.now().toString();
+        String decisionDate = TranslationUtils.formatDateTime(LocalDateTime.now());
         String programName = modality.getAcademicProgram().getName();
         for (var member : activeMembers(modality)) {
             User student = member.getStudent();
@@ -501,13 +572,13 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleModalityInvitationSent(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         User invitee = userRepository.findById(event.get(ModalityEvent.KEY_INVITEE_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Estudiante invitado no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Estudiante invitado no encontrado"));
 
         User inviter = userRepository.findById(event.get(ModalityEvent.KEY_INVITER_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Estudiante que invita no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Estudiante que invita no encontrado"));
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         Long invitationId = event.get(ModalityEvent.KEY_INVITATION_ID, Long.class);
@@ -519,7 +590,7 @@ if (shouldSendCertificate && pdfPath != null) {
                 modalidadInfo,
                 modality.getAcademicProgram().getName(),
                 inviter.getName() + " " + inviter.getLastName(),
-                LocalDateTime.now().toString(),
+                TranslationUtils.formatDateTime(LocalDateTime.now()),
                 inviter.getName()
         );
 
@@ -544,13 +615,13 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleModalityInvitationAccepted(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         User acceptedBy = userRepository.findById(event.get(ModalityEvent.KEY_ACCEPTED_BY_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Estudiante que aceptó no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Estudiante que aceptó no encontrado"));
 
         User leader = userRepository.findById(event.get(ModalityEvent.KEY_LEADER_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Líder del grupo no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Líder del grupo no encontrado"));
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
@@ -561,7 +632,7 @@ if (shouldSendCertificate && pdfPath != null) {
                 acceptedBy.getName() + " " + acceptedBy.getLastName(),
                 modalidadInfo,
                 modality.getAcademicProgram().getName(),
-                LocalDateTime.now().toString()
+                TranslationUtils.formatDateTime(LocalDateTime.now())
         );
 
         notificationFactory.buildAndDispatch(NotificationType.MODALITY_INVITATION_ACCEPTED, NotificationRecipientType.STUDENT,
@@ -576,13 +647,13 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleModalityInvitationRejected(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         User rejectedBy = userRepository.findById(event.get(ModalityEvent.KEY_REJECTED_BY_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Estudiante que rechazó no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Estudiante que rechazó no encontrado"));
 
         User leader = userRepository.findById(event.get(ModalityEvent.KEY_LEADER_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Líder del grupo no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Líder del grupo no encontrado"));
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
@@ -593,7 +664,7 @@ if (shouldSendCertificate && pdfPath != null) {
                 rejectedBy.getName() + " " + rejectedBy.getLastName(),
                 modalidadInfo,
                 modality.getAcademicProgram().getName(),
-                LocalDateTime.now().toString(),
+                TranslationUtils.formatDateTime(LocalDateTime.now()),
                 3,
                 studentModalityMemberRepository.countByStudentModalityIdAndStatus(
                         modality.getId(),
@@ -613,10 +684,10 @@ if (shouldSendCertificate && pdfPath != null) {
 
     private void handleModalityFinalApprovedByCommittee(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         User committeeMember = userRepository.findById(event.get(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Miembro del comité no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Miembro del comité no encontrado"));
 
         List<StudentModalityMember> members = activeMembers(modality);
 
@@ -624,17 +695,29 @@ if (shouldSendCertificate && pdfPath != null) {
 
         String subject = "¡Felicitaciones! — Modalidad de Grado Aprobada por el Comité de Currículo";
 
-        AcademicCertificate certificate = null;
-        Path pdfPath = null;
-        try {
-            log.info("Generando acta simplificada (comité) para la modalidad ID: {}", modality.getId());
-            certificate = certificatePdfService.generateCertificateForCommitteeApproval(modality);
-            pdfPath = certificatePdfService.getCertificatePath(modality.getId());
-            log.info("Acta simplificada generada exitosamente: {}", pdfPath);
-        } catch (IOException e) {
-            log.error("Error generando acta simplificada para modalidad ID {}: {}",
-                    modality.getId(), e.getMessage(), e);
-        }
+        // El acta se genera UNA vez (supplier memoizado) aunque haya N destinatarios;
+        // los dispatchWithAttachment corren en el executor en paralelo y comparten el cache sincronizado
+        Supplier<GeneratedAttachment> attachmentSupplier = new Supplier<>() {
+            private GeneratedAttachment cached;
+
+            @Override
+            public synchronized GeneratedAttachment get() {
+                if (cached == null) {
+                    try {
+                        StudentModality m = studentModalityRepository.findById(modality.getId())
+                                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+                        AcademicCertificate c = certificatePdfService.generateCertificateForCommitteeApproval(m);
+                        cached = new GeneratedAttachment(
+                                certificatePdfService.getCertificatePath(m.getId()),
+                                "ACTA_DE_APROBACION.pdf",
+                                c.getId());
+                    } catch (IOException e) {
+                        throw new RuntimeException("No se pudo generar el acta de aprobación", e);
+                    }
+                }
+                return cached;
+            }
+        };
 
         String observations = event.get(ModalityEvent.KEY_OBSERVATIONS, String.class);
 
@@ -649,8 +732,7 @@ if (shouldSendCertificate && pdfPath != null) {
                     modality.getProgramDegreeModality().getAcademicProgram().getFaculty().getName(),
                     committeeMember.getName(),
                     committeeMember.getLastName(),
-                    LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern(
-                            "d 'de' MMMM 'de' yyyy", java.util.Locale.forLanguageTag("es-CO"))),
+                    TranslationUtils.formatDateTime(LocalDateTime.now()),
                     observations != null && !observations.isBlank()
                             ? "Observaciones del Comité: " + observations + ".\n\n"
                             : ""
@@ -660,22 +742,17 @@ if (shouldSendCertificate && pdfPath != null) {
                     NotificationType.MODALITY_FINAL_APPROVED_BY_COMMITTEE, NotificationRecipientType.STUDENT,
                     student, committeeMember, modality, subject, message);
 
-if (pdfPath != null) {
-                // dispatchWithAttachment es @Async; fallos de email se manejan dentro (emailSent=false + log)
-                dispatcher.dispatchWithAttachment(notification, pdfPath, "ACTA_DE_APROBACION.pdf");
-                log.info("Acta simplificada enviada al estudiante {} (modalidad ID {})",
-                        student.getId(), modality.getId());
-            } else {
-                dispatcher.dispatch(notification);
-            }
-        }
-
-        if (certificate != null) {
-            try {
-                certificatePdfService.updateCertificateStatus(certificate.getId(), CertificateStatus.SENT);
-            } catch (Exception e) {
-                log.warn("No se pudo actualizar el estado del certificado: {}", e.getMessage());
-            }
+            // ponytail: si la generación del acta falla, el dispatcher lo captura (emailSent=false -> outbox);
+            // el retry no puede regenerarla (generator no se guarda) y reenviaría el correo simple sin adjunto
+            dispatcher.dispatchWithAttachment(notification, attachmentSupplier, certId -> {
+                try {
+                    certificatePdfService.updateCertificateStatus(certId, CertificateStatus.SENT);
+                } catch (Exception e) {
+                    log.warn("No se pudo actualizar el estado del certificado: {}", e.getMessage());
+                }
+            });
+            log.info("Acta simplificada enviada al estudiante {} (modalidad ID {})",
+                    student.getId(), modality.getId());
         }
 
         log.info("Notificaciones de aprobación final (comité) enviadas para modalidad ID {}",
@@ -685,13 +762,13 @@ if (pdfPath != null) {
 
     private void handleModalityRejectedByCommittee(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         User student = userRepository.findById(event.get(ModalityEvent.KEY_STUDENT_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Estudiante no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Estudiante no encontrado"));
 
         User committeeMember = userRepository.findById(event.get(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Miembro del comité no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Miembro del comité no encontrado"));
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
 
@@ -703,7 +780,7 @@ if (pdfPath != null) {
                 student.getName(),
                 modalidadInfo,
                 modality.getAcademicProgram().getName(),
-                LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")),
+                TranslationUtils.formatDateTime(LocalDateTime.now()),
                 reason != null && !reason.isBlank()
                         ? reason
                         : "No se registran motivos adicionales."
@@ -721,7 +798,7 @@ if (pdfPath != null) {
         String recipientName = event.get(ModalityEvent.KEY_RECIPIENT_NAME, String.class);
         String recipientEmail = event.get(ModalityEvent.KEY_RECIPIENT_EMAIL, String.class);
         String programName = event.get(ModalityEvent.KEY_PROGRAM_NAME, String.class);
-        Object startDate = event.get(ModalityEvent.KEY_START_DATE, Object.class);
+        LocalDateTime startDate = event.get(ModalityEvent.KEY_START_DATE, LocalDateTime.class);
         Integer totalHours = event.get(ModalityEvent.KEY_TOTAL_HOURS, Integer.class, 0);
 
         String subject = "Inicio de Seminario: " + seminarName;
@@ -730,7 +807,7 @@ if (pdfPath != null) {
                 recipientName,
                 seminarName,
                 programName,
-                String.valueOf(startDate),
+                TranslationUtils.formatDateTime(startDate),
                 totalHours
         );
 
@@ -752,7 +829,7 @@ if (pdfPath != null) {
         String recipientName = event.get(ModalityEvent.KEY_RECIPIENT_NAME, String.class);
         String recipientEmail = event.get(ModalityEvent.KEY_RECIPIENT_EMAIL, String.class);
         String programName = event.get(ModalityEvent.KEY_PROGRAM_NAME, String.class);
-        Object cancelledDate = event.get(ModalityEvent.KEY_CANCELLED_DATE, Object.class);
+        LocalDateTime cancelledDate = event.get(ModalityEvent.KEY_CANCELLED_DATE, LocalDateTime.class);
         String reason = event.get(ModalityEvent.KEY_REASON, String.class);
 
         String subject = "Cancelación de Seminario: " + seminarName;
@@ -761,7 +838,7 @@ if (pdfPath != null) {
                 recipientName,
                 seminarName,
                 programName,
-                String.valueOf(cancelledDate),
+                TranslationUtils.formatDateTime(cancelledDate),
                 reason != null ? "\nMotivo: " + reason : ""
         );
 
@@ -781,31 +858,32 @@ if (pdfPath != null) {
     private void handleModalityApprovedByExaminers(ModalityEvent event) {
         StudentModality modality = studentModalityRepository
                 .findById(event.getStudentModalityId())
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         User examiner = userRepository
                 .findById(event.get(ModalityEvent.KEY_EXAMINER_ID, Long.class))
-                .orElseThrow(() -> new RuntimeException("Jurado no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Jurado no encontrado"));
 
         String subject = "Notificación oficial – Modalidad aprobada por jurado evaluador";
 
         String modalityName = modality.getProgramDegreeModality().getDegreeModality().getName();
         String programName = modality.getAcademicProgram().getName();
-        String approvalDate = LocalDateTime.now().toString();
+        String approvalDate = TranslationUtils.formatDateTime(LocalDateTime.now());
 
         dispatchToActiveMembers(modality, NotificationType.MODALITY_APPROVED_BY_EXAMINERS, examiner, subject,
                 student -> NotificationMessageTemplates.modalityApprovedByExaminers(
                         student.getName(),
                         modalityName,
                         programName,
-                        approvalDate
+                        approvalDate,
+                        null
                 ));
     }
 
 
     private void handleExaminersAssigned(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         List<DefenseExaminer> examiners = modality.getDefenseExaminers();
         String jurados = examiners.stream()
                 .map(e -> e.getExaminer().getName() + " " + e.getExaminer().getLastName() + " (" + TranslationUtils.translateExaminerType(e.getExaminerType()) + ")")
@@ -816,7 +894,7 @@ if (pdfPath != null) {
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
         String subject = "Asignación de jurados evaluadores a tu modalidad de grado";
         String programName = modality.getProgramDegreeModality().getAcademicProgram().getName();
-        String assignmentDate = LocalDateTime.now().toString();
+        String assignmentDate = TranslationUtils.formatDateTime(LocalDateTime.now());
 
         dispatchToActiveMembers(modality, NotificationType.EXAMINER_ASSIGNED, null, subject,
                 student -> NotificationMessageTemplates.examinersAssigned(
@@ -831,7 +909,7 @@ if (pdfPath != null) {
 
     private void handleDocumentEditResolved(ModalityEvent event) {
         StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         boolean approved = Boolean.TRUE.equals(event.get(ModalityEvent.KEY_APPROVED, Boolean.class));
         NotificationType type = approved ? NotificationType.DOCUMENT_EDIT_APPROVED : NotificationType.DOCUMENT_EDIT_REJECTED;
@@ -851,13 +929,6 @@ if (pdfPath != null) {
                         : NotificationMessageTemplates.documentEditRejected(student.getName(), documentName, resolutionText));
     }
 
-
-    private boolean isCompleteModality(StudentModality modality) {
-        boolean hasDefenseDate = modality.getDefenseDate() != null;
-        boolean hasExaminers = modality.getDefenseExaminers() != null && !modality.getDefenseExaminers().isEmpty();
-        boolean hasDirector = modality.getProjectDirector() != null;
-        return hasDefenseDate || hasExaminers || hasDirector;
-    }
 
     private List<StudentModalityMember> activeMembers(StudentModality modality) {
         return studentModalityMemberRepository.findByStudentModalityIdAndStatus(modality.getId(), MemberStatus.ACTIVE);

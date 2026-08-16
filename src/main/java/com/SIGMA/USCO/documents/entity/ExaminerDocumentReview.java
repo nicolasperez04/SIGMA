@@ -1,12 +1,15 @@
 package com.SIGMA.USCO.documents.entity;
 
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.documents.entity.enums.ExaminerDocumentDecision;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 import java.time.LocalDateTime;
 
 /**
@@ -22,7 +25,10 @@ import java.time.LocalDateTime;
         name = "uk_examiner_document_review"
     )
 )
-@Data
+@Getter
+@Setter
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(onlyExplicitlyIncluded = true)
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -30,13 +36,15 @@ public class ExaminerDocumentReview {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @EqualsAndHashCode.Include
+    @ToString.Include
     private Long id;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "student_document_id", nullable = false)
     private StudentDocument studentDocument;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "examiner_id", nullable = false)
     private User examiner;
 
@@ -45,18 +53,22 @@ public class ExaminerDocumentReview {
      */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 60)
+    @ToString.Include
     private ExaminerDocumentDecision decision;
 
     @Column(length = 3000)
+    @ToString.Include
     private String notes;
 
     @Column(nullable = false)
+    @ToString.Include
     private LocalDateTime reviewedAt;
 
     /**
      * Indica si este es un voto de desempate
      */
     @Column(nullable = false)
+    @ToString.Include
     private Boolean isTiebreakerVote;
 }
 

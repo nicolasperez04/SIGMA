@@ -1,11 +1,11 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.ModalityProcessStatusHistoryRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.ModalityProcessStatusHistory;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.ModalityProcessStatusHistoryRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

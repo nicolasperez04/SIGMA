@@ -1,11 +1,12 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.common.util.TranslationUtils;
-import com.SIGMA.USCO.Modalities.Entity.*;
-import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.*;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
+import com.SIGMA.USCO.Modalities.entity.*;
+import com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.*;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
@@ -22,7 +23,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Servicio que genera los datos del reporte de trazabilidad completa de una modalidad individual.
@@ -50,7 +50,7 @@ public class ModalityTraceabilityReportService {
     public ModalityTraceabilityReportDTO generateReport(Long studentModalityId) {
 
         StudentModality sm = studentModalityRepository.findByIdWithMembers(studentModalityId)
-                .orElseThrow(() -> new RuntimeException(
+                .orElseThrow(() -> new NotFoundException(
                         "Modalidad no encontrada con ID: " + studentModalityId));
 
         log.info("Generando reporte de trazabilidad para modalidad ID={}", studentModalityId);
@@ -119,10 +119,10 @@ public class ModalityTraceabilityReportService {
         // Busca la membresía activa del estudiante
         List<StudentModalityMember> memberships =
                 studentModalityMemberRepository.findByStudentIdAndStatus(
-                        studentId, com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus.ACTIVE);
+                        studentId, com.SIGMA.USCO.Modalities.entity.enums.MemberStatus.ACTIVE);
 
         if (memberships.isEmpty()) {
-            throw new RuntimeException(
+            throw new NotFoundException(
                     "No se encontró una modalidad activa para el estudiante con ID: " + studentId);
         }
 
@@ -156,7 +156,7 @@ public class ModalityTraceabilityReportService {
                     .memberStatus(m.getStatus() != null ? m.getStatus().name() : "UNKNOWN")
                     .joinedAt(m.getJoinedAt())
                     .build();
-        }).collect(Collectors.toList());
+        }).toList();
     }
 
     private ModalityTraceabilityReportDTO.DirectorDetailDTO buildDirector(StudentModality sm) {
@@ -218,7 +218,7 @@ public class ModalityTraceabilityReportService {
                     .assignmentDate(e.getAssignmentDate())
                     .evaluation(evaluationDTO)
                     .build();
-        }).collect(Collectors.toList());
+        }).toList();
     }
 
     private List<ModalityTraceabilityReportDTO.DocumentDetailDTO> buildDocuments(Long modalityId) {
@@ -237,7 +237,7 @@ public class ModalityTraceabilityReportService {
                     .uploadDate(d.getUploadDate())
                     .notes(d.getNotes())
                     .build();
-        }).collect(Collectors.toList());
+        }).toList();
     }
 
     private List<ModalityTraceabilityReportDTO.StatusHistoryEntryDTO> buildStatusHistory(Long modalityId) {
@@ -268,7 +268,7 @@ public class ModalityTraceabilityReportService {
                             ? responsible.getName() + " " + responsible.getLastName()
                             : "Sistema")
                     .responsibleEmail(responsible != null ? responsible.getEmail() : "")
-                    .observations(entry.getObservations())
+                    .observations(TranslationUtils.localizeObservations(entry.getObservations()))
                     .daysInThisStatus(daysInState)
                     .build());
         }

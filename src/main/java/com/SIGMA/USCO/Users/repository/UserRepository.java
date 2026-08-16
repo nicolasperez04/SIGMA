@@ -1,9 +1,10 @@
 package com.SIGMA.USCO.Users.repository;
 
 
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
-import com.SIGMA.USCO.Users.Entity.enums.Status;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
+import com.SIGMA.USCO.Users.entity.enums.Status;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.common.security.Roles;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -15,14 +16,26 @@ import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User,Long> {
-    @EntityGraph(attributePaths = "roles")
+    @EntityGraph(attributePaths = {"roles", "roles.permissions"})
     Optional<User> findByEmail(String email);
     boolean existsByEmail(String email);
 
+    // ponytail: conteo de usuarios activos con un rol dado (los Set de roles no generan filas duplicadas)
+    long countByRoles_NameAndStatus(String name, Status status);
+
     List<User> findAllByRoles_Name(String roleName);
 
+    default List<User> findAllExaminers() {
+        return findAllByRoles_Name(Roles.ROLE_EXAMINER);
+    }
 
-    List<User> findByStatus(Status status);
+    default List<User> findAllProgramHeads() {
+        return findAllByRoles_Name(Roles.ROLE_PROGRAM_HEAD);
+    }
+
+    default List<User> findAllProgramCurriculumCommittee() {
+        return findAllByRoles_Name(Roles.ROLE_PROGRAM_CURRICULUM_COMMITTEE);
+    }
 
     @Query("""
             SELECT DISTINCT u FROM User u

@@ -1,9 +1,11 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
+import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.report.dto.*;
 import lombok.RequiredArgsConstructor;
@@ -24,18 +26,24 @@ public class StudentReportService {
     private final StudentModalityRepository studentModalityRepository;
     private final StudentModalityMemberRepository studentModalityMemberRepository;
     private final StudentProfileRepository studentProfileRepository;
+    private final ProgramAuthorityRepository programAuthorityRepository;
 
 
     @Transactional(readOnly = true)
     public StudentsByModalityReportDTO generateStudentsByModalityReport(String modalityType) {
+        // Obtener usuario autenticado y su programa
+        AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
+
         // Obtener todas las modalidades activas
         List<StudentModality> allModalities = studentModalityRepository
-                .findByStatusIn(ReportUtils.getActiveStatuses());
+                .findByStatusIn(ReportUtils.getActiveStatuses()).stream()
+                .filter(m -> m.getAcademicProgram().getId().equals(userProgram.getId()))
+                .toList();
 
         // Filtrar por tipo de modalidad
         List<StudentModality> modalities = allModalities.stream()
                 .filter(m -> m.getProgramDegreeModality().getDegreeModality().getName().equalsIgnoreCase(modalityType))
-                .collect(Collectors.toList());
+                .toList();
 
         // Obtener todos los estudiantes de estas modalidades
         Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
@@ -45,7 +53,7 @@ public class StudentReportService {
                         membersByModality.getOrDefault(modality.getId(), List.of()),
                         studentProfileRepository).stream())
                 .distinct()
-                .collect(Collectors.toList());
+                .toList();
 
         // Generar estadísticas
         StudentStatisticsDTO statistics = generateStudentStatistics(modalities);
@@ -65,16 +73,20 @@ public class StudentReportService {
         // Construir período académico
         String academicPeriod = year + "-" + semester;
 
+        // Obtener usuario autenticado y su programa
+        AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
+
         // Obtener todas las modalidades activas del período
         List<StudentModality> modalities = studentModalityRepository
                 .findByStatusIn(ReportUtils.getActiveStatuses())
                 .stream()
+                .filter(m -> m.getAcademicProgram().getId().equals(userProgram.getId()))
                 .filter(m -> m.getSelectionDate() != null)
                 .filter(m -> year == null ||
                         m.getSelectionDate().getYear() == year)
                 .filter(m -> semester == null ||
                         ReportUtils.getSemesterFromDate(m.getSelectionDate()) == semester)
-                .collect(Collectors.toList());
+                .toList();
 
         // Obtener estudiantes
         Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
@@ -84,7 +96,7 @@ public class StudentReportService {
                         membersByModality.getOrDefault(modality.getId(), List.of()),
                         studentProfileRepository).stream())
                 .distinct()
-                .collect(Collectors.toList());
+                .toList();
 
         // Estudiantes por modalidad
         Map<String, Integer> studentsByModality = modalities.stream()

@@ -1,23 +1,24 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.entity.DefenseExaminer;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.ExaminerType;
+import com.SIGMA.USCO.Modalities.entity.enums.MemberStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.DefenseExaminerRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
 import com.SIGMA.USCO.Modalities.dto.ModalityListDTO;
-import com.SIGMA.USCO.Modalities.dto.DefenseProposalDTO;
-import com.SIGMA.USCO.Modalities.dto.ScheduleDefenseDTO;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Modalities.dto.ScheduleDefenseRequest;
+import com.SIGMA.USCO.Modalities.dto.response.DefenseScheduleResponse;
+import com.SIGMA.USCO.Modalities.dto.response.DefenseWorkflowResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerAssignmentResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerTypeResponse;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
-import com.SIGMA.USCO.academic.entity.StudentProfile;
-import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.documents.entity.RequiredDocument;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
@@ -25,15 +26,15 @@ import com.SIGMA.USCO.documents.entity.enums.DocumentType;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import com.SIGMA.USCO.common.exception.NotFoundException;
-import com.SIGMA.USCO.common.util.TranslationUtils;
-import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
 import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.common.security.Roles;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -41,8 +42,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -56,14 +57,12 @@ public class DefenseWorkflowService {
     private final ProgramAuthorityRepository programAuthorityRepository;
     private final RequiredDocumentRepository requiredDocumentRepository;
     private final StudentDocumentRepository studentDocumentRepository;
-    private final StudentProfileRepository studentProfileRepository;
     private final UserRepository userRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final ModalityStatusTransition modalityStatusTransition;
 
     @Transactional
-    public Map<String, Object> scheduleDefense(Long studentModalityId, ScheduleDefenseDTO request) {
-        User projectDirector = SecurityUtils.getCurrentUser();
+    public DefenseScheduleResponse scheduleDefense(Long studentModalityId, ScheduleDefenseRequest request, User projectDirector) {
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         if (studentModality.getProjectDirector() == null ||
@@ -78,6 +77,9 @@ public class DefenseWorkflowService {
                 request.getDefenseLocation().isBlank()) {
             throw new ValidationException("Debe ingresar fecha y lugar válidos para la sustentación propuesta");
         }
+        if (request.getDefenseDate().isBefore(LocalDateTime.now())) {
+            throw new ValidationException("La fecha de defensa debe ser en el futuro");
+        }
         studentModality.setDefenseDate(request.getDefenseDate());
         studentModality.setDefenseLocation(request.getDefenseLocation());
         modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DEFENSE_SCHEDULED, projectDirector,
@@ -85,258 +87,26 @@ public class DefenseWorkflowService {
                         + request.getDefenseDate()
                         + " en "
                         + request.getDefenseLocation());
-        // Notificar al estudiante líder
-        User student = studentModality.getLeader();
-        applicationEventPublisher.publishEvent(
-                new ModalityEvent(NotificationType.DEFENSE_SCHEDULED, studentModality.getId(), student.getId(), Map.of(
-                        ModalityEvent.KEY_DEFENSE_DATE, request.getDefenseDate(),
-                        ModalityEvent.KEY_DEFENSE_LOCATION, request.getDefenseLocation()
-                ))
-        );
-        // Notificar a los jurados asociados
-        List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(studentModalityId);
-        for (DefenseExaminer examinerAssignment : examiners) {
-            User examiner = examinerAssignment.getExaminer();
-            applicationEventPublisher.publishEvent(
-                    new ModalityEvent(NotificationType.DEFENSE_SCHEDULED, studentModality.getId(), examiner.getId(), Map.of(
-                            ModalityEvent.KEY_DEFENSE_DATE, request.getDefenseDate(),
-                            ModalityEvent.KEY_DEFENSE_LOCATION, request.getDefenseLocation()
-                    ))
-            );
-        }
-        // Notificar al director (ya se hace arriba, pero si se requiere explícitamente)
+        // Notificar a estudiantes, jurados y jefes de programa. Los listeners hacen fan-out
+        // a todos sus destinatarios, por lo que se publica un único evento (evita N×N).
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.DEFENSE_SCHEDULED, studentModality.getId(), projectDirector.getId(), Map.of(
                         ModalityEvent.KEY_DEFENSE_DATE, request.getDefenseDate(),
                         ModalityEvent.KEY_DEFENSE_LOCATION, request.getDefenseLocation()
                 ))
         );
-        return (
-                Map.of(
-                        "success", true,
-                        "studentModalityId", studentModalityId,
-                        "defenseDate", request.getDefenseDate(),
-                        "defenseLocation", request.getDefenseLocation(),
-                        "newStatus", ModalityProcessStatus.DEFENSE_SCHEDULED,
-                        "message", "Sustentación programada correctamente por el director de proyecto"
-                )
+        return new DefenseScheduleResponse(
+                true,
+                studentModalityId,
+                request.getDefenseDate(),
+                request.getDefenseLocation(),
+                ModalityProcessStatus.DEFENSE_SCHEDULED,
+                "Sustentación programada correctamente por el director de proyecto"
         );
     }
 
     @Transactional
-    public Map<String, Object> getPendingDefenseProposals() {
-
-        User committeeMember = SecurityUtils.getCurrentUser();
-
-        List<Long> academicProgramIds = programAuthorityRepository
-                .findByUser_Id(committeeMember.getId())
-                .stream()
-                .filter(pa -> pa.getRole() == ProgramRole.PROGRAM_CURRICULUM_COMMITTEE)
-                .map(pa -> pa.getAcademicProgram().getId())
-                .toList();
-
-        if (academicProgramIds.isEmpty()) {
-            throw new ForbiddenException("El usuario no tiene el rol de PROGRAM_CURRICULUM_COMMITTEE");
-        }
-
-        List<StudentModality> pendingProposals = studentModalityRepository
-                .findByStatusAndProgramDegreeModality_AcademicProgram_IdIn(
-                        ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR,
-                        academicProgramIds
-                );
-
-        List<DefenseProposalDTO> proposals = pendingProposals.stream()
-                .map(sm -> {
-                    User student = sm.getLeader();
-                    User director = sm.getProjectDirector();
-
-                    String studentCode = null;
-                    Optional<StudentProfile> profile = studentProfileRepository.findByUserId(student.getId());
-                    if (profile.isPresent()) {
-                        studentCode = profile.get().getStudentCode();
-                    }
-
-                    return DefenseProposalDTO.builder()
-                            .studentModalityId(sm.getId())
-                            .studentName(student.getName() + " " + student.getLastName())
-                            .studentEmail(student.getEmail())
-                            .studentCode(studentCode)
-                            .modalityName(sm.getProgramDegreeModality().getDegreeModality().getName())
-                            .academicProgram(sm.getProgramDegreeModality().getAcademicProgram().getName())
-                            .faculty(sm.getProgramDegreeModality().getAcademicProgram().getFaculty().getName())
-                            .projectDirectorId(director != null ? director.getId() : null)
-                            .projectDirectorName(director != null ? director.getName() + " " + director.getLastName() : "No asignado")
-                            .projectDirectorEmail(director != null ? director.getEmail() : null)
-                            .proposedDefenseDate(sm.getDefenseDate())
-                            .proposedDefenseLocation(sm.getDefenseLocation())
-                            .proposalSubmittedAt(sm.getUpdatedAt())
-                            .currentStatus(sm.getStatus().name())
-                            .statusDescription(ModalityServiceUtils.describeModalityStatus(sm.getStatus()))
-                            .build();
-                })
-                .toList();
-
-        return (
-                Map.of(
-                        "success", true,
-                        "totalProposals", proposals.size(),
-                        "proposals", proposals
-                )
-        );
-    }
-
-    @Transactional
-    public Map<String, Object> approveDefenseProposal(Long studentModalityId) {
-
-        User committeeMember = SecurityUtils.getCurrentUser();
-
-        StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
-
-        Long academicProgramId = studentModality
-                .getProgramDegreeModality()
-                .getAcademicProgram()
-                .getId();
-
-        boolean authorized = programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRole(
-                committeeMember.getId(),
-                academicProgramId,
-                ProgramRole.PROGRAM_CURRICULUM_COMMITTEE
-        );
-
-        if (!authorized) {
-            throw new ForbiddenException("No tiene permiso para aprobar sustentaciones en este programa académico");
-        }
-
-        if (studentModality.getStatus() != ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR) {
-            throw new ValidationException("La modalidad no tiene una propuesta de sustentación pendiente de aprobación");
-        }
-
-        if (studentModality.getDefenseDate() == null ||
-                studentModality.getDefenseLocation() == null ||
-                studentModality.getDefenseLocation().isBlank()) {
-            throw new ValidationException("No hay fecha y lugar propuestos para aprobar");
-        }
-
-        LocalDateTime approvedDate = studentModality.getDefenseDate();
-        String approvedLocation = studentModality.getDefenseLocation();
-
-        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DEFENSE_SCHEDULED, committeeMember,
-                String.format(
-                        "Comité de currículo aprobó la propuesta del director de proyecto. " +
-                        "Sustentación programada para el %s en %s",
-                        approvedDate,
-                        approvedLocation
-                ));
-
-        applicationEventPublisher.publishEvent(
-                new ModalityEvent(NotificationType.DEFENSE_SCHEDULED, studentModality.getId(), committeeMember.getId(), Map.of(
-                        ModalityEvent.KEY_DEFENSE_DATE, approvedDate,
-                        ModalityEvent.KEY_DEFENSE_LOCATION, approvedLocation
-                ))
-        );
-
-        return (
-                Map.of(
-                        "success", true,
-                        "studentModalityId", studentModalityId,
-                        "defenseDate", approvedDate,
-                        "defenseLocation", approvedLocation,
-                        "newStatus", ModalityProcessStatus.DEFENSE_SCHEDULED,
-                        "action", "APROBADA",
-                        "message", "Propuesta de sustentación aprobada correctamente"
-                )
-        );
-    }
-
-    @Transactional
-    public Map<String, Object> rescheduleDefense(Long studentModalityId, ScheduleDefenseDTO request) {
-
-        User committeeMember = SecurityUtils.getCurrentUser();
-
-        StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
-
-        Long academicProgramId = studentModality
-                .getProgramDegreeModality()
-                .getAcademicProgram()
-                .getId();
-
-        boolean authorized = programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRole(
-                committeeMember.getId(),
-                academicProgramId,
-                ProgramRole.PROGRAM_CURRICULUM_COMMITTEE
-        );
-
-        if (!authorized) {
-            throw new ForbiddenException("No tiene permiso para reprogramar sustentaciones en este programa académico");
-        }
-
-        if (studentModality.getStatus() != ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR &&
-                studentModality.getStatus() != ModalityProcessStatus.PROPOSAL_APPROVED) {
-            throw new ValidationException("La modalidad no se encuentra en estado válido para reprogramar sustentación");
-        }
-
-        if (request.getDefenseDate() == null ||
-                request.getDefenseLocation() == null ||
-                request.getDefenseLocation().isBlank()) {
-
-            throw new ValidationException("Debe ingresar fecha y lugar válidos para la reprogramación");
-        }
-
-        LocalDateTime originalProposedDate = studentModality.getDefenseDate();
-        String originalProposedLocation = studentModality.getDefenseLocation();
-        boolean hadProposal = studentModality.getStatus() == ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR;
-
-        studentModality.setDefenseDate(request.getDefenseDate());
-        studentModality.setDefenseLocation(request.getDefenseLocation());
-
-        String observation;
-        if (hadProposal && originalProposedDate != null && originalProposedLocation != null) {
-            observation = String.format(
-                    "Comité de currículo reprogramó la sustentación. " +
-                    "Propuesta original del director: %s en %s. " +
-                    "Nueva programación: %s en %s",
-                    originalProposedDate,
-                    originalProposedLocation,
-                    request.getDefenseDate(),
-                    request.getDefenseLocation()
-            );
-        } else {
-            observation = String.format(
-                    "Comité de currículo programó la sustentación para el %s en %s",
-                    request.getDefenseDate(),
-                    request.getDefenseLocation()
-            );
-        }
-
-        modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DEFENSE_SCHEDULED, committeeMember, observation);
-
-        applicationEventPublisher.publishEvent(
-                new ModalityEvent(NotificationType.DEFENSE_SCHEDULED, studentModality.getId(), committeeMember.getId(), Map.of(
-                        ModalityEvent.KEY_DEFENSE_DATE, request.getDefenseDate(),
-                        ModalityEvent.KEY_DEFENSE_LOCATION, request.getDefenseLocation()
-                ))
-        );
-
-        return (
-                Map.of(
-                        "success", true,
-                        "studentModalityId", studentModalityId,
-                        "defenseDate", request.getDefenseDate(),
-                        "defenseLocation", request.getDefenseLocation(),
-                        "newStatus", ModalityProcessStatus.DEFENSE_SCHEDULED,
-                        "action", hadProposal ? "REPROGRAMADA" : "PROGRAMADA",
-                        "hadProposal", hadProposal,
-                        "message", hadProposal ? "Sustentación reprogramada correctamente" : "Sustentación programada correctamente"
-                )
-        );
-    }
-
-    @Transactional
-    public Map<String, Object> assignExaminers(Long studentModalityId, ScheduleDefenseDTO request) {
-
-        User committeeMember = SecurityUtils.getCurrentUser();
+    public ExaminerAssignmentResponse assignExaminers(Long studentModalityId, ScheduleDefenseRequest request, User committeeMember) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -360,10 +130,10 @@ public class DefenseWorkflowService {
             throw new ValidationException("La modalidad debe estar en estado 'Listo para jurados' para asignar jurados"); 
         }
 
-        if (request.getPrimaryExaminer1Id() == null &&
-                request.getPrimaryExaminer2Id() == null &&
+        if (request.getPrimaryExaminer1Id() == null ||
+                request.getPrimaryExaminer2Id() == null ||
                 request.getTiebreakerExaminerId() == null) {
-            throw new ValidationException("Debe proporcionar al menos un jurado para asignar");
+            throw new ValidationException("Debe asignar los dos jurados principales y el jurado de desempate");
         }
 
         List<Long> examinerIds = new ArrayList<>();
@@ -378,101 +148,14 @@ public class DefenseWorkflowService {
 
         List<String> examinerAssignmentMessages = new ArrayList<>();
 
-        if (request.getPrimaryExaminer1Id() != null) {
-            User examiner1 = userRepository.findById(request.getPrimaryExaminer1Id())
-                    .orElseThrow(() -> new NotFoundException("Jurado principal 1 no encontrado"));
+        assignExaminer(studentModality, request.getPrimaryExaminer1Id(), ExaminerType.PRIMARY_EXAMINER_1,
+                "Jurado principal 1", committeeMember, examinerAssignmentMessages);
 
-            boolean hasExaminerRole = examiner1.getRoles().stream()
-                    .anyMatch(role -> role.getName().equals("EXAMINER"));
+        assignExaminer(studentModality, request.getPrimaryExaminer2Id(), ExaminerType.PRIMARY_EXAMINER_2,
+                "Jurado principal 2", committeeMember, examinerAssignmentMessages);
 
-            if (!hasExaminerRole) {
-                throw new ValidationException("El usuario seleccionado como jurado principal 1 no tiene el rol EXAMINER");
-            }
-
-            if (studentModality.getProjectDirector() != null &&
-                    studentModality.getProjectDirector().getId().equals(examiner1.getId())) {
-                throw new ValidationException("El director del proyecto no puede ser jurado de la misma modalidad");
-            }
-
-            defenseExaminerRepository
-                    .findByStudentModalityIdAndExaminerType(studentModalityId, ExaminerType.PRIMARY_EXAMINER_1)
-                    .ifPresent(defenseExaminerRepository::delete);
-
-            DefenseExaminer defenseExaminer = DefenseExaminer.builder()
-                    .studentModality(studentModality)
-                    .examiner(examiner1)
-                    .examinerType(ExaminerType.PRIMARY_EXAMINER_1)
-                    .assignmentDate(LocalDateTime.now())
-                    .assignedBy(committeeMember)
-                    .build();
-
-            defenseExaminerRepository.save(defenseExaminer);
-            examinerAssignmentMessages.add(TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()) + ": " + examiner1.getName() + " " + examiner1.getLastName());
-        }
-
-        if (request.getPrimaryExaminer2Id() != null) {
-            User examiner2 = userRepository.findById(request.getPrimaryExaminer2Id())
-                    .orElseThrow(() -> new NotFoundException("Jurado principal 2 no encontrado"));
-
-            boolean hasExaminerRole = examiner2.getRoles().stream()
-                    .anyMatch(role -> role.getName().equals("EXAMINER"));
-
-            if (!hasExaminerRole) {
-                throw new ValidationException("El usuario seleccionado como jurado principal 2 no tiene el rol EXAMINER");
-            }
-
-            if (studentModality.getProjectDirector() != null &&
-                    studentModality.getProjectDirector().getId().equals(examiner2.getId())) {
-                throw new ValidationException("El director del proyecto no puede ser jurado de la misma modalidad");
-            }
-
-            defenseExaminerRepository
-                    .findByStudentModalityIdAndExaminerType(studentModalityId, ExaminerType.PRIMARY_EXAMINER_2)
-                    .ifPresent(defenseExaminerRepository::delete);
-
-            DefenseExaminer defenseExaminer = DefenseExaminer.builder()
-                    .studentModality(studentModality)
-                    .examiner(examiner2)
-                    .examinerType(ExaminerType.PRIMARY_EXAMINER_2)
-                    .assignmentDate(LocalDateTime.now())
-                    .assignedBy(committeeMember)
-                    .build();
-
-            defenseExaminerRepository.save(defenseExaminer);
-            examinerAssignmentMessages.add(TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()) + ": " + examiner2.getName() + " " + examiner2.getLastName());
-        }
-
-        if (request.getTiebreakerExaminerId() != null) {
-            User examiner3 = userRepository.findById(request.getTiebreakerExaminerId())
-                    .orElseThrow(() -> new NotFoundException("Jurado de desempate no encontrado"));
-
-            boolean hasExaminerRole = examiner3.getRoles().stream()
-                    .anyMatch(role -> role.getName().equals("EXAMINER"));
-
-            if (!hasExaminerRole) {
-                throw new ValidationException("El usuario seleccionado como jurado de desempate no tiene el rol EXAMINER");
-            }
-
-            if (studentModality.getProjectDirector() != null &&
-                    studentModality.getProjectDirector().getId().equals(examiner3.getId())) {
-                throw new ValidationException("El director del proyecto no puede ser jurado de la misma modalidad");
-            }
-
-            defenseExaminerRepository
-                    .findByStudentModalityIdAndExaminerType(studentModalityId, ExaminerType.TIEBREAKER_EXAMINER)
-                    .ifPresent(defenseExaminerRepository::delete);
-
-            DefenseExaminer defenseExaminer = DefenseExaminer.builder()
-                    .studentModality(studentModality)
-                    .examiner(examiner3)
-                    .examinerType(ExaminerType.TIEBREAKER_EXAMINER)
-                    .assignmentDate(LocalDateTime.now())
-                    .assignedBy(committeeMember)
-                    .build();
-
-            defenseExaminerRepository.save(defenseExaminer);
-            examinerAssignmentMessages.add(TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()) + ": " + examiner3.getName() + " " + examiner3.getLastName());
-        }
+        assignExaminer(studentModality, request.getTiebreakerExaminerId(), ExaminerType.TIEBREAKER_EXAMINER,
+                "Jurado de desempate", committeeMember, examinerAssignmentMessages);
 
         String observationMessage = "Jurados asignados por el comité de currículo:\n" +
                 String.join("\n", examinerAssignmentMessages);
@@ -482,27 +165,64 @@ public class DefenseWorkflowService {
         // Notificar a los jurados asignados, estudiantes y director
         applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.EXAMINER_ASSIGNED, studentModalityId, committeeMember.getId(), Map.of()));
 
-        return (
-                Map.of(
-                        "success", true,
-                        "studentModalityId", studentModalityId,
-                        "newStatus", ModalityProcessStatus.EXAMINERS_ASSIGNED,
-                        "examinersAssigned", examinerAssignmentMessages,
-                        "message", "Jurados asignados correctamente a la sustentación"
-                )
+        return new ExaminerAssignmentResponse(
+                true,
+                studentModalityId,
+                ModalityProcessStatus.EXAMINERS_ASSIGNED,
+                examinerAssignmentMessages,
+                "Jurados asignados correctamente a la sustentación"
         );
     }
 
+    private void assignExaminer(StudentModality studentModality, Long examinerId, ExaminerType type, String label,
+                                User committeeMember, List<String> examinerAssignmentMessages) {
+        User examiner = userRepository.findById(examinerId)
+                .orElseThrow(() -> new NotFoundException(label + " no encontrado"));
+
+        boolean hasExaminerRole = examiner.getRoles().stream()
+                .anyMatch(role -> role.getName().equals(Roles.ROLE_EXAMINER));
+
+        if (!hasExaminerRole) {
+            throw new ValidationException("El usuario seleccionado como " + label.toLowerCase(Locale.ROOT) + " no tiene el rol EXAMINER");
+        }
+
+        if (studentModality.getProjectDirector() != null &&
+                studentModality.getProjectDirector().getId().equals(examiner.getId())) {
+            throw new ValidationException("El director del proyecto no puede ser jurado de la misma modalidad");
+        }
+
+        if (!programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRole(
+                examiner.getId(),
+                studentModality.getAcademicProgram().getId(),
+                ProgramRole.EXAMINER)) {
+            throw new ValidationException("El examinador no pertenece al programa de la modalidad");
+        }
+
+        defenseExaminerRepository
+                .findByStudentModalityIdAndExaminerType(studentModality.getId(), type)
+                .ifPresent(defenseExaminerRepository::delete);
+
+        DefenseExaminer defenseExaminer = DefenseExaminer.builder()
+                .studentModality(studentModality)
+                .examiner(examiner)
+                .examinerType(type)
+                .assignmentDate(LocalDateTime.now())
+                .assignedBy(committeeMember)
+                .build();
+
+        defenseExaminerRepository.save(defenseExaminer);
+        examinerAssignmentMessages.add(TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()) + ": " + examiner.getName() + " " + examiner.getLastName());
+    }
+
     @Transactional
-    public Map<String, Object> modalityReadyForDefenseByDirector(Long studentModalityId) {
-        User projectDirector = SecurityUtils.getCurrentUser();
+    public DefenseWorkflowResponse modalityReadyForDefenseByDirector(Long studentModalityId, User projectDirector) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         // Validación de documentos subidos (excepto para "Emprendimiento y fortalecimiento de empresa")
         String modalidadNombre = studentModality.getProgramDegreeModality().getDegreeModality().getName();
-        if (!modalidadNombre.equalsIgnoreCase("Emprendimiento y fortalecimiento de empresa")) {
+        if (!modalidadNombre.equalsIgnoreCase(ModalityServiceUtils.ENTREPRENEURSHIP_MODALITY_NAME)) {
             Long degreeModalityId = studentModality.getProgramDegreeModality().getDegreeModality().getId();
             List<RequiredDocument> mandatoryDocs = requiredDocumentRepository.findByModalityIdAndActiveTrueAndDocumentType(degreeModalityId, DocumentType.MANDATORY);
             List<RequiredDocument> secondaryDocs = requiredDocumentRepository.findByModalityIdAndActiveTrueAndDocumentType(degreeModalityId, DocumentType.SECONDARY);
@@ -542,13 +262,11 @@ public class DefenseWorkflowService {
             new ModalityEvent(NotificationType.DIRECTOR_NOTIFIES_PROGRAM_HEAD_FINAL_REVIEW, studentModality.getId(), projectDirector.getId(), Map.of())
         );
 
-        return (
-                Map.of(
-                        "success", true,
-                        "studentModalityId", studentModalityId,
-                        "newStatus", ModalityProcessStatus.PENDING_PROGRAM_HEAD_FINAL_REVIEW,
-                        "message", "Jefatura de programa ha sido notificada para revisar los documentos finales. Una vez aprobados, jefatura notificará a los jurados."
-                )
+        return new DefenseWorkflowResponse(
+                true,
+                studentModalityId,
+                ModalityProcessStatus.PENDING_PROGRAM_HEAD_FINAL_REVIEW,
+                "Jefatura de programa ha sido notificada para revisar los documentos finales. Una vez aprobados, jefatura notificará a los jurados."
         );
     }
 
@@ -557,8 +275,7 @@ public class DefenseWorkflowService {
      * Paso intermedio entre la notificación del director y la revisión de jurados.
      */
     @Transactional
-    public Map<String, Object> programHeadApprovesAndNotifiesExaminers(Long studentModalityId) {
-        User programHead = SecurityUtils.getCurrentUser();
+    public DefenseWorkflowResponse programHeadApprovesAndNotifiesExaminers(Long studentModalityId, User programHead) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -581,7 +298,7 @@ public class DefenseWorkflowService {
         // se permite avanzar sin validar que los documentos SECONDARY estén subidos
         String modalityName = studentModality.getProgramDegreeModality().getDegreeModality().getName();
         boolean isEmprendimientoModality = modalityName != null && 
-                modalityName.equalsIgnoreCase("Emprendimiento y fortalecimiento de empresa");
+                modalityName.equalsIgnoreCase(ModalityServiceUtils.ENTREPRENEURSHIP_MODALITY_NAME);
 
         List<Map<String, Object>> invalidDocuments = new ArrayList<>();
 
@@ -644,19 +361,21 @@ public class DefenseWorkflowService {
             );
         }
 
-        return (
-                Map.of(
-                        "success", true,
-                        "studentModalityId", studentModalityId,
-                        "newStatus", ModalityProcessStatus.READY_FOR_DEFENSE,
-                        "message", "Todos los documentos fueron validados. Jurados notificados para revisión de la sustentación."
-                )
+        // Notificar al director de proyecto y a los estudiantes que la modalidad está lista para sustentación
+        applicationEventPublisher.publishEvent(
+            new ModalityEvent(NotificationType.MODALITY_READY_FOR_DEFENSE, studentModality.getId(), programHead.getId(), Map.of())
+        );
+
+        return new DefenseWorkflowResponse(
+                true,
+                studentModalityId,
+                ModalityProcessStatus.READY_FOR_DEFENSE,
+                "Todos los documentos fueron validados. Jurados notificados para revisión de la sustentación."
         );
     }
 
     @Transactional
-    public Map<String, Object> examinerFinalReviewCompleted(Long studentModalityId) {
-        User examiner = SecurityUtils.getCurrentUser();
+    public DefenseWorkflowResponse examinerFinalReviewCompleted(Long studentModalityId, User examiner) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -673,6 +392,10 @@ public class DefenseWorkflowService {
         if (!isAuthorized) {
             throw new ForbiddenException("No tienes permisos para finalizar la revisión como jurado en este programa académico");
         }
+
+        // Validar que el jurado esté asignado a esta modalidad
+        defenseExaminerRepository.findByStudentModalityIdAndExaminerId(studentModalityId, examiner.getId())
+                .orElseThrow(() -> new ForbiddenException("No eres jurado asignado a esta modalidad"));
 
         // Validar estado actual
         if (studentModality.getStatus() != ModalityProcessStatus.READY_FOR_DEFENSE) {
@@ -746,13 +469,11 @@ public class DefenseWorkflowService {
             );
         }
 
-        return (
-                Map.of(
-                        "success", true,
-                        "studentModalityId", studentModalityId,
-                        "newStatus", ModalityProcessStatus.FINAL_REVIEW_COMPLETED,
-                        "message", "Revisión final completada por el jurado. Se notificó al director para programar la sustentación."
-                )
+        return new DefenseWorkflowResponse(
+                true,
+                studentModalityId,
+                ModalityProcessStatus.FINAL_REVIEW_COMPLETED,
+                "Revisión final completada por el jurado. Se notificó al director para programar la sustentación."
         );
     }
 
@@ -761,8 +482,7 @@ public class DefenseWorkflowService {
      * Solo incluye modalidades en estado DEFENSE_SCHEDULED, ordenadas por fecha de defensa ascendente.
      */
     @Transactional(readOnly = true)
-    public List<ModalityListDTO> getExaminerDefenseCalendar() {
-        User examiner = SecurityUtils.getCurrentUser();
+    public List<ModalityListDTO> getExaminerDefenseCalendar(User examiner) {
 
         // Buscar todas las modalidades asignadas al jurado en estado DEFENSE_SCHEDULED
         List<StudentModality> modalities = studentModalityRepository.findForExaminerWithStatus(
@@ -772,21 +492,33 @@ public class DefenseWorkflowService {
 
         // Filtrar solo las que tienen fecha de defensa futura o igual a hoy
         LocalDateTime now = LocalDateTime.now();
-        List<ModalityListDTO> calendar = modalities.stream()
+        List<StudentModality> upcoming = modalities.stream()
                 .filter(sm -> sm.getDefenseDate() != null && !sm.getDefenseDate().isBefore(now))
                 .sorted(Comparator.comparing(StudentModality::getDefenseDate))
+                .toList();
+
+        List<Long> upcomingIds = upcoming.stream().map(StudentModality::getId).toList();
+        Map<Long, List<StudentModalityMember>> membersByModality = upcomingIds.isEmpty() ? Map.of()
+                : studentModalityMemberRepository.findByStudentModalityIdInAndStatus(upcomingIds, MemberStatus.ACTIVE)
+                        .stream()
+                        .collect(Collectors.groupingBy(m -> m.getStudentModality().getId()));
+
+        List<ModalityListDTO> calendar = upcoming.stream()
                 .map(sm -> {
-                    List<StudentModalityMember> activeMembers = studentModalityMemberRepository.findByStudentModalityIdAndStatus(
-                            sm.getId(), MemberStatus.ACTIVE);
+                    List<StudentModalityMember> activeMembers = membersByModality.getOrDefault(sm.getId(), List.of());
                     String studentNames = activeMembers.stream()
                             .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName())
                             .collect(Collectors.joining(", "));
                     String studentEmails = activeMembers.stream()
                             .map(m -> m.getStudent().getEmail())
                             .collect(Collectors.joining(", "));
+                    String studentLastNames = activeMembers.stream()
+                            .map(m -> m.getStudent().getLastName())
+                            .collect(Collectors.joining(", "));
                     return ModalityListDTO.builder()
                             .studentModalityId(sm.getId())
                             .studentName(studentNames)
+                            .studentLastName(studentLastNames)
                             .studentEmail(studentEmails)
                             .modalityName(sm.getProgramDegreeModality().getDegreeModality().getName())
                             .currentStatus(sm.getStatus().name())
@@ -800,9 +532,8 @@ public class DefenseWorkflowService {
         return (calendar);
     }
 
-    @Transactional
-    public Map<String, Object> getExaminerTypeForModality(Long studentModalityId) {
-        User examiner = SecurityUtils.getCurrentUser();
+    @Transactional(readOnly = true)
+    public ExaminerTypeResponse getExaminerTypeForModality(Long studentModalityId, User examiner) {
 
         DefenseExaminer defenseExaminer = defenseExaminerRepository
                 .findByStudentModalityIdAndExaminerId(studentModalityId, examiner.getId())
@@ -812,10 +543,10 @@ public class DefenseWorkflowService {
             throw new ForbiddenException("No está asignado como jurado a esta modalidad");
         }
 
-        return (Map.of(
-            "success", true,
-            "examinerType", defenseExaminer.getExaminerType().name()
-        ));
+        return new ExaminerTypeResponse(
+                true,
+                defenseExaminer.getExaminerType().name()
+        );
     }
 
 }

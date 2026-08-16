@@ -1,20 +1,29 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.entity.ModalityRequirements;
+import com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.RuleType;
+import com.SIGMA.USCO.Modalities.dto.ValidationItemDTO;
 import com.SIGMA.USCO.Modalities.dto.response.FinalEvaluationInfo;
+import com.SIGMA.USCO.academic.entity.StudentProfile;
+import com.SIGMA.USCO.common.exception.RequirementsValidationException;
 import com.SIGMA.USCO.documents.entity.FinalDocumentEvaluation;
 import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
 import com.SIGMA.USCO.documents.entity.enums.ExaminerDocumentDecision;
 import com.SIGMA.USCO.documents.entity.enums.FinalDocumentRubricType;
 
 import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 public final class ModalityServiceUtils {
 
     private ModalityServiceUtils() {
     }
+
+    public static final String ENTREPRENEURSHIP_MODALITY_NAME = "Emprendimiento y fortalecimiento de empresa";
 
     public static String describeModalityStatus(ModalityProcessStatus status) {
         return switch (status) {
@@ -133,9 +142,75 @@ public final class ModalityServiceUtils {
                     "El documento fue rechazado por el comité de currículo del programa. Revisa las observaciones.";
             case CORRECTIONS_REQUESTED_BY_PROGRAM_CURRICULUM_COMMITTEE ->
                     "El comité de currículo del programa solicitó correcciones. Revisa las observaciones y carga una nueva versión.";
+            case ACCEPTED_FOR_EXAMINER_REVIEW ->
+                    "El documento fue aceptado para revisión por los jurados evaluadores.";
+            case REJECTED_FOR_EXAMINER_REVIEW ->
+                    "El documento fue rechazado por los jurados evaluadores. Revisa las observaciones.";
+            case CORRECTIONS_REQUESTED_BY_EXAMINER ->
+                    "Los jurados evaluadores solicitaron correcciones. Revisa las observaciones y carga una nueva versión.";
+            case EDIT_REQUESTED ->
+                    "Se ha solicitado la edición del documento. La solicitud está pendiente de revisión por los jurados evaluadores.";
+            case EDIT_REQUEST_APPROVED ->
+                    "La solicitud de edición fue aprobada por los jurados evaluadores. Puedes cargar una nueva versión del documento.";
+            case EDIT_REQUEST_REJECTED ->
+                    "La solicitud de edición fue rechazada por los jurados evaluadores.";
             default ->
                     "Estado del documento no definido.";
         };
+    }
+
+    /**
+     * Valida los requisitos académicos numéricos (crédito/promedio) de una modalidad.
+     * Lanza ValidationException si alguno no se cumple; si no, devuelve los ítems de validación.
+     */
+    public static List<ValidationItemDTO> validateNumericRequirements(StudentProfile profile,
+                                                                      List<ModalityRequirements> requirements,
+                                                                      String failureMessage) {
+        List<ValidationItemDTO> results = new ArrayList<>();
+        boolean allValid = true;
+
+        for (ModalityRequirements req : requirements) {
+
+            if (req.getRuleType() != RuleType.NUMERIC) {
+                continue;
+            }
+
+            boolean fulfilled = true;
+            String studentValue = "";
+
+            if (req.getRequirementName().toLowerCase().contains("crédito")) {
+                double percentageRequired = Double.parseDouble(req.getExpectedValue());
+                long totalCredits = profile.getAcademicProgram().getTotalCredits();
+                long requiredCredits = Math.round(totalCredits * percentageRequired);
+
+                fulfilled = profile.getApprovedCredits() >= requiredCredits;
+                studentValue = profile.getApprovedCredits() + " / " + requiredCredits;
+            }
+
+            if (req.getRequirementName().toLowerCase().contains("promedio")) {
+                fulfilled = profile.getGpa() >= Double.parseDouble(req.getExpectedValue());
+                studentValue = String.valueOf(profile.getGpa());
+            }
+
+            results.add(
+                    ValidationItemDTO.builder()
+                            .requirementName(req.getRequirementName())
+                            .requiredValue(req.getExpectedValue())
+                            .studentValue(studentValue)
+                            .fulfilled(fulfilled)
+                            .build()
+            );
+
+            if (!fulfilled) {
+                allValid = false;
+            }
+        }
+
+        if (!allValid) {
+            throw new RequirementsValidationException(failureMessage, results);
+        }
+
+        return results;
     }
 
     public static String normalizeText(String text) {
@@ -162,27 +237,6 @@ public final class ModalityServiceUtils {
             case AGREED_REJECTED, TIEBREAKER_REJECTED -> "Reprobada";
             case REJECTED_BY_COMMITTEE -> "Rechazada por el comité";
             default -> distinction.name();
-        };
-    }
-
-    public static String translateAcademicDistinction(AcademicDistinction distinction) {
-        if (distinction == null) return "Sin distinción";
-        return switch (distinction) {
-            case NO_DISTINCTION -> "Sin distinción";
-            case AGREED_APPROVED -> "Aprobado por consenso";
-            case AGREED_MERITORIOUS -> "Mención Meritoria";
-            case AGREED_LAUREATE -> "Mención Laureada";
-            case AGREED_REJECTED -> "Reprobado por consenso";
-            case DISAGREEMENT_PENDING_TIEBREAKER -> "Desacuerdo – Pendiente de desempate";
-            case TIEBREAKER_APPROVED -> "Aprobado por desempate";
-            case TIEBREAKER_MERITORIOUS -> "Mención Meritoria (desempate)";
-            case TIEBREAKER_LAUREATE -> "Mención Laureada (desempate)";
-            case TIEBREAKER_REJECTED -> "Reprobado por desempate";
-            case REJECTED_BY_COMMITTEE -> "Rechazado por el comité";
-            case PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria propuesta (pendiente del comité)";
-            case PENDING_COMMITTEE_LAUREATE -> "Mención Laureada propuesta (pendiente del comité)";
-            case TIEBREAKER_PENDING_COMMITTEE_MERITORIOUS -> "Mención Meritoria por desempate (pendiente del comité)";
-            case TIEBREAKER_PENDING_COMMITTEE_LAUREATE -> "Mención Laureada por desempate (pendiente del comité)";
         };
     }
 

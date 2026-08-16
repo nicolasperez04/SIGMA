@@ -20,13 +20,6 @@ public interface ExaminerDocumentReviewRepository extends JpaRepository<Examiner
     boolean existsByStudentDocumentIdAndExaminerId(Long studentDocumentId, Long examinerId);
 
     /**
-     * Devuelve todas las reviews de los jurados de una modalidad para un documento específico
-     */
-    @Query("SELECT edr FROM ExaminerDocumentReview edr " +
-           "WHERE edr.studentDocument.id = :studentDocumentId")
-    List<ExaminerDocumentReview> findAllByStudentDocumentId(@Param("studentDocumentId") Long studentDocumentId);
-
-    /**
      * Cuenta las reviews con una decisión específica para un documento
      */
     @Query("SELECT COUNT(edr) FROM ExaminerDocumentReview edr " +

@@ -1,25 +1,23 @@
 package com.SIGMA.USCO.notifications.service;
 
-import com.SIGMA.USCO.Modalities.Entity.*;
-import com.SIGMA.USCO.Modalities.Entity.enums.CertificateStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.ExaminerCertificateRepository;
-import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.Modalities.entity.*;
+import com.SIGMA.USCO.Modalities.entity.enums.CertificateStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.ExaminerCertificateRepository;
+import com.SIGMA.USCO.Modalities.repository.DefenseExaminerRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import com.SIGMA.USCO.common.exception.NotFoundException;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.entity.User;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.PdfPCell;
 import com.itextpdf.text.pdf.PdfPTable;
-import com.itextpdf.text.pdf.PdfWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,7 +27,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import static com.SIGMA.USCO.common.util.TranslationUtils.translateExaminerType;
+import static com.SIGMA.USCO.shared.util.TranslationUtils.translateExaminerType;
 import static com.SIGMA.USCO.notifications.service.CertificatePdfSupport.*;
 
 /**
@@ -144,82 +142,30 @@ public class ExaminerCertificatePdfService {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void buildPdf(Path filePath, StudentModality sm, DefenseExaminer examiner, String certNumber) {
-        try {
-            Document doc = new Document(PageSize.A4, 50, 50, 40, 50);
-            PdfWriter.getInstance(doc, new FileOutputStream(filePath.toFile()));
-            doc.open();
-
-            String facultyName = sm.getProgramDegreeModality().getAcademicProgram().getFaculty().getName();
-            String programName = sm.getProgramDegreeModality().getAcademicProgram().getName();
-
-            // ── 1. CABECERA INSTITUCIONAL
-            addInstitutionalHeader(doc, facultyName, programName);
-
-            // ── 2. LÍNEAS DIVISORAS
-            addRedLine(doc);
-            addSpacing(doc, 6f);
-
-            // ── 3. TÍTULO Y NÚMERO
-            Paragraph title = new Paragraph("ACTA DE PARTICIPACIÓN DE JURADO EN MODALIDAD DE GRADO", FONT_TITLE);
-            title.setAlignment(Element.ALIGN_CENTER);
-            title.setSpacingAfter(4f);
-            doc.add(title);
-
-            Paragraph actaNum = new Paragraph("No. " + certNumber, FONT_ACTA_NUM);
-            actaNum.setAlignment(Element.ALIGN_CENTER);
-            actaNum.setSpacingAfter(4f);
-            doc.add(actaNum);
-
-            Paragraph issueDate = new Paragraph(
-                    "Neiva, " + LocalDateTime.now().format(DATE_FMT), FONT_BODY);
-            issueDate.setAlignment(Element.ALIGN_RIGHT);
-            issueDate.setSpacingAfter(10f);
-            doc.add(issueDate);
-
-            addGoldLine(doc);
-            addSpacing(doc, 8f);
-
-            // ── 4. CUERPO CERTIFICATORIO
+        String facultyName = sm.getProgramDegreeModality().getAcademicProgram().getFaculty().getName();
+        String programName = sm.getProgramDegreeModality().getAcademicProgram().getName();
+        buildDocument(filePath, "ACTA DE PARTICIPACIÓN DE JURADO EN MODALIDAD DE GRADO", certNumber,
+                FONT_FOOTER, facultyName, programName, "Error al generar el acta de jurado", doc -> {
             addCertificationBody(doc, sm, examiner);
             addSpacing(doc, 12f);
-
-            // ── 5. DATOS DEL JURADO
             addSectionHeader(doc, "I. DATOS DEL JURADO");
             addSpacing(doc, 4f);
             addExaminerDataTable(doc, examiner);
             addSpacing(doc, 10f);
-
-            // ── 6. INFORMACIÓN DE LA MODALIDAD
             addSectionHeader(doc, "II. INFORMACIÓN DE LA MODALIDAD");
             addSpacing(doc, 4f);
             addModalityTable(doc, sm);
             addSpacing(doc, 10f);
-
-            // ── 7. PARTICIPACIÓN Y EVALUACIÓN
             addSectionHeader(doc, "III. PARTICIPACIÓN Y EVALUACIÓN");
             addSpacing(doc, 4f);
             addParticipationTable(doc, sm, examiner);
             addSpacing(doc, 10f);
-
-            // ── 8. DECLARACIÓN DE CUMPLIMIENTO
             addComplianceDeclaration(doc, examiner);
             addSpacing(doc, 20f);
-
-            // ── 9. FIRMA
             addSignatureSection(doc, examiner);
             addSpacing(doc, 16f);
-
-            // ── 10. PIE DE PÁGINA
-            addGoldLine(doc);
-            addSpacing(doc, 6f);
-            addFooter(doc, certNumber, FONT_FOOTER);
-
-            doc.close();
-            log.info("Acta de jurado generada exitosamente: {}", filePath);
-        } catch (DocumentException | IOException e) {
-            log.error("Error generando acta de jurado: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al generar el acta de jurado", e);
-        }
+        });
+        log.info("Acta de jurado generada exitosamente: {}", filePath);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

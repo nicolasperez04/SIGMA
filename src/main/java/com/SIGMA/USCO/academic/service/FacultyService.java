@@ -2,10 +2,12 @@ package com.SIGMA.USCO.academic.service;
 
 import com.SIGMA.USCO.academic.dto.FacultyDTO;
 import com.SIGMA.USCO.academic.dto.ProgramDTO;
+import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.Faculty;
 import com.SIGMA.USCO.academic.repository.FacultyRepository;
 import com.SIGMA.USCO.common.exception.ConflictException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -95,6 +97,11 @@ public class FacultyService {
     public void deactivateFaculty(Long id) {
         Faculty faculty = facultyRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Facultad no encontrada"));
+
+        boolean hasActivePrograms = faculty.getPrograms().stream().anyMatch(AcademicProgram::isActive);
+        if (hasActivePrograms) {
+            throw new ValidationException("No se puede desactivar la facultad porque tiene programas académicos activos");
+        }
 
         faculty.setActive(false);
         faculty.setUpdatedAt(LocalDateTime.now());

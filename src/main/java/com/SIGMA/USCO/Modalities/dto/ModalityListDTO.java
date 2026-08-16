@@ -15,6 +15,7 @@ public class ModalityListDTO {
 
     private Long studentModalityId;
     private String studentName;
+    private String studentLastName;
     private String studentEmail;
     private String modalityName;
     private String currentStatus;

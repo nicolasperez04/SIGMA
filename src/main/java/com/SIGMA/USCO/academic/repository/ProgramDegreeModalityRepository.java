@@ -14,17 +14,7 @@ public interface ProgramDegreeModalityRepository extends JpaRepository<ProgramDe
 
     Optional<ProgramDegreeModality> findByAcademicProgramIdAndDegreeModalityIdAndActiveTrue(Long academicProgramId, Long degreeModalityId);
 
-    List<ProgramDegreeModality> findByAcademicProgramId(Long academicProgramId);
-
-    List<ProgramDegreeModality> findByDegreeModalityId(Long degreeModalityId);
-
-    List<ProgramDegreeModality> findByActiveTrue();
-
     List<ProgramDegreeModality> findByAcademicProgramIdAndActiveTrue(Long academicProgramId);
-
-    List<ProgramDegreeModality> findByAcademicProgramFacultyId(Long facultyId);
-
-    List<ProgramDegreeModality> findByActive(Boolean active);
 
     @Query("SELECT pdm FROM ProgramDegreeModality pdm WHERE " +
             "(:active IS NULL OR pdm.active = :active) AND " +

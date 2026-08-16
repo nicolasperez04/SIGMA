@@ -1,18 +1,17 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
-import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import com.SIGMA.USCO.report.dto.*;
-import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,11 +40,10 @@ public class DirectorAssignedModalitiesReportService {
      * @return Reporte completo de directores con sus modalidades asignadas
      */
     @Transactional(readOnly = true)
-    public DirectorAssignedModalitiesReportDTO generateDirectorAssignedModalitiesReport(DirectorReportFilterDTO filters) {
+    public DirectorAssignedModalitiesReportDTO generateDirectorAssignedModalitiesReport(DirectorReportFilterDTO filters, String userEmail) {
         long startTime = System.currentTimeMillis();
 
         // Obtener usuario autenticado y su programa
-        String userEmail = SecurityUtils.getCurrentUser().getEmail();
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
         // Obtener modalidades del programa
@@ -63,6 +61,18 @@ public class DirectorAssignedModalitiesReportService {
         // Generar información de cada director con sus modalidades
         List<DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO> directors =
                 generateDirectorWithModalitiesList(modalitiesByDirector, filters, membersByModality);
+
+        // Filtrar por carga de trabajo (workloadStatus siempre poblado en generateDirectorWithModalitiesList)
+        if (Boolean.TRUE.equals(filters != null ? filters.getOnlyOverloaded() : null)) {
+            directors = directors.stream()
+                    .filter(d -> "OVERLOADED".equals(d.getWorkloadStatus()) || "HIGH".equals(d.getWorkloadStatus()))
+                    .toList();
+        }
+        if (Boolean.TRUE.equals(filters != null ? filters.getOnlyAvailable() : null)) {
+            directors = directors.stream()
+                    .filter(d -> "LOW".equals(d.getWorkloadStatus()) || "NORMAL".equals(d.getWorkloadStatus()))
+                    .toList();
+        }
 
         // Generar resumen general
         DirectorAssignedModalitiesReportDTO.DirectorSummaryDTO summary =
@@ -149,20 +159,20 @@ public class DirectorAssignedModalitiesReportService {
         modalities = modalities.stream()
                 .filter(m -> m.getAcademicProgram().getId().equals(programId))
                 .filter(m -> m.getProjectDirector() != null) // Solo las que tienen director
-                .collect(Collectors.toList());
+                .toList();
 
         // Filtrar por director específico
         if (filters != null && filters.getDirectorId() != null) {
             modalities = modalities.stream()
                     .filter(m -> m.getProjectDirector().getId().equals(filters.getDirectorId()))
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
         // Filtrar por estados
         if (filters != null && filters.getProcessStatuses() != null && !filters.getProcessStatuses().isEmpty()) {
             modalities = modalities.stream()
                     .filter(m -> filters.getProcessStatuses().contains(m.getStatus().name()))
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
         // Filtrar por tipos de modalidad
@@ -170,7 +180,7 @@ public class DirectorAssignedModalitiesReportService {
             modalities = modalities.stream()
                     .filter(m -> filters.getModalityTypes().contains(
                             m.getProgramDegreeModality().getDegreeModality().getName()))
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
         return modalities;
@@ -182,6 +192,15 @@ public class DirectorAssignedModalitiesReportService {
     private List<DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO> generateDirectorWithModalitiesList(
             Map<Long, List<StudentModality>> modalitiesByDirector, DirectorReportFilterDTO filters,
             Map<Long, List<StudentModalityMember>> membersByModality) {
+
+        // Batch de perfiles antes del loop de directores (1 query para toda la sección)
+        List<Long> allUserIds = membersByModality.values().stream()
+                .flatMap(List::stream)
+                .map(m -> m.getStudent().getId())
+                .distinct()
+                .toList();
+        Map<Long, StudentProfile> profilesByUserId =
+                ReportUtils.loadProfilesByUserIds(allUserIds, studentProfileRepository);
 
         return modalitiesByDirector.entrySet().stream()
                 .map(entry -> {
@@ -209,10 +228,10 @@ public class DirectorAssignedModalitiesReportService {
                     // Generar detalles de las modalidades
                     List<DirectorAssignedModalitiesReportDTO.ModalityDetailDTO> modalityDetails =
                             directorModalities.stream()
-                                    .map(modality -> buildModalityDetailForDirector(modality, membersByModality))
+                                    .map(modality -> buildModalityDetailForDirector(modality, membersByModality, profilesByUserId))
                                     .sorted(Comparator.comparing(
                                             DirectorAssignedModalitiesReportDTO.ModalityDetailDTO::getStartDate).reversed())
-                                    .collect(Collectors.toList());
+                                    .toList();
 
                     // Calcular promedio de días por modalidad
                     double avgDays = directorModalities.stream()
@@ -241,19 +260,17 @@ public class DirectorAssignedModalitiesReportService {
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(
                         DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO::getTotalAssignedModalities).reversed())
-                .collect(Collectors.toList());
+                .toList();
     }
 
     /**
      * Construye el detalle de una modalidad para el reporte de directores
      */
     private DirectorAssignedModalitiesReportDTO.ModalityDetailDTO buildModalityDetailForDirector(
-            StudentModality modality, Map<Long, List<StudentModalityMember>> membersByModality) {
+            StudentModality modality, Map<Long, List<StudentModalityMember>> membersByModality,
+            Map<Long, StudentProfile> profilesByUserId) {
         // Obtener estudiantes
         List<StudentModalityMember> members = membersByModality.getOrDefault(modality.getId(), List.of());
-
-        Map<Long, StudentProfile> profilesByUserId = ReportUtils.loadProfilesByUserIds(
-                members.stream().map(m -> m.getStudent().getId()).toList(), studentProfileRepository);
 
         List<DirectorAssignedModalitiesReportDTO.StudentBasicInfoDTO> students = members.stream()
                 .map(member -> {
@@ -268,7 +285,7 @@ public class DirectorAssignedModalitiesReportService {
                             .isLeader(member.getIsLeader())
                             .build();
                 })
-                .collect(Collectors.toList());
+                .toList();
 
         // Calcular días
         long daysSinceStart = modality.getSelectionDate() != null
@@ -431,12 +448,12 @@ public class DirectorAssignedModalitiesReportService {
         List<String> overloaded = directors.stream()
                 .filter(d -> "OVERLOADED".equals(d.getWorkloadStatus()))
                 .map(DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO::getFullName)
-                .collect(Collectors.toList());
+                .toList();
 
         List<String> available = directors.stream()
                 .filter(d -> "LOW".equals(d.getWorkloadStatus()))
                 .map(DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO::getFullName)
-                .collect(Collectors.toList());
+                .toList();
 
         // Calcular distribución por nivel de carga
         Map<String, Integer> distribution = new HashMap<>();

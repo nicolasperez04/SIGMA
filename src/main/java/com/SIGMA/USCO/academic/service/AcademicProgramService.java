@@ -72,9 +72,8 @@ public class AcademicProgramService {
     @Transactional(readOnly = true)
     public List<ProgramDTO> getActivePrograms() {
 
-        return facultyRepository.findByActiveTrue()
+        return academicProgramRepository.findActiveProgramsWithActiveFaculty()
                 .stream()
-                .flatMap(faculty -> academicProgramRepository.findByFaculty_IdAndActiveTrue(faculty.getId()).stream())
                 .map(this::toProgramDTO)
                 .toList();
 

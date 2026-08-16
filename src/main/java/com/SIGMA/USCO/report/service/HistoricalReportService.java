@@ -1,16 +1,16 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.common.util.TranslationUtils;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.report.dto.*;
-import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,11 +41,10 @@ public class HistoricalReportService {
      * @return Reporte histórico completo
      */
     @Transactional(readOnly = true)
-    public ModalityHistoricalReportDTO generateModalityHistoricalReport(Long modalityTypeId, Integer periodsToAnalyze) {
+    public ModalityHistoricalReportDTO generateModalityHistoricalReport(Long modalityTypeId, Integer periodsToAnalyze, String userEmail) {
         long startTime = System.currentTimeMillis();
 
         // Obtener usuario autenticado y su programa
-        String userEmail = SecurityUtils.getCurrentUser().getEmail();
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
         // Obtener todas las modalidades del programa y filtrar por tipo
@@ -56,7 +55,7 @@ public class HistoricalReportService {
                 .toList();
 
         if (allModalitiesOfType.isEmpty()) {
-            throw new IllegalArgumentException("No se encontraron modalidades del tipo especificado en el programa");
+            throw new ValidationException("No se encontraron modalidades del tipo especificado en el programa");
         }
 
         // Obtener información de la modalidad
@@ -176,10 +175,10 @@ public class HistoricalReportService {
         }
 
         boolean hasIndividual = modalities.stream()
-                .anyMatch(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.INDIVIDUAL);
+                .anyMatch(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.INDIVIDUAL);
 
         boolean hasGroup = modalities.stream()
-                .anyMatch(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.GROUP);
+                .anyMatch(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.GROUP);
 
         if (hasIndividual && hasGroup) {
             return "MIXTA";
@@ -207,7 +206,7 @@ public class HistoricalReportService {
                 .filter(m -> m.getSelectionDate() != null)
                 .filter(m -> m.getSelectionDate().getYear() == currentYear)
                 .filter(m -> ReportUtils.getSemesterFromDate(m.getSelectionDate()) == currentSemester)
-                .collect(Collectors.toList());
+                .toList();
 
         // Contar activas
         long activeCount = currentPeriodModalities.stream()
@@ -303,7 +302,7 @@ public class HistoricalReportService {
                     .filter(m -> m.getSelectionDate() != null)
                     .filter(m -> m.getSelectionDate().getYear() == finalYear)
                     .filter(m -> ReportUtils.getSemesterFromDate(m.getSelectionDate()) == finalSemester)
-                    .collect(Collectors.toList());
+                    .toList();
 
             analysis.add(analyzePeriod(year, semester, periodModalities));
         }
@@ -328,7 +327,7 @@ public class HistoricalReportService {
 
         // Contar por tipo
         long individual = periodModalities.stream()
-                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.INDIVIDUAL)
+                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.INDIVIDUAL)
                 .count();
 
         long group = periodModalities.size() - individual;
@@ -371,7 +370,7 @@ public class HistoricalReportService {
         List<String> topDirectors = directors.stream()
                 .limit(3)
                 .map(d -> d.getName() + " " + d.getLastName())
-                .collect(Collectors.toList());
+                .toList();
 
         // Distribución por estado
         Map<String, Integer> statusDistribution = periodModalities.stream()
@@ -485,7 +484,7 @@ public class HistoricalReportService {
         // Ordenar y encontrar posición
         List<Long> sorted = countByModality.values().stream()
                 .sorted(Comparator.reverseOrder())
-                .collect(Collectors.toList());
+                .toList();
 
         for (int i = 0; i < sorted.size(); i++) {
             if (sorted.get(i) <= currentInstances) {
@@ -637,7 +636,7 @@ public class HistoricalReportService {
         List<Double> rates = historical.stream()
                 .filter(p -> p.getCompletionRate() != null && p.getCompletionRate() > 0)
                 .map(ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO::getCompletionRate)
-                .collect(Collectors.toList());
+                .toList();
 
         if (rates.size() < 2) return "INSUFFICIENT_DATA";
 
@@ -784,7 +783,7 @@ public class HistoricalReportService {
                 .mapToInt(ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO::getTotalInstances)
                 .asDoubleStream()
                 .boxed()
-                .collect(Collectors.toList()));
+                .toList());
 
         if (stdDev < 2) {
             findings.add("Demanda muy consistente a lo largo del tiempo");
@@ -837,11 +836,15 @@ public class HistoricalReportService {
                         Collectors.counting()
                 ));
 
+        // Cargar miembros UNA vez para todos los top directores (antes 1 carga por director)
+        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
+                allModalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
+
         List<ModalityHistoricalReportDTO.TopDirectorDTO> topDirectors = directorCounts.entrySet().stream()
                 .sorted(Map.Entry.<User, Long>comparingByValue().reversed())
                 .limit(5)
-                .map(entry -> buildTopDirector(entry.getKey(), entry.getValue().intValue(), allModalities))
-                .collect(Collectors.toList());
+                .map(entry -> buildTopDirector(entry.getKey(), entry.getValue().intValue(), allModalities, membersByModality))
+                .toList();
 
         // Director más experimentado
         Map.Entry<User, Long> mostExperienced = directorCounts.entrySet().stream()
@@ -867,11 +870,10 @@ public class HistoricalReportService {
      * Construye información de un top director
      */
     private ModalityHistoricalReportDTO.TopDirectorDTO buildTopDirector(
-            User director, int instances, List<StudentModality> allModalities) {
+            User director, int instances, List<StudentModality> allModalities,
+            Map<Long, List<StudentModalityMember>> membersByModality) {
 
         // Contar estudiantes supervisados
-        Map<Long, List<StudentModalityMember>> membersByModality = ReportUtils.loadActiveMembersByModalityIds(
-                allModalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
         int students = 0;
         for (StudentModality m : allModalities) {
             if (m.getProjectDirector() != null && m.getProjectDirector().getId().equals(director.getId())) {
@@ -896,7 +898,7 @@ public class HistoricalReportService {
                 .map(m -> m.getSelectionDate().getYear() + "-" + ReportUtils.getSemesterFromDate(m.getSelectionDate()))
                 .distinct()
                 .sorted()
-                .collect(Collectors.toList());
+                .toList();
 
         return ModalityHistoricalReportDTO.TopDirectorDTO.builder()
                 .directorName(director.getName() + " " + director.getLastName())
@@ -930,7 +932,7 @@ public class HistoricalReportService {
                 .filter(m -> m.getSelectionDate() != null)
                 .filter(m -> m.getSelectionDate().getYear() == now.getYear())
                 .filter(m -> ReportUtils.getSemesterFromDate(m.getSelectionDate()) == ReportUtils.getSemesterFromDate(now))
-                .collect(Collectors.toList());
+                .toList();
 
         for (StudentModality m : currentModalities) {
             membersByModality.getOrDefault(m.getId(), List.of())
@@ -942,15 +944,15 @@ public class HistoricalReportService {
 
         // Contar individuales vs grupales
         long individual = allModalities.stream()
-                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.INDIVIDUAL)
+                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.INDIVIDUAL)
                 .count();
 
         double individualRatio = allModalities.size() > 0 ?
                 (double) individual / allModalities.size() * 100 : 0;
 
         // Estudiantes por semestre
-        Map<String, Integer> studentsBySemester = new HashMap<>();
-        // Se puede implementar si se necesita
+        // ponytail: null hasta implementar el cálculo por semestre (evita métrica fabricada)
+        Map<String, Integer> studentsBySemester = null;
 
         return ModalityHistoricalReportDTO.StudentStatisticsDTO.builder()
                 .totalHistoricalStudents(allStudents.size())
@@ -1005,7 +1007,7 @@ public class HistoricalReportService {
                 .filter(m -> m.getStatus() == ModalityProcessStatus.GRADED_APPROVED)
                 .mapToLong(m -> ChronoUnit.DAYS.between(m.getSelectionDate(), m.getUpdatedAt()))
                 .boxed()
-                .collect(Collectors.toList());
+                .toList();
 
         int fastest = completionTimes.stream().min(Long::compare).orElse(0L).intValue();
         int slowest = completionTimes.stream().max(Long::compare).orElse(0L).intValue();
@@ -1195,7 +1197,7 @@ public class HistoricalReportService {
                 .mapToInt(ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO::getTotalInstances)
                 .asDoubleStream()
                 .boxed()
-                .collect(Collectors.toList()));
+                .toList());
 
         if (stdDev > 5) {
             risks.add("Alta variabilidad dificulta planificación");
@@ -1218,7 +1220,7 @@ public class HistoricalReportService {
                 .mapToInt(ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO::getTotalInstances)
                 .asDoubleStream()
                 .boxed()
-                .collect(Collectors.toList()));
+                .toList());
 
         if (stdDev < 2) baseConfidence += 15;
         else if (stdDev > 5) baseConfidence -= 10;

@@ -18,60 +18,49 @@ import java.util.Map;
  * RF-49 - Generación de Reportes por Director Asignado
  */
 @Service
-public class DirectorAssignedModalitiesPdfGenerator {
+public class DirectorAssignedModalitiesPdfGenerator extends BaseReportPdfGenerator {
 
 
     public ByteArrayOutputStream generatePDF(DirectorAssignedModalitiesReportDTO report)
             throws DocumentException, IOException {
 
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        Document document = new Document(PageSize.A4, 50, 50, 50, 50);
-        PdfWriter writer = PdfWriter.getInstance(document, outputStream);
-
-        writer.setPageEvent(new InstitutionalPageEventHelper(report.getAcademicProgramName()));
-
-        document.open();
+        PdfSession session = openDocument(PageSize.A4, 50, 50, 50, 50, report.getAcademicProgramName(), null);
 
         // 1. Portada
-        addCoverPage(document, report);
+        addCoverPage(session.document(), report);
 
         // 2. Resumen Ejecutivo
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addExecutiveSummary(document, report);
+        newPageWithHeader(session, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addExecutiveSummary(session.document(), report);
 
         // 3. Análisis de Carga de Trabajo (si está disponible)
         if (report.getWorkloadAnalysis() != null) {
-            document.newPage();
-            InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-            addWorkloadAnalysis(document, report);
+            newPageWithHeader(session, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+            addWorkloadAnalysis(session.document(), report);
         }
 
         // 4. Directores y sus Modalidades
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addDirectorsAndModalities(document, report);
+        newPageWithHeader(session, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addDirectorsAndModalities(session.document(), report);
 
         // 5. Estadísticas por Estado y Tipo
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addStatisticsByStatusAndType(document, report);
+        newPageWithHeader(session, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addStatisticsByStatusAndType(session.document(), report);
 
         // 6. Recomendaciones
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addRecommendations(document, report);
+        newPageWithHeader(session, "Director Asignado \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addRecommendations(session.document(), report);
 
         // 7. Pie institucional de cierre
-        InstitutionalPdfHeader.addFooterSection(document,
+        InstitutionalPdfHeader.addFooterSection(session.document(),
                 "Este reporte fue generado autom\u00e1ticamente por el sistema SIGMA a partir de los datos acad\u00e9micos " +
                 "registrados para el programa: " + report.getAcademicProgramName() + ". " +
                 "Para consultas o asignaciones de directores, contacte con la coordinaci\u00f3n del programa acad\u00e9mico.",
                 "Sistema Integral de Gesti\u00f3n de Modalidades de Grado \u2014 SIGMA\n" +
                 "Universidad Surcolombiana | Facultad de Ingenier\u00eda | Neiva \u2013 Huila");
 
-        document.close();
-        return outputStream;
+        close(session);
+        return session.out();
     }
 
     /**
@@ -594,7 +583,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
         // Ordenar por cantidad
         List<Map.Entry<String, Integer>> sortedByStatus = byStatus.entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .collect(java.util.stream.Collectors.toList());
+                .toList();
 
         for (Map.Entry<String, Integer> entry : sortedByStatus) {
             addEnhancedStatisticBar(document, entry.getKey(), entry.getValue(), totalStatus, InstitutionalPdfHeader.INST_GOLD);
@@ -610,7 +599,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
 
         List<Map.Entry<String, Integer>> sortedByType = byType.entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .collect(java.util.stream.Collectors.toList());
+                .toList();
 
         for (Map.Entry<String, Integer> entry : sortedByType) {
             addEnhancedStatisticBar(document, entry.getKey(), entry.getValue(), totalTypes, InstitutionalPdfHeader.INST_RED);
@@ -830,7 +819,7 @@ public class DirectorAssignedModalitiesPdfGenerator {
                 .stream()
                 .sorted(Comparator.comparingInt(DirectorAssignedModalitiesReportDTO.DirectorWithModalitiesDTO::getTotalAssignedModalities).reversed())
                 .limit(5)
-                .collect(java.util.stream.Collectors.toList());
+                .toList();
 
         // Encontrar el máximo para escalar las barras
         int maxModalities = topDirectors.stream()

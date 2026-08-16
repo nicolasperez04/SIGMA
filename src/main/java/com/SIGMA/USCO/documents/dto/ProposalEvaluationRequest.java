@@ -10,25 +10,25 @@ import lombok.*;
 @AllArgsConstructor
 public class ProposalEvaluationRequest {
 
-    @NotNull(message = "La calificación del resumen es obligatoria")
+    @NotNull(message = "Debe proporcionar calificaciones para todos los aspectos de la propuesta de grado")
     private ProposalAspectGrade summary;
 
-    @NotNull(message = "La calificación de antecedentes y justificación es obligatoria")
+    @NotNull(message = "Debe proporcionar calificaciones para todos los aspectos de la propuesta de grado")
     private ProposalAspectGrade backgroundJustification;
 
-    @NotNull(message = "La calificación de formulación del problema es obligatoria")
+    @NotNull(message = "Debe proporcionar calificaciones para todos los aspectos de la propuesta de grado")
     private ProposalAspectGrade problemStatement;
 
-    @NotNull(message = "La calificación de objetivos es obligatoria")
+    @NotNull(message = "Debe proporcionar calificaciones para todos los aspectos de la propuesta de grado")
     private ProposalAspectGrade objectives;
 
-    @NotNull(message = "La calificación de metodología es obligatoria")
+    @NotNull(message = "Debe proporcionar calificaciones para todos los aspectos de la propuesta de grado")
     private ProposalAspectGrade methodology;
 
-    @NotNull(message = "La calificación de bibliografía o referencias es obligatoria")
+    @NotNull(message = "Debe proporcionar calificaciones para todos los aspectos de la propuesta de grado")
     private ProposalAspectGrade bibliographyReferences;
 
-    @NotNull(message = "La calificación de organización del documento es obligatoria")
+    @NotNull(message = "Debe proporcionar calificaciones para todos los aspectos de la propuesta de grado")
     private ProposalAspectGrade documentOrganization;
 
 

@@ -1,5 +1,6 @@
 package com.SIGMA.USCO.config;
 
+import com.SIGMA.USCO.common.exception.InternalException;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +49,7 @@ public class EmailService {
 
         } catch (MessagingException e) {
             log.error("Error enviando correo con adjunto: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al enviar correo con adjunto", e);
+            throw new InternalException("Error al enviar correo con adjunto", e);
         }
     }
 }

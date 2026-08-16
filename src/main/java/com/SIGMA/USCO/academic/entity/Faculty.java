@@ -1,16 +1,22 @@
 package com.SIGMA.USCO.academic.entity;
 
-import com.SIGMA.USCO.Modalities.Entity.DegreeModality;
+import com.SIGMA.USCO.Modalities.entity.DegreeModality;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
-@Data
+@Getter
+@Setter
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(onlyExplicitlyIncluded = true)
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -20,20 +26,28 @@ public class Faculty {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @EqualsAndHashCode.Include
+    @ToString.Include
     private Long id;
 
     @Column(nullable = false, unique = true, length = 150)
+    @ToString.Include
     private String name;
 
+    @ToString.Include
     private String description;
 
     @Column(nullable = false, unique = true, length = 30)
+    @ToString.Include
     private String code;
 
     @Column(nullable = false)
+    @ToString.Include
     private boolean active = true;
 
+    @ToString.Include
     private LocalDateTime createdAt;
+    @ToString.Include
     private LocalDateTime updatedAt;
 
     @OneToMany(mappedBy = "faculty")
@@ -45,13 +59,4 @@ public class Faculty {
     @OneToMany(mappedBy = "faculty")
     private List<StudentProfile> studentProfiles;
 
-    @Override
-    public String toString() {
-        return "Faculty{" +
-                "id=" + id +
-                ", name='" + name + '\'' +
-                ", code='" + code + '\'' +
-                ", active=" + active +
-                '}';
-    }
 }

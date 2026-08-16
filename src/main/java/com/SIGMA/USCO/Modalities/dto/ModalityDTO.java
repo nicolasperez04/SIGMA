@@ -1,7 +1,7 @@
 package com.SIGMA.USCO.Modalities.dto;
 
 
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityStatus;
 import com.SIGMA.USCO.documents.dto.RequiredDocumentDTO;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;

@@ -1,11 +1,11 @@
 package com.SIGMA.USCO.Users.service;
 
-import com.SIGMA.USCO.Users.Entity.Permission;
-import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
-import com.SIGMA.USCO.Users.Entity.Role;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
-import com.SIGMA.USCO.Users.Entity.enums.Status;
+import com.SIGMA.USCO.Users.entity.Permission;
+import com.SIGMA.USCO.Users.entity.ProgramAuthority;
+import com.SIGMA.USCO.Users.entity.Role;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
+import com.SIGMA.USCO.Users.entity.enums.Status;
 import com.SIGMA.USCO.Users.dto.request.PermissionDTO;
 import com.SIGMA.USCO.Users.dto.request.RegisterUserByAdminRequest;
 import com.SIGMA.USCO.Users.dto.request.RoleRequest;
@@ -23,6 +23,7 @@ import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.common.exception.ConflictException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.common.security.Roles;
 import com.SIGMA.USCO.common.web.PaginatedResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -33,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -52,6 +54,10 @@ public class UserAdminService {
     private final PasswordEncoder passwordEncoder;
     private final AuthorityAssignmentService authorityAssignmentService;
 
+    // ponytail: Set mutable para que Hibernate pueda limpiar la colección previa del rol al asignar
+    // el Set vacío en updateRole (Set.of() inmutable → UnsupportedOperationException → 500).
+    private static final Set<Permission> EMPTY_PERMISSIONS = new HashSet<>();
+
 
     @Transactional(readOnly = true)
     public List<RoleRequest> getRoles() {
@@ -69,13 +75,14 @@ public class UserAdminService {
                         .toList();
     }
 
+    @Transactional
     public void createRole(RoleRequest request) {
 
         if (roleRepository.findByName(request.getName()).isPresent()) {
             throw new ConflictException("El rol ya existe.");
         }
 
-        Set<Permission> permissions = Set.of();
+        Set<Permission> permissions = EMPTY_PERMISSIONS;
 
         if (request.getPermissionIds() != null && !request.getPermissionIds().isEmpty()) {
             permissions = permissionRepository.findAllById(request.getPermissionIds())
@@ -102,7 +109,7 @@ public class UserAdminService {
         }
 
 
-        Set<Permission> permissions = Set.of();
+        Set<Permission> permissions = EMPTY_PERMISSIONS;
 
         if (request.getPermissionIds() != null && !request.getPermissionIds().isEmpty()) {
             permissions = permissionRepository.findAllById(request.getPermissionIds())
@@ -128,6 +135,13 @@ public class UserAdminService {
         user.getRoles().add(role);
         user.setLastUpdateDate(LocalDateTime.now());
         userRepository.save(user);
+
+        if (!Roles.ROLE_EXAMINER.equals(role.getName())) {
+            List<ProgramAuthority> authorities = programAuthorityRepository.findByUser_Id(user.getId());
+            if (!authorities.isEmpty()) {
+                programAuthorityRepository.deleteAll(authorities);
+            }
+        }
     }
 
     @Transactional
@@ -141,6 +155,21 @@ public class UserAdminService {
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+
+        // ponytail: gate de último administrador — desactivar al último admin activo de un rol
+        // ADMIN/SUPERADMIN dejaría el sistema sin administradores (lockout).
+        if (newStatus == Status.INACTIVE) {
+            for (Role role : user.getRoles()) {
+                if (role.getName().toUpperCase().contains("ADMIN")) {
+                    long activeCount = userRepository.countByRoles_NameAndStatus(role.getName(), Status.ACTIVE);
+                    if (activeCount <= 1) {
+                        throw new ValidationException(
+                                "No se puede desactivar al último administrador activo del rol " + role.getName());
+                    }
+                }
+            }
+        }
+
         user.setStatus(newStatus);
         user.setLastUpdateDate(LocalDateTime.now());
         userRepository.save(user);
@@ -276,6 +305,11 @@ public class UserAdminService {
         user.setStatus(Status.INACTIVE);
         user.setLastUpdateDate(LocalDateTime.now());
         userRepository.save(user);
+
+        List<ProgramAuthority> authorities = programAuthorityRepository.findByUser_Id(userId);
+        if (!authorities.isEmpty()) {
+            programAuthorityRepository.deleteAll(authorities);
+        }
     }
 
     @Transactional
@@ -295,11 +329,11 @@ public class UserAdminService {
         Role role = roleRepository.findByName(roleName)
                 .orElseThrow(() -> new NotFoundException("El rol " + roleName + " no existe en el sistema"));
 
-        boolean requiresProgram = roleName.equals("PROGRAM_HEAD") ||
-                roleName.equals("PROJECT_DIRECTOR") ||
-                roleName.equals("PROGRAM_CURRICULUM_COMMITTEE");
+        boolean requiresProgram = roleName.equals(Roles.ROLE_PROGRAM_HEAD) ||
+                roleName.equals(Roles.ROLE_PROJECT_DIRECTOR) ||
+                roleName.equals(Roles.ROLE_PROGRAM_CURRICULUM_COMMITTEE);
 
-        boolean isExaminer = roleName.equals("EXAMINER");
+        boolean isExaminer = roleName.equals(Roles.ROLE_EXAMINER);
 
         if (requiresProgram && request.getAcademicProgramId() == null) {
             throw new ValidationException("El rol " + roleName + " requiere que se especifique un programa académico");
@@ -356,9 +390,9 @@ public class UserAdminService {
                     .orElseThrow(() -> new NotFoundException("Programa académico no encontrado"));
 
             ProgramRole programRole = switch (roleName) {
-                case "PROGRAM_HEAD"                   -> ProgramRole.PROGRAM_HEAD;
-                case "PROJECT_DIRECTOR"               -> ProgramRole.PROJECT_DIRECTOR;
-                case "PROGRAM_CURRICULUM_COMMITTEE"   -> ProgramRole.PROGRAM_CURRICULUM_COMMITTEE;
+                case Roles.ROLE_PROGRAM_HEAD                   -> ProgramRole.PROGRAM_HEAD;
+                case Roles.ROLE_PROJECT_DIRECTOR               -> ProgramRole.PROJECT_DIRECTOR;
+                case Roles.ROLE_PROGRAM_CURRICULUM_COMMITTEE   -> ProgramRole.PROGRAM_CURRICULUM_COMMITTEE;
                 default -> throw new ValidationException("Rol de programa no válido");
             };
 

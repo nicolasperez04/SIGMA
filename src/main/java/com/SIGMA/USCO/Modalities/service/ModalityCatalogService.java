@@ -1,16 +1,18 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.DegreeModality;
-import com.SIGMA.USCO.Modalities.Entity.ModalityRequirements;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityStatus;
-import com.SIGMA.USCO.Modalities.Repository.DegreeModalityRepository;
-import com.SIGMA.USCO.Modalities.Repository.ModalityRequirementsRepository;
+import com.SIGMA.USCO.Modalities.entity.DegreeModality;
+import com.SIGMA.USCO.Modalities.entity.ModalityRequirements;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityStatus;
+import com.SIGMA.USCO.Modalities.repository.DegreeModalityRepository;
+import com.SIGMA.USCO.Modalities.repository.ModalityRequirementsRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
 import com.SIGMA.USCO.Modalities.dto.ModalityDTO;
 import com.SIGMA.USCO.Modalities.dto.RequirementDTO;
 import com.SIGMA.USCO.Modalities.dto.response.ProjectDirectorResponse;
-import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Users.entity.ProgramAuthority;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.academic.entity.Faculty;
@@ -31,7 +33,6 @@ import com.SIGMA.USCO.common.exception.ConflictException;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
-import com.SIGMA.USCO.security.SecurityUtils;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -56,6 +58,7 @@ public class ModalityCatalogService {
     private final ProgramDegreeModalityRepository programDegreeModalityRepository;
     private final UserRepository userRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
+    private final StudentModalityRepository studentModalityRepository;
 
     @Transactional
     public ModalityDTO createModality(ModalityDTO request) {
@@ -104,6 +107,10 @@ public class ModalityCatalogService {
                         new NotFoundException("La facultad no existe.")
                 );
 
+        if (request.getStatus() == ModalityStatus.INACTIVE) {
+            validateModalityNotInUse(modalityId);
+        }
+
         modality.setFaculty(faculty);
         modality.setName(request.getName());
         modality.setDescription(request.getDescription());
@@ -119,12 +126,27 @@ public class ModalityCatalogService {
         DegreeModality modality = degreeModalityRepository.findById(modalityId)
                 .orElseThrow(() -> new NotFoundException("La modalidad con ID " + modalityId + " no existe."));
 
+        validateModalityNotInUse(modalityId);
+
         modality.setStatus(ModalityStatus.INACTIVE);
         modality.setUpdatedAt(LocalDateTime.now());
 
         degreeModalityRepository.save(modality);
 
         return "Modalidad desactivada exitosamente";
+    }
+
+    private void validateModalityNotInUse(Long degreeModalityId) {
+        // ponytail: "en uso" = existe StudentModality con esa DegreeModality en un estado NO terminal;
+        // GRADED_APPROVED / MODALITY_CLOSED / MODALITY_CANCELLED se consideran historial cerrado.
+        boolean inUse = studentModalityRepository.existsByProgramDegreeModality_DegreeModalityIdAndStatusNotIn(
+                degreeModalityId,
+                List.of(ModalityProcessStatus.GRADED_APPROVED,
+                        ModalityProcessStatus.MODALITY_CLOSED,
+                        ModalityProcessStatus.MODALITY_CANCELLED));
+        if (inUse) {
+            throw new ValidationException("No se puede desactivar la modalidad porque tiene estudiantes en proceso.");
+        }
     }
     @Transactional
     public void createModalityRequirements(Long modalityId, List<RequirementDTO> requirements) {
@@ -239,9 +261,7 @@ public class ModalityCatalogService {
     }
 
     @Transactional(readOnly = true)
-    public List<ModalityDTO> getAllModalities() {
-
-        User user = SecurityUtils.getCurrentUser();
+    public List<ModalityDTO> getAllModalities(User user) {
 
         StudentProfile profile = studentProfileRepository.findByUserId(user.getId())
                 .orElseThrow(() -> new NotFoundException("Perfil académico no encontrado"));
@@ -250,14 +270,18 @@ public class ModalityCatalogService {
 
         List<DegreeModality> modalities = degreeModalityRepository.findByStatus(ModalityStatus.ACTIVE);
 
+        Map<Long, ProgramDegreeModality> pdmByModalityId = programDegreeModalityRepository
+                .findByAcademicProgramIdAndActiveTrue(userProgramId)
+                .stream()
+                .collect(Collectors.toMap(pdm -> pdm.getDegreeModality().getId(), pdm -> pdm));
+
         return modalities.stream().map(mod -> {
 
-            Optional<ProgramDegreeModality> pdmOpt = programDegreeModalityRepository
-                    .findByAcademicProgramIdAndDegreeModalityIdAndActiveTrue(userProgramId, mod.getId());
+            ProgramDegreeModality pdm = pdmByModalityId.get(mod.getId());
 
             Long creditsRequired = null;
-            if (pdmOpt.isPresent() && pdmOpt.get().getCreditsRequired() != null) {
-                creditsRequired = pdmOpt.get().getCreditsRequired();
+            if (pdm != null && pdm.getCreditsRequired() != null) {
+                creditsRequired = pdm.getCreditsRequired();
             }
 
             return ModalityDTO.builder()
@@ -274,18 +298,26 @@ public class ModalityCatalogService {
     }
 
     @Transactional(readOnly = true)
-    public ModalityDTO getModalityDetail(Long modalityId) {
+    public ModalityDTO getModalityDetail(Long modalityId, User user) {
 
         if (!degreeModalityRepository.existsById(modalityId)) {
             throw new NotFoundException("La modalidad con ID " + modalityId + " no existe.");
         }
 
-        User user = SecurityUtils.getCurrentUser();
-
-        StudentProfile profile = studentProfileRepository.findByUserId(user.getId())
-                .orElseThrow(() -> new NotFoundException("Perfil académico no encontrado"));
-
-        Long userProgramId = profile.getAcademicProgram().getId();
+        Optional<StudentProfile> profileOpt = studentProfileRepository.findByUserId(user.getId());
+        Long userProgramId;
+        if (profileOpt.isPresent()) {
+            userProgramId = profileOpt.get().getAcademicProgram().getId();
+        } else {
+            List<ProgramAuthority> authorities = programAuthorityRepository.findByUser_Id(user.getId());
+            if (authorities.isEmpty()) {
+                throw new ForbiddenException("No tienes un programa asignado para consultar esta modalidad");
+            }
+            Set<Long> programIds = authorities.stream()
+                    .map(authority -> authority.getAcademicProgram().getId())
+                    .collect(Collectors.toSet());
+            userProgramId = resolveContextProgram(programIds);
+        }
 
         Optional<ProgramDegreeModality> pdmOpt = programDegreeModalityRepository
                 .findByAcademicProgramIdAndDegreeModalityIdAndActiveTrue(userProgramId, modalityId);
@@ -309,15 +341,7 @@ public class ModalityCatalogService {
         var documents = requiredDocumentRepository
                 .findByModalityIdAndActiveTrueAndDocumentType(modalityId, DocumentType.MANDATORY)
                 .stream()
-                .map(doc -> RequiredDocumentDTO.builder()
-                        .id(doc.getId())
-                        .modalityId(modalityId)
-                        .documentName(doc.getDocumentName())
-                        .description(doc.getDescription())
-                        .allowedFormat(doc.getAllowedFormat())
-                        .maxFileSizeMB(doc.getMaxFileSizeMB())
-                        .documentType(doc.getDocumentType())
-                        .build())
+                .map(RequiredDocumentDTO::from)
                 .toList();
 
         DegreeModality modality = degreeModalityRepository.findById(modalityId).orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -336,9 +360,7 @@ public class ModalityCatalogService {
     }
 
     @Transactional(readOnly = true)
-    public List<ProjectDirectorResponse> getProjectDirectors() {
-
-        User currentUser = SecurityUtils.getCurrentUser();
+    public List<ProjectDirectorResponse> getProjectDirectors(User currentUser) {
 
         List<ProgramAuthority> committeeAuthorities = programAuthorityRepository
                 .findByUser_IdAndRole(currentUser.getId(), ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
@@ -351,8 +373,8 @@ public class ModalityCatalogService {
                 .map(authority -> authority.getAcademicProgram().getId())
                 .collect(Collectors.toSet());
 
-        List<com.SIGMA.USCO.Users.Entity.ProgramAuthority> projectDirectorAuthorities = programAuthorityRepository
-                .findByAcademicProgram_IdAndRole(userProgramIds.iterator().next(),
+        List<com.SIGMA.USCO.Users.entity.ProgramAuthority> projectDirectorAuthorities = programAuthorityRepository
+                .findByAcademicProgram_IdAndRole(resolveContextProgram(userProgramIds),
                         ProgramRole.PROJECT_DIRECTOR
                 );
 
@@ -364,13 +386,11 @@ public class ModalityCatalogService {
                         authority.getUser().getEmail()
                 ))
                 .distinct()
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<ProjectDirectorResponse> getProgramHeads() {
-
-        User currentUser = SecurityUtils.getCurrentUser();
+    public List<ProjectDirectorResponse> getProgramHeads(User currentUser) {
 
         List<ProgramAuthority> committeeAuthorities = programAuthorityRepository
                 .findByUser_IdAndRole(currentUser.getId(), ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
@@ -383,8 +403,8 @@ public class ModalityCatalogService {
                 .map(authority -> authority.getAcademicProgram().getId())
                 .collect(Collectors.toSet());
 
-        List<com.SIGMA.USCO.Users.Entity.ProgramAuthority> programHeadAuthorities = programAuthorityRepository
-                .findByAcademicProgram_IdAndRole(userProgramIds.iterator().next(),
+        List<com.SIGMA.USCO.Users.entity.ProgramAuthority> programHeadAuthorities = programAuthorityRepository
+                .findByAcademicProgram_IdAndRole(resolveContextProgram(userProgramIds),
                         ProgramRole.PROGRAM_HEAD
                 );
 
@@ -396,16 +416,19 @@ public class ModalityCatalogService {
                         authority.getUser().getEmail()
                 ))
                 .distinct()
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<ProjectDirectorResponse> getProgramCurriculumCommittee(Long academicProgramId, Long facultyId) {
+    public List<ProjectDirectorResponse> getProgramCurriculumCommittee(Long academicProgramId, Long facultyId, User user) {
 
-        List<ProgramAuthority> committeeAuthorities = programAuthorityRepository.findAll()
-                .stream()
-                .filter(authority -> authority.getRole() == ProgramRole.PROGRAM_CURRICULUM_COMMITTEE)
-                .toList();
+        if (academicProgramId != null && !programAuthorityRepository.existsByUser_IdAndAcademicProgram_Id(
+                user.getId(), academicProgramId)) {
+            throw new ForbiddenException("No tienes autoridad sobre este programa académico");
+        }
+
+        List<ProgramAuthority> committeeAuthorities = programAuthorityRepository
+                .findByRole(ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
 
         if (academicProgramId != null) {
             committeeAuthorities = committeeAuthorities.stream()
@@ -427,17 +450,18 @@ public class ModalityCatalogService {
                         authority.getUser().getEmail()
                 ))
                 .distinct()
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<ProjectDirectorResponse> getExaminers(Long academicProgramId, Long facultyId) {
+    public List<ProjectDirectorResponse> getExaminers(Long academicProgramId, Long facultyId, User user) {
 
-        List<User> examiners = userRepository.findAll()
-                .stream()
-                .filter(user -> user.getRoles().stream()
-                        .anyMatch(role -> role.getName().equals("EXAMINER")))
-                .toList();
+        if (academicProgramId != null && !programAuthorityRepository.existsByUser_IdAndAcademicProgram_Id(
+                user.getId(), academicProgramId)) {
+            throw new ForbiddenException("No tienes autoridad sobre este programa académico");
+        }
+
+        List<User> examiners = userRepository.findAllExaminers();
 
         if (academicProgramId != null || facultyId != null) {
             List<ProgramAuthority> examinerAuthorities = programAuthorityRepository.findAll()
@@ -466,7 +490,7 @@ public class ModalityCatalogService {
                             authority.getUser().getEmail()
                     ))
                     .distinct()
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
         return examiners.stream()
@@ -477,13 +501,11 @@ public class ModalityCatalogService {
                         examiner.getEmail()
                 ))
                 .distinct()
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<ProjectDirectorResponse> getExaminersForCommittee() {
-
-        User currentUser = SecurityUtils.getCurrentUser();
+    public List<ProjectDirectorResponse> getExaminersForCommittee(User currentUser) {
 
         List<ProgramAuthority> committeeAuthorities = programAuthorityRepository
                 .findByUser_IdAndRole(currentUser.getId(), ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
@@ -496,17 +518,14 @@ public class ModalityCatalogService {
                 .map(authority -> authority.getAcademicProgram().getId())
                 .collect(Collectors.toSet());
 
-        List<User> allExaminers = userRepository.findAll()
-                .stream()
-                .filter(user -> user.getRoles().stream()
-                        .anyMatch(role -> role.getName().equals("EXAMINER")))
-                .toList();
+        List<User> allExaminers = userRepository.findAllExaminers();
+
+        List<ProgramAuthority> allAuthorities = programAuthorityRepository.findAll();
 
         List<ProgramAuthority> examinerAuthorities = new ArrayList<>();
 
         for (Long programId : userProgramIds) {
-            List<ProgramAuthority> programExaminers = programAuthorityRepository.findAll()
-                    .stream()
+            List<ProgramAuthority> programExaminers = allAuthorities.stream()
                     .filter(authority -> authority.getAcademicProgram().getId().equals(programId))
                     .filter(authority -> allExaminers.stream()
                             .anyMatch(examiner -> examiner.getId().equals(authority.getUser().getId())))
@@ -523,7 +542,19 @@ public class ModalityCatalogService {
                         authority.getUser().getEmail()
                 ))
                 .distinct()
-                .collect(Collectors.toList());
+                .toList();
+    }
+
+    /**
+     * Programa de contexto del comité autenticado: único si solo pertenece a uno;
+     * con varios, el de menor id (determinista).
+     */
+    private Long resolveContextProgram(Set<Long> programIds) {
+        if (programIds.size() == 1) {
+            return programIds.iterator().next();
+        }
+        // ponytail: contrato sin programa de contexto → primero determinista (antes arbitrario)
+        return programIds.stream().sorted().findFirst().orElseThrow();
     }
 }
 

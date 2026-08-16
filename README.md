@@ -81,9 +81,8 @@ Automatiza el ciclo de vida completo de las modalidades de grado (Proyecto de Gr
 | **Hibernate** | 6.x |
 | **JJWT** | 0.12.6 |
 | **iTextPDF** | 5.5.13.3 |
-| **Apache POI** | 5.2.5 |
 | **Apache PDFBox** | 2.0.30 |
-| **Tesseract (Tess4J)** | 5.8.0 |
+| **Apache Commons IO** | 2.16.1 |
 | **SpringDoc OpenAPI** | 2.5.0 |
 | **Lombok** | — |
 | **Maven** | 3.9+ |
@@ -171,6 +170,12 @@ El `.env` se carga automáticamente al iniciar la aplicación mediante un `EnvLo
 |---|---|---|---|
 | `dev` | No | `update` | Habilitado |
 | `prod` | **Sí** | `validate` | Deshabilitado |
+
+### Seed de roles y permisos
+
+`DataInitializer` (`@Profile("dev")`, no corre en `prod`) crea los 60 permisos y 6 roles base (SUPERADMIN, PROGRAM_HEAD, PROGRAM_CURRICULUM_COMMITTEE, STUDENT, PROJECT_DIRECTOR, EXAMINER) de forma **idempotente** (create-if-absent; en dev no re-escribe permisos de roles existentes).
+
+En `prod` el seed NO se ejecuta: la base fresca necesita que estos roles/permisos se carguen manualmente antes del primer arranque (los `@PreAuthorize` de los endpoints dependen de ellos). Procedimiento sugerido: arrancar una vez con `SPRING_PROFILES_ACTIVE=dev` contra la BD en blanco (crea rol/permiso con `ddl-auto=update`), o insertarlos vía script SQL replicando lo que hace `DataInitializer`.
 
 ---
 
@@ -281,7 +286,7 @@ SIGMA/
 │   │   └── dto/
 │   ├── notifications/      # Notificaciones y eventos
 │   │   ├── controller/     # NotificationController
-│   │   ├── entity/         # Notification, NotificationTemplate
+│   │   ├── entity/         # Notification
 │   │   ├── event/          # Eventos del dominio
 │   │   ├── listeners/      # Manejadores asíncronos
 │   │   ├── publisher/
@@ -292,7 +297,7 @@ SIGMA/
 │       ├── controller/     # GlobalModalityReportController
 │       ├── service/
 │       ├── dto/
-│       └── enums/          # ReportType, ExportFormat
+│       └── enums/          # ReportType
 ├── src/main/resources/
 │   ├── application.properties
 │   ├── application-dev.properties

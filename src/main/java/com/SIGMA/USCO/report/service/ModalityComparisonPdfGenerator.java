@@ -13,67 +13,55 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-public class ModalityComparisonPdfGenerator {
+public class ModalityComparisonPdfGenerator extends BaseReportPdfGenerator {
 
     public ByteArrayOutputStream generatePDF(ModalityTypeComparisonReportDTO report)
             throws DocumentException, IOException {
 
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        Document document = new Document(PageSize.A4, 50, 50, 50, 50);
-        PdfWriter writer = PdfWriter.getInstance(document, out);
-        writer.setPageEvent(new PageEventHelper(report));
-        document.open();
+        PdfSession session = openDocument(PageSize.A4, 50, 50, 50, 50, report.getAcademicProgramName(), "Reporte Comparativo de Modalidades");
 
         // 1. Portada institucional
-        addCoverPage(document, report);
+        addCoverPage(session.document(), report);
 
         // 2. Resumen ejecutivo
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addExecutiveSummary(document, report);
+        newPageWithHeader(session, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addExecutiveSummary(session.document(), report);
 
         // 3. Análisis visual comparativo
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addVisualComparison(document, report);
+        newPageWithHeader(session, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addVisualComparison(session.document(), report);
 
         // 4. Estadísticas detalladas por tipo
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addDetailedStatistics(document, report);
+        newPageWithHeader(session, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addDetailedStatistics(session.document(), report);
 
         // 5. Distribución de estudiantes (opcional)
         if (report.getStudentDistributionByType() != null
                 && !report.getStudentDistributionByType().isEmpty()) {
-            document.newPage();
-            InstitutionalPdfHeader.addInternalHeader(document, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-            addStudentDistribution(document, report);
+            newPageWithHeader(session, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+            addStudentDistribution(session.document(), report);
         }
 
         // 6. Análisis de eficiencia
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addEfficiencyAnalysis(document, report);
+        newPageWithHeader(session, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addEfficiencyAnalysis(session.document(), report);
 
         // 7. Comparación histórica (opcional)
         if (report.getHistoricalComparison() != null && !report.getHistoricalComparison().isEmpty()) {
-            document.newPage();
-            InstitutionalPdfHeader.addInternalHeader(document, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-            addHistoricalComparison(document, report);
+            newPageWithHeader(session, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+            addHistoricalComparison(session.document(), report);
         }
 
         // 8. Análisis de tendencias (opcional)
         if (report.getTrendsAnalysis() != null) {
-            document.newPage();
-            InstitutionalPdfHeader.addInternalHeader(document, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-            addTrendsAnalysis(document, report);
+            newPageWithHeader(session, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+            addTrendsAnalysis(session.document(), report);
         }
 
         // 9. Conclusiones + pie institucional
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addConclusions(document, report);
-        InstitutionalPdfHeader.addFooterSection(document,
+        newPageWithHeader(session, "Reporte Comparativo \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addConclusions(session.document(), report);
+        InstitutionalPdfHeader.addFooterSection(session.document(),
                 "NOTA: Este reporte fue generado automáticamente por el Sistema SIGMA. "
                         + "Los datos corresponden al programa acad\u00e9mico "
                         + report.getAcademicProgramName()
@@ -82,8 +70,8 @@ public class ModalityComparisonPdfGenerator {
                 "Sistema Integral de Gesti\u00f3n de Modalidades de Grado \u2014 SIGMA\n"
                         + "Universidad Surcolombiana \u00b7 Facultad de Ingenier\u00eda");
 
-        document.close();
-        return out;
+        close(session);
+        return session.out();
     }
 
     // =========================================================================
@@ -364,7 +352,7 @@ public class ModalityComparisonPdfGenerator {
 
         List<Map.Entry<String, Integer>> sorted = distribution.entrySet().stream()
                 .sorted((e1, e2) -> e2.getValue().compareTo(e1.getValue()))
-                .collect(java.util.stream.Collectors.toList());
+                .toList();
 
         for (Map.Entry<String, Integer> entry : sorted) {
             PdfPTable barContainer = new PdfPTable(1);
@@ -799,7 +787,7 @@ public class ModalityComparisonPdfGenerator {
 
         List<Map.Entry<String, Integer>> sorted = distribution.entrySet().stream()
                 .sorted((e1, e2) -> e2.getValue().compareTo(e1.getValue()))
-                .collect(java.util.stream.Collectors.toList());
+                .toList();
 
         PdfPTable statusTable = new PdfPTable(3);
         statusTable.setWidthPercentage(95);
@@ -845,7 +833,7 @@ public class ModalityComparisonPdfGenerator {
         PdfPCell empty = new PdfPCell(new Phrase(
                 " " + String.format("%.1f%%", pct),
                 FontFactory.getFont(FontFactory.HELVETICA, 7, InstitutionalPdfHeader.TEXT_GRAY)));
-        empty.setBackgroundColor(new BaseColor(240, 240, 240));
+        empty.setBackgroundColor(InstitutionalPdfHeader.LIGHT_GRAY);
         empty.setBorder(Rectangle.NO_BORDER);
         empty.setMinimumHeight(10f);
         empty.setVerticalAlignment(Element.ALIGN_MIDDLE);
@@ -977,42 +965,5 @@ public class ModalityComparisonPdfGenerator {
                 + "y ajustar la oferta de modalidades seg\u00fan la demanda observada.");
 
         return conclusions;
-    }
-
-    // =========================================================================
-    //  PIE DE PÁGINA (PageEvent)
-    // =========================================================================
-
-    private static class PageEventHelper extends PdfPageEventHelper {
-
-        private final ModalityTypeComparisonReportDTO report;
-        private static final Font FOOTER_FONT =
-                FontFactory.getFont(FontFactory.HELVETICA, 7, new BaseColor(80, 80, 80));
-
-        PageEventHelper(ModalityTypeComparisonReportDTO report) {
-            this.report = report;
-        }
-
-        @Override
-        public void onEndPage(PdfWriter writer, Document document) {
-            PdfContentByte cb = writer.getDirectContent();
-
-            cb.setColorStroke(new BaseColor(213, 203, 160));
-            cb.setLineWidth(1f);
-            cb.moveTo(document.leftMargin(), document.bottom() - 2);
-            cb.lineTo(document.right() + document.leftMargin(), document.bottom() - 2);
-            cb.stroke();
-
-            Phrase footer = new Phrase(
-                    "P\u00e1g. " + writer.getPageNumber()
-                            + "  |  " + report.getAcademicProgramName()
-                            + "  |  Reporte Comparativo de Modalidades"
-                            + "  |  " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT),
-                    FOOTER_FONT);
-
-            ColumnText.showTextAligned(cb, Element.ALIGN_CENTER, footer,
-                    (document.right() - document.left()) / 2 + document.leftMargin(),
-                    document.bottom() - 12, 0);
-        }
     }
 }

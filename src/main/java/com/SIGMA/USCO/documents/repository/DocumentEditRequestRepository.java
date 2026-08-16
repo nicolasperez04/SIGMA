@@ -2,6 +2,7 @@ package com.SIGMA.USCO.documents.repository;
 
 import com.SIGMA.USCO.documents.entity.DocumentEditRequest;
 import com.SIGMA.USCO.documents.entity.enums.DocumentEditRequestStatus;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -27,6 +28,7 @@ public interface DocumentEditRequestRepository extends JpaRepository<DocumentEdi
     List<DocumentEditRequest> findByRequesterIdAndStatus(Long requesterId, DocumentEditRequestStatus status);
 
     /** Solicitudes asociadas a una modalidad (buscando a través del documento) */
+    @EntityGraph(attributePaths = {"studentDocument", "requester", "studentDocument.documentConfig"})
     @Query("SELECT er FROM DocumentEditRequest er " +
            "WHERE er.studentDocument.studentModality.id = :studentModalityId " +
            "ORDER BY er.createdAt DESC")

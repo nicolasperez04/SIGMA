@@ -1,12 +1,21 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.DegreeModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Modalities.entity.DegreeModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.DefenseExaminerRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.dto.response.AvailableDocumentsResponse;
+import com.SIGMA.USCO.Modalities.dto.response.CorrectionDeadlineStatusResponse;
+import com.SIGMA.USCO.Modalities.dto.response.DocumentsAcceptedForCommitteeResponse;
+import com.SIGMA.USCO.Modalities.dto.response.RequiredDocumentsUploadedResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ResubmitDocumentResponse;
+import com.SIGMA.USCO.Modalities.dto.response.StudentDocumentResponse;
+import com.SIGMA.USCO.Modalities.dto.response.UploadDocumentResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ValidateAllDocumentsUploadedResponse;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.documents.entity.DocumentEditRequestVote;
 import com.SIGMA.USCO.documents.entity.ExaminerDocumentReview;
@@ -26,11 +35,11 @@ import com.SIGMA.USCO.documents.repository.StudentDocumentStatusHistoryRepositor
 import com.SIGMA.USCO.common.exception.ForbiddenException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
-import com.SIGMA.USCO.common.util.MimeTypeGuard;
-import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
+import com.SIGMA.USCO.shared.util.ResourceAccessPolicy;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
+import com.SIGMA.USCO.common.validation.FileValidator;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
-import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
@@ -51,7 +60,6 @@ import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -65,6 +73,7 @@ import java.util.stream.Collectors;
 public class ModalityDocumentService {
 
     private final StudentModalityRepository studentModalityRepository;
+    private final DefenseExaminerRepository defenseExaminerRepository;
     private final StudentModalityMemberRepository studentModalityMemberRepository;
     private final RequiredDocumentRepository requiredDocumentRepository;
     private final StudentDocumentRepository studentDocumentRepository;
@@ -80,16 +89,14 @@ public class ModalityDocumentService {
     @Value("${file.upload-dir}")
     private String uploadDir;
 
-    @Transactional
-    public Map<String, Object> uploadRequiredDocument(Long studentModalityId, Long requiredDocumentId, MultipartFile file) throws IOException {
+    // T5.12: la I/O (Files.copy) queda fuera de la tx; la persistencia va en persistUpload
+    public UploadDocumentResponse uploadRequiredDocument(Long studentModalityId, Long requiredDocumentId, MultipartFile file, User uploader) throws IOException {
 
         if (file == null || file.isEmpty()) {
             throw new ValidationException("El archivo es obligatorio");
         }
 
         // ponytail: filesystem is not rollbackable with @Transactional; DB is atomic, orphan file possible on later failure
-
-        User uploader = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad del estudiante no encontrada"));
@@ -118,7 +125,8 @@ public class ModalityDocumentService {
 
         DegreeModality modality = studentModality.getProgramDegreeModality().getDegreeModality();
 
-        if (!requiredDocument.getModality().getId().equals(modality.getId())) {
+        // T5.12: consulta por id en lugar de navegar la relación LAZY RequiredDocument.modality fuera de tx
+        if (!requiredDocumentRepository.existsByIdAndModalityId(requiredDocumentId, modality.getId())) {
             throw new ForbiddenException("El documento no pertenece a la modalidad seleccionada");
         }
 
@@ -134,26 +142,19 @@ public class ModalityDocumentService {
         String originalFilename = file.getOriginalFilename();
         String extension = FilenameUtils.getExtension(originalFilename == null ? "" : originalFilename).toLowerCase();
 
-        if (requiredDocument.getAllowedFormat() != null &&
-                !requiredDocument.getAllowedFormat().toLowerCase().contains(extension)) {
-            throw new ValidationException("Formato de archivo no permitido");
+        if (requiredDocument.getAllowedFormat() != null) {
+            FileValidator.validateExtension(file, requiredDocument.getAllowedFormat());
         }
 
-        if (!MimeTypeGuard.isMimeAllowed(file, extension)) {
-            throw new ValidationException("Formato de archivo no permitido");
+        FileValidator.validateMime(file, extension);
+
+        if (requiredDocument.getMaxFileSizeMB() != null) {
+            FileValidator.validateSize(file, requiredDocument.getMaxFileSizeMB());
         }
 
-        if (requiredDocument.getMaxFileSizeMB() != null &&
-                file.getSize() > requiredDocument.getMaxFileSizeMB() * 1024L * 1024L) {
-            throw new ValidationException("El archivo supera el tamaño permitido");
-        }
+        String modalityFolder = TranslationUtils.sanitizeFileName(modality.getName(), "[^a-zA-Z0-9]");
 
-        String modalityFolder = modality.getName()
-                .replaceAll("[^a-zA-Z0-9]", "_");
-
-        String studentFolder = (student.getName() + student.getLastName() + "_" +
-                student.getLastName() + "_" +
-                student.getId()).replaceAll("[^a-zA-Z0-9]", "_");
+        String studentFolder = TranslationUtils.studentFolder(student.getName(), student.getLastName(), student.getId());
 
         Path basePath = Paths.get(
                 uploadDir,
@@ -163,8 +164,7 @@ public class ModalityDocumentService {
 
         Files.createDirectories(basePath);
 
-        String safeOriginal = FilenameUtils.getName(originalFilename != null ? originalFilename : "")
-                .replaceAll("[^a-zA-Z0-9._-]", "_");
+        String safeOriginal = TranslationUtils.sanitizeFileName(FilenameUtils.getName(originalFilename != null ? originalFilename : ""));
         if (safeOriginal.isEmpty()) {
             safeOriginal = "documento";
         }
@@ -174,8 +174,22 @@ public class ModalityDocumentService {
 
         Files.copy(file.getInputStream(), fullPath, StandardCopyOption.REPLACE_EXISTING);
 
+        return persistUpload(studentModality, uploader, student, isAssignedDirector, isActiveMember, requiredDocumentId, originalFilename, fullPath.toString());
+    }
+
+    @Transactional
+    public UploadDocumentResponse persistUpload(StudentModality studentModality, User uploader, User student,
+                                                boolean isAssignedDirector, boolean isActiveMember,
+                                                Long requiredDocumentId, String originalFilename, String filePath) {
+        // ponytail: @Transactional es inefectivo aquí por self-invocation desde uploadRequiredDocument;
+        // los save por repositorio auto-commitean. Solo molesta si se navega una relación LAZY
+        // (por eso se usa requiredDocument cargado por id, no studentDocument.getDocumentConfig()).
+
+        RequiredDocument requiredDocument = requiredDocumentRepository.findById(requiredDocumentId)
+                .orElseThrow(() -> new NotFoundException("Documento requerido no existe"));
+
         StudentDocument studentDocument = studentDocumentRepository
-                .findByStudentModalityIdAndDocumentConfigId(studentModalityId, requiredDocumentId)
+                .findByStudentModalityIdAndDocumentConfigId(studentModality.getId(), requiredDocumentId)
                 .orElse(
                         StudentDocument.builder()
                                 .studentModality(studentModality)
@@ -184,7 +198,7 @@ public class ModalityDocumentService {
                 );
 
         studentDocument.setFileName(originalFilename);
-        studentDocument.setFilePath(fullPath.toString());
+        studentDocument.setFilePath(filePath);
         studentDocument.setUploadDate(LocalDateTime.now());
 
         // ========== LÓGICA DE CORRECCIONES ==========
@@ -197,20 +211,16 @@ public class ModalityDocumentService {
                 currentModalityStatus == ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS;
 
         // ========== RESUBIDA POR EDICIÓN APROBADA ==========
-        // Verificar si el documento existente tiene una solicitud de edición aprobada
-        boolean isResubmittingApprovedEdit = false;
-        StudentDocument existingDoc = studentDocumentRepository
-                .findByStudentModalityIdAndDocumentConfigId(studentModalityId, requiredDocumentId)
-                .orElse(null);
-        if (existingDoc != null && existingDoc.getStatus() == DocumentStatus.EDIT_REQUEST_APPROVED) {
-            isResubmittingApprovedEdit = true;
-        }
+        // T5.12: la consulta duplicada del documento existente se elimina; la misma instancia (persistence context)
+        // ya se cargó arriba, así que su estado refleja el del registro en BD
+        boolean isResubmittingApprovedEdit =
+                studentDocument.getStatus() == DocumentStatus.EDIT_REQUEST_APPROVED;
 
         if (isResubmittingApprovedEdit) {
               // Cerrar la solicitud de edición aprobada (marcar como completada con el reenvío)
             documentEditRequestRepository
                     .findTopByStudentDocumentIdAndStatusOrderByCreatedAtDesc(
-                            existingDoc.getId(), DocumentEditRequestStatus.APPROVED)
+                            studentDocument.getId(), DocumentEditRequestStatus.APPROVED)
                     .ifPresent(req -> {
                         // Los votos ya están registrados; solo guardamos la referencia para trazabilidad
                         documentEditRequestRepository.save(req);
@@ -219,7 +229,7 @@ public class ModalityDocumentService {
             // El documento vuelve a PENDING para re-revisión por jurados
             studentDocument.setStatus(DocumentStatus.PENDING);
             studentDocument.setFileName(originalFilename);
-            studentDocument.setFilePath(fullPath.toString());
+            studentDocument.setFilePath(filePath);
             studentDocument.setUploadDate(LocalDateTime.now());
             studentDocumentRepository.save(studentDocument);
 
@@ -231,7 +241,7 @@ public class ModalityDocumentService {
             // Limpiar también los votos de la solicitud de edición aprobada (DocumentEditRequestVote)
             documentEditRequestRepository
                     .findTopByStudentDocumentIdAndStatusOrderByCreatedAtDesc(
-                            existingDoc.getId(), DocumentEditRequestStatus.APPROVED)
+                            studentDocument.getId(), DocumentEditRequestStatus.APPROVED)
                     .ifPresent(req -> {
                         List<DocumentEditRequestVote> editVotes = documentEditRequestVoteRepository
                                 .findByEditRequestId(req.getId());
@@ -242,7 +252,7 @@ public class ModalityDocumentService {
             modalityStatusTransition.transition(studentModality, ModalityProcessStatus.EXAMINERS_ASSIGNED, uploader,
                     (isAssignedDirector && !isActiveMember ? "Director" : "Estudiante") +
                             " actualizó el documento '" +
-                            studentDocument.getDocumentConfig().getDocumentName() +
+                            requiredDocument.getDocumentName() +
                             "' con los cambios aprobados por los jurados. " +
                             "La modalidad regresa al estado de revisión por jurados.");
 
@@ -264,11 +274,11 @@ public class ModalityDocumentService {
                     new ModalityEvent(NotificationType.DOCUMENT_UPLOADED, studentModality.getId(), uploader.getId(), Map.of(ModalityEvent.KEY_STUDENT_DOCUMENT_ID, studentDocument.getId(), ModalityEvent.KEY_STUDENT_ID, uploader.getId()))
             );
 
-            return Map.of(
-                    "message", "Documento actualizado correctamente. Los jurados evaluarán la nueva versión.",
-                    "path", fullPath.toString(),
-                    "documentStatus", studentDocument.getStatus().name(),
-                    "modalityStatus", studentModality.getStatus().name()
+            return new UploadDocumentResponse(
+                    "Documento actualizado correctamente. Los jurados evaluarán la nueva versión.",
+                    filePath,
+                    studentDocument.getStatus().name(),
+                    studentModality.getStatus().name()
             );
 
         } else if (isResubmittingCorrection) {
@@ -276,14 +286,18 @@ public class ModalityDocumentService {
             studentDocument.setStatus(DocumentStatus.CORRECTION_RESUBMITTED);
             studentDocumentRepository.save(studentDocument);
 
-            // Si las correcciones venían de jurados, limpiar SOLO el voto del jurado que solicitó
-            // correcciones, conservando el voto ACCEPTED del jurado que ya aprobó
+            // Jurados que solicitaron las correcciones: se capturan ANTES de borrar sus votos,
+            // porque el listener de notificaciones los necesita tras el resubmit
+            List<Long> requestingExaminerIds = List.of();
             if (currentModalityStatus == ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS) {
                 List<ExaminerDocumentReview> oldReviews = examinerDocumentReviewRepository
                         .findByStudentDocumentId(studentDocument.getId());
                 // Eliminar solo los votos de CORRECTIONS_REQUESTED; los ACCEPTED se conservan
                 List<ExaminerDocumentReview> reviewsToDelete = oldReviews.stream()
                         .filter(r -> r.getDecision() == ExaminerDocumentDecision.CORRECTIONS_REQUESTED)
+                        .toList();
+                requestingExaminerIds = reviewsToDelete.stream()
+                        .map(r -> r.getExaminer().getId())
                         .toList();
                 examinerDocumentReviewRepository.deleteAll(reviewsToDelete);
             }
@@ -324,11 +338,23 @@ public class ModalityDocumentService {
                             " tras solicitud de: " + requesterLabel);
 
             applicationEventPublisher.publishEvent(
-                    new ModalityEvent(NotificationType.CORRECTION_RESUBMITTED, studentModality.getId(), student.getId(), Map.of(ModalityEvent.KEY_DOCUMENT_ID, studentDocument.getId(), ModalityEvent.KEY_STUDENT_ID, uploader.getId(), ModalityEvent.KEY_DOCUMENT_NAME, studentDocument.getDocumentConfig().getDocumentName()))
+                    new ModalityEvent(NotificationType.CORRECTION_RESUBMITTED, studentModality.getId(), student.getId(), Map.of(
+                            ModalityEvent.KEY_DOCUMENT_ID, studentDocument.getId(),
+                            ModalityEvent.KEY_STUDENT_ID, uploader.getId(),
+                            ModalityEvent.KEY_DOCUMENT_NAME, requiredDocument.getDocumentName(),
+                            ModalityEvent.KEY_EXAMINER_IDS, requestingExaminerIds
+                    ))
             );
 
         } else {
             // Subida normal: estado PENDING
+            DocumentStatus currentDocStatus = studentDocument.getStatus();
+            if (currentDocStatus == DocumentStatus.ACCEPTED_FOR_EXAMINER_REVIEW ||
+                    currentDocStatus == DocumentStatus.ACCEPTED_FOR_PROGRAM_HEAD_REVIEW ||
+                    currentDocStatus == DocumentStatus.ACCEPTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW) {
+                throw new ValidationException("El documento ya fue aprobado por los revisores. Para modificarlo debes usar la solicitud de edición.");
+            }
+
             studentDocument.setStatus(DocumentStatus.PENDING);
             studentDocumentRepository.save(studentDocument);
 
@@ -351,13 +377,13 @@ public class ModalityDocumentService {
             checkAndUpdateModalityStatusIfAllMandatoryDocsUploaded(studentModality, uploader);
         }
 
-        return Map.of(
-                        "message", isResubmittingCorrection
+        return new UploadDocumentResponse(
+                        isResubmittingCorrection
                                 ? "Documento de corrección enviado correctamente. Será revisado por el evaluador correspondiente."
                                 : "Documento subido correctamente",
-                        "path", fullPath.toString(),
-                        "documentStatus", studentDocument.getStatus().name(),
-                        "modalityStatus", studentModality.getStatus().name()
+                        filePath,
+                        studentDocument.getStatus().name(),
+                        studentModality.getStatus().name()
                 );
     }
 
@@ -401,10 +427,17 @@ public class ModalityDocumentService {
         }
     }
     @Transactional(readOnly = true)
-    public Map<String, Object> validateAllDocumentsUploaded(Long studentModalityId) {
+    public ValidateAllDocumentsUploadedResponse validateAllDocumentsUploaded(Long studentModalityId, User user) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+
+        boolean isActiveMember = studentModalityMemberRepository.isActiveMember(studentModalityId, user.getId());
+        boolean isDirector = studentModality.getProjectDirector() != null
+                && studentModality.getProjectDirector().getId().equals(user.getId());
+        if (!isActiveMember && !isDirector) {
+            throw new ForbiddenException("No autorizado para consultar los documentos de esta modalidad");
+        }
 
         Long modalityId = studentModality.getProgramDegreeModality().getDegreeModality().getId();
 
@@ -426,16 +459,14 @@ public class ModalityDocumentService {
 
         boolean allUploaded = missingDocuments.isEmpty();
 
-        return Map.of(
-                        "canContinue", allUploaded,
-                        "missingDocuments", missingDocuments
+        return new ValidateAllDocumentsUploadedResponse(
+                        allUploaded,
+                        missingDocuments
                 );
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> getAvailableDocumentsForStudent() {
-
-        User student = SecurityUtils.getCurrentUser();
+    public AvailableDocumentsResponse getAvailableDocumentsForStudent(User student) {
 
         Optional<StudentModality> studentModalityOpt = studentModalityRepository
                 .findTopByStudentIdOrderByUpdatedAtDesc(student.getId());
@@ -465,33 +496,26 @@ public class ModalityDocumentService {
 
         if (!missingMandatoryDocs.isEmpty()) {
 
-            List<RequiredDocument> mandatoryOnly = mandatoryDocuments;
-
-            List<Map<String, Object>> documentList = mandatoryOnly.stream()
-                    .map(requiredDoc -> {
-                        Map<String, Object> docInfo = new HashMap<>();
-                        docInfo.put("requiredDocumentId", requiredDoc.getId());
-                        docInfo.put("documentName", requiredDoc.getDocumentName());
-                        docInfo.put("description", requiredDoc.getDescription());
-                        docInfo.put("documentType", requiredDoc.getDocumentType());
-                        docInfo.put("allowedFormat", requiredDoc.getAllowedFormat());
-                        docInfo.put("maxFileSizeMB", requiredDoc.getMaxFileSizeMB());
-                        docInfo.put("uploaded", false);
-                        return docInfo;
-                    })
+            List<AvailableDocumentsResponse.AvailableDocumentDTO> documentList = mandatoryDocuments.stream()
+                    .map(requiredDoc -> new AvailableDocumentsResponse.AvailableDocumentDTO(
+                            requiredDoc.getId(),
+                            requiredDoc.getDocumentName(),
+                            requiredDoc.getDescription(),
+                            requiredDoc.getDocumentType(),
+                            requiredDoc.getAllowedFormat(),
+                            requiredDoc.getMaxFileSizeMB(),
+                            false,
+                            null, null, null, null, null))
                     .toList();
 
-            return Map.of(
-                    "success", true,
-                    "studentModalityId", studentModalityId,
-                    "documents", documentList,
-                    "statistics", Map.of(
-                            "totalDocuments", documentList.size(),
-                            "uploadedDocuments", 0,
-                            "pendingDocuments", documentList.size(),
-                            "mandatoryDocuments", documentList.size(),
-                            "secondaryDocuments", 0
-                    )
+            return new AvailableDocumentsResponse(
+                    false,
+                    "Tienes documentos obligatorios pendientes por cargar.",
+                    missingMandatoryDocs,
+                    studentModalityId,
+                    documentList,
+                    new AvailableDocumentsResponse.DocumentStatistics(
+                            documentList.size(), 0, documentList.size(), documentList.size(), 0)
             );
         }
 
@@ -507,58 +531,53 @@ public class ModalityDocumentService {
                         d -> d
                 ));
 
-        List<Map<String, Object>> documentList = allDocuments.stream()
+        List<AvailableDocumentsResponse.AvailableDocumentDTO> documentList = allDocuments.stream()
                 .map(requiredDoc -> {
                     StudentDocument uploaded = uploadedMap.get(requiredDoc.getId());
-
-                    Map<String, Object> docInfo = new HashMap<>();
-                    docInfo.put("requiredDocumentId", requiredDoc.getId());
-                    docInfo.put("documentName", requiredDoc.getDocumentName());
-                    docInfo.put("description", requiredDoc.getDescription());
-                    docInfo.put("documentType", requiredDoc.getDocumentType());
-                    docInfo.put("allowedFormat", requiredDoc.getAllowedFormat());
-                    docInfo.put("maxFileSizeMB", requiredDoc.getMaxFileSizeMB());
-                    docInfo.put("uploaded", uploaded != null);
-
-                    if (uploaded != null) {
-                        docInfo.put("studentDocumentId", uploaded.getId());
-                        docInfo.put("fileName", uploaded.getFileName());
-                        docInfo.put("status", uploaded.getStatus());
-                        docInfo.put("notes", uploaded.getNotes());
-                        docInfo.put("uploadDate", uploaded.getUploadDate());
-                    }
-
-                    return docInfo;
+                    return new AvailableDocumentsResponse.AvailableDocumentDTO(
+                            requiredDoc.getId(),
+                            requiredDoc.getDocumentName(),
+                            requiredDoc.getDescription(),
+                            requiredDoc.getDocumentType(),
+                            requiredDoc.getAllowedFormat(),
+                            requiredDoc.getMaxFileSizeMB(),
+                            uploaded != null,
+                            uploaded != null ? uploaded.getId() : null,
+                            uploaded != null ? uploaded.getFileName() : null,
+                            uploaded != null ? uploaded.getStatus() : null,
+                            uploaded != null ? uploaded.getNotes() : null,
+                            uploaded != null ? uploaded.getUploadDate() : null);
                 })
                 .toList();
 
         long totalDocuments = documentList.size();
         long uploadedCount = documentList.stream()
-                .filter(doc -> (Boolean) doc.get("uploaded"))
+                .filter(AvailableDocumentsResponse.AvailableDocumentDTO::uploaded)
                 .count();
         long mandatoryCount = documentList.stream()
-                .filter(doc -> doc.get("documentType") == DocumentType.MANDATORY)
+                .filter(d -> d.documentType() == DocumentType.MANDATORY)
                 .count();
         long secondaryCount = documentList.stream()
-                .filter(doc -> doc.get("documentType") == DocumentType.SECONDARY)
+                .filter(d -> d.documentType() == DocumentType.SECONDARY)
                 .count();
 
-        return Map.of(
-                "success", true,
-                "studentModalityId", studentModalityId,
-                "documents", documentList,
-                "statistics", Map.of(
-                        "totalDocuments", totalDocuments,
-                        "uploadedDocuments", uploadedCount,
-                        "pendingDocuments", totalDocuments - uploadedCount,
-                        "mandatoryDocuments", mandatoryCount,
-                        "secondaryDocuments", secondaryCount
-                )
+        return new AvailableDocumentsResponse(
+                true,
+                "Todos los documentos obligatorios han sido cargados.",
+                List.of(),
+                studentModalityId,
+                documentList,
+                new AvailableDocumentsResponse.DocumentStatistics(
+                        totalDocuments,
+                        uploadedCount,
+                        totalDocuments - uploadedCount,
+                        mandatoryCount,
+                        secondaryCount)
         );
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> getStudentDocuments(Long studentModalityId) {
+    public List<StudentDocumentResponse> getStudentDocuments(Long studentModalityId, User user) {
 
         StudentModality studentModality = studentModalityRepository
                 .findById(studentModalityId)
@@ -566,32 +585,42 @@ public class ModalityDocumentService {
                         new NotFoundException("Modalidad del estudiante no encontrada")
                 );
 
+        boolean isDirector = studentModality.getProjectDirector() != null
+                && studentModality.getProjectDirector().getId().equals(user.getId());
+        boolean isProgramAuthority = programAuthorityRepository.existsByUser_IdAndAcademicProgram_Id(
+                user.getId(),
+                studentModality.getAcademicProgram().getId()
+        );
+        boolean isAssignedExaminer = defenseExaminerRepository
+                .findByStudentModalityIdAndExaminerId(studentModalityId, user.getId())
+                .isPresent();
+
+        if (!isDirector && !isProgramAuthority && !isAssignedExaminer) {
+            throw new ForbiddenException("No autorizado para consultar los documentos de esta modalidad");
+        }
+
         List<StudentDocument> documents =
                 studentDocumentRepository.findByStudentModalityId(studentModalityId);
 
-        List<Map<String, Object>> response = documents.stream()
-                .map(doc -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("studentDocumentId", doc.getId());
-                    map.put("documentName", doc.getDocumentConfig().getDocumentName());
-                    map.put("documentType", doc.getDocumentConfig().getDocumentType());
-                    map.put("status", doc.getStatus());
-                    map.put("notes", doc.getNotes());
-                    map.put("uploadedAt", doc.getUploadDate());
-                    map.put("filePath", doc.getFilePath());
-                    return map;
-                })
+        List<StudentDocumentResponse> response = documents.stream()
+                .map(doc -> new StudentDocumentResponse(
+                        doc.getId(),
+                        doc.getDocumentConfig().getDocumentName(),
+                        doc.getDocumentConfig().getDocumentType(),
+                        doc.getStatus(),
+                        doc.getNotes(),
+                        doc.getUploadDate(),
+                        doc.getFilePath()))
                 .toList();
 
         return response;
     }
     @Transactional(readOnly = true)
-    public Resource viewStudentDocument(Long studentDocumentId) throws MalformedURLException {
+    public Resource viewStudentDocument(Long studentDocumentId, User currentUser) throws MalformedURLException {
 
         StudentDocument doc = studentDocumentRepository.findById(studentDocumentId)
                 .orElseThrow(() -> new NotFoundException("Document not found"));
 
-        User currentUser = SecurityUtils.getCurrentUser();
         if (!isAuthorizedForDocument(doc, currentUser)) {
             throw new ForbiddenException("No tienes permiso para ver este documento");
         }
@@ -619,25 +648,16 @@ public class ModalityDocumentService {
                         List.of(ProgramRole.PROGRAM_HEAD, ProgramRole.PROGRAM_CURRICULUM_COMMITTEE));
 
         return isDirector || isProgramAuthority
-                || tryRequire(() -> resourceAccessPolicy.requireLeader(modality, currentUser, "No tienes permiso para ver este documento"))
-                || tryRequire(() -> resourceAccessPolicy.requireActiveMember(modality.getId(), currentUser, "No tienes permiso para ver este documento"))
-                || tryRequire(() -> resourceAccessPolicy.requireAssignedExaminer(modality.getId(), currentUser, "No tienes permiso para ver este documento"));
-    }
-
-    private boolean tryRequire(Runnable check) {
-        try {
-            check.run();
-            return true;
-        } catch (ForbiddenException e) {
-            return false;
-        }
+                || resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireLeader(modality, currentUser, "No tienes permiso para ver este documento"))
+                || resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireActiveMember(modality.getId(), currentUser, "No tienes permiso para ver este documento"))
+                || resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireAssignedExaminer(modality.getId(), currentUser, "No tienes permiso para ver este documento"));
     }
 
     /**
      * Valida que todos los documentos MANDATORY y SECONDARY de la modalidad estén subidos.
      * Usado por el workflow (aprobación/rechazo final del comité).
      */
-    public Map<String, Object> validateAllRequiredDocumentsUploaded(Long studentModalityId) {
+    public RequiredDocumentsUploadedResponse validateAllRequiredDocumentsUploaded(Long studentModalityId) {
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
@@ -658,29 +678,26 @@ public class ModalityDocumentService {
                         d -> d
                 ));
 
-        List<Map<String, Object>> missingDocuments = new ArrayList<>();
+        List<RequiredDocumentsUploadedResponse.MissingDocumentInfo> missingDocuments = new ArrayList<>();
 
         for (RequiredDocument required : requiredDocuments) {
             if (!uploadedMap.containsKey(required.getId())) {
-                Map<String, Object> docInfo = new HashMap<>();
-                docInfo.put("documentId", required.getId());
-                docInfo.put("documentName", required.getDocumentName());
-                docInfo.put("documentType", required.getDocumentType().toString());
-                docInfo.put("description", required.getDescription() != null ? required.getDescription() : "Sin descripción");
-                missingDocuments.add(docInfo);
+                missingDocuments.add(new RequiredDocumentsUploadedResponse.MissingDocumentInfo(
+                        required.getId(),
+                        required.getDocumentName(),
+                        required.getDocumentType().toString(),
+                        required.getDescription() != null ? required.getDescription() : "Sin descripción"));
             }
         }
 
         boolean allUploaded = missingDocuments.isEmpty();
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("allDocumentsUploaded", allUploaded);
-        result.put("totalRequired", requiredDocuments.size());
-        result.put("totalUploaded", uploadedDocuments.size());
-        result.put("missingDocuments", missingDocuments);
-        result.put("missingCount", missingDocuments.size());
-
-        return result;
+        return new RequiredDocumentsUploadedResponse(
+                allUploaded,
+                requiredDocuments.size(),
+                uploadedDocuments.size(),
+                missingDocuments,
+                missingDocuments.size());
     }
 
     /**
@@ -688,7 +705,7 @@ public class ModalityDocumentService {
      * tengan estado ACCEPTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW.
      * Usado por el workflow (aprobación/rechazo final del comité).
      */
-    public Map<String, Object> validateAllDocumentsAcceptedForCommittee(Long studentModalityId) {
+    public DocumentsAcceptedForCommitteeResponse validateAllDocumentsAcceptedForCommittee(Long studentModalityId) {
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
@@ -709,35 +726,30 @@ public class ModalityDocumentService {
                         d -> d
                 ));
 
-        List<Map<String, Object>> notAcceptedDocuments = new ArrayList<>();
+        List<DocumentsAcceptedForCommitteeResponse.NotAcceptedDocumentInfo> notAcceptedDocuments = new ArrayList<>();
 
         for (RequiredDocument required : requiredDocuments) {
             StudentDocument uploaded = uploadedMap.get(required.getId());
             boolean accepted = uploaded != null &&
                     uploaded.getStatus() == DocumentStatus.ACCEPTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW;
             if (!accepted) {
-                Map<String, Object> docInfo = new HashMap<>();
-                docInfo.put("documentId", required.getId());
-                docInfo.put("documentName", required.getDocumentName());
-                docInfo.put("documentType", required.getDocumentType().toString());
-                docInfo.put("currentStatus", uploaded != null ? uploaded.getStatus().toString() : "NO_SUBIDO");
-                notAcceptedDocuments.add(docInfo);
+                notAcceptedDocuments.add(new DocumentsAcceptedForCommitteeResponse.NotAcceptedDocumentInfo(
+                        required.getId(),
+                        required.getDocumentName(),
+                        required.getDocumentType().toString(),
+                        uploaded != null ? uploaded.getStatus().toString() : "NO_SUBIDO"));
             }
         }
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("allAccepted", notAcceptedDocuments.isEmpty());
-        result.put("notAcceptedDocuments", notAcceptedDocuments);
-        result.put("notAcceptedCount", notAcceptedDocuments.size());
-        result.put("totalRequired", requiredDocuments.size());
-
-        return result;
+        return new DocumentsAcceptedForCommitteeResponse(
+                notAcceptedDocuments.isEmpty(),
+                notAcceptedDocuments,
+                notAcceptedDocuments.size(),
+                requiredDocuments.size());
     }
 
-    @Transactional
-    public Map<String, Object> resubmitCorrectedDocument(Long studentModalityId, Long documentId, MultipartFile file) throws IOException {
-
-        User student = SecurityUtils.getCurrentUser();
+    // T5.12: la I/O (Files.copy) queda fuera de la tx; la persistencia va en persistResubmit
+    public ResubmitDocumentResponse resubmitCorrectedDocument(Long studentModalityId, Long documentId, MultipartFile file, User student) throws IOException {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -762,10 +774,39 @@ public class ModalityDocumentService {
             throw new ValidationException("El plazo de 30 días para entregar las correcciones ha vencido. La modalidad ha sido cancelada.");
         }
 
+        String originalFilename = file.getOriginalFilename();
+        String safeOriginal = TranslationUtils.sanitizeFileName(FilenameUtils.getName(originalFilename != null ? originalFilename : ""));
+        if (safeOriginal.isEmpty()) {
+            safeOriginal = "documento";
+        }
+        String finalFileName = UUID.randomUUID() + "_" + safeOriginal;
+
+        // T5.12: ruta desde la modalidad del parámetro (relaciones EAGER) en lugar de
+        // document.getStudentModality() (LAZY, no navegable fuera de tx); misma modalidad ya validada
+        String modalityPath = TranslationUtils.sanitizeFileName(
+                studentModality.getProgramDegreeModality()
+                        .getDegreeModality()
+                        .getName(), "[^a-zA-Z0-9]");
+
+        String studentPath = TranslationUtils.studentFolder(student.getName(), student.getLastName(), student.getId());
+
+        Path basePath = Paths.get(uploadDir, modalityPath, studentPath);
+        Files.createDirectories(basePath);
+
+        Path fullPath = basePath.resolve(finalFileName);
+        Files.copy(file.getInputStream(), fullPath, StandardCopyOption.REPLACE_EXISTING);
+
+        return persistResubmit(studentModality, student, documentId, originalFilename, fullPath.toString());
+    }
+
+    @Transactional
+    public ResubmitDocumentResponse persistResubmit(StudentModality studentModality, User student,
+                                                    Long documentId, String originalFilename, String filePath) {
+
         StudentDocument document = studentDocumentRepository.findById(documentId)
                 .orElseThrow(() -> new NotFoundException("Documento no encontrado"));
 
-        if (!document.getStudentModality().getId().equals(studentModalityId)) {
+        if (!document.getStudentModality().getId().equals(studentModality.getId())) {
             throw new ForbiddenException("El documento no pertenece a esta modalidad");
         }
 
@@ -774,31 +815,8 @@ public class ModalityDocumentService {
             throw new ValidationException("El documento no está en estado de correcciones solicitadas");
         }
 
-        String originalFilename = file.getOriginalFilename();
-        String safeOriginal = FilenameUtils.getName(originalFilename != null ? originalFilename : "")
-                .replaceAll("[^a-zA-Z0-9._-]", "_");
-        if (safeOriginal.isEmpty()) {
-            safeOriginal = "documento";
-        }
-        String finalFileName = UUID.randomUUID() + "_" + safeOriginal;
-
-        String modalityPath = document.getStudentModality()
-                .getProgramDegreeModality()
-                .getDegreeModality()
-                .getName()
-                .replaceAll("[^a-zA-Z0-9]", "_");
-
-        String studentPath = (student.getName() + student.getLastName() + "_" +
-                student.getLastName() + "_" + studentModalityId).replaceAll("[^a-zA-Z0-9]", "_");
-
-        Path basePath = Paths.get(uploadDir, modalityPath, studentPath);
-        Files.createDirectories(basePath);
-
-        Path fullPath = basePath.resolve(finalFileName);
-        Files.copy(file.getInputStream(), fullPath, StandardCopyOption.REPLACE_EXISTING);
-
         document.setFileName(originalFilename);
-        document.setFilePath(fullPath.toString());
+        document.setFilePath(filePath);
         document.setStatus(DocumentStatus.CORRECTION_RESUBMITTED);
         document.setUploadDate(LocalDateTime.now());
         studentDocumentRepository.save(document);
@@ -816,26 +834,30 @@ public class ModalityDocumentService {
                         .build()
         );
 
+        // ponytail: self-invocation desde resubmitCorrectedDocument; getDocumentConfig() (LAZY) no es navegable
+        // fuera de sesión (OSIV off). El getId() del proxy no inicializa; se recarga el documento requerido por id.
+        String documentConfigName = requiredDocumentRepository.findById(document.getDocumentConfig().getId())
+                .map(RequiredDocument::getDocumentName)
+                .orElse(null);
+
         applicationEventPublisher.publishEvent(
-                new ModalityEvent(NotificationType.CORRECTION_RESUBMITTED, studentModalityId, student.getId(), Map.of(
+                new ModalityEvent(NotificationType.CORRECTION_RESUBMITTED, studentModality.getId(), student.getId(), Map.of(
                         ModalityEvent.KEY_DOCUMENT_ID, documentId,
                         ModalityEvent.KEY_STUDENT_ID, student.getId(),
-                        ModalityEvent.KEY_DOCUMENT_NAME, document.getDocumentConfig().getDocumentName()
+                        ModalityEvent.KEY_DOCUMENT_NAME, documentConfigName
                 ))
         );
 
-        return Map.of(
-                "success", true,
-                "message", "Documento corregido enviado exitosamente. Será revisado por el jurado correspondiente.",
-                "documentId", documentId,
-                "newStatus", document.getStatus()
+        return new ResubmitDocumentResponse(
+                true,
+                "Documento corregido enviado exitosamente. Será revisado por el jurado correspondiente.",
+                documentId,
+                document.getStatus()
         );
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> getCorrectionDeadlineStatus(Long studentModalityId) {
-
-        User user = SecurityUtils.getCurrentUser();
+    public CorrectionDeadlineStatusResponse getCorrectionDeadlineStatus(Long studentModalityId, User user) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -856,11 +878,11 @@ public class ModalityDocumentService {
 
         if (studentModality.getStatus() != ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD &&
                 studentModality.getStatus() != ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE) {
-            return Map.of(
-                    "hasCorrectionRequest", false,
-                    "currentStatus", studentModality.getStatus(),
-                    "message", "No hay correcciones solicitadas actualmente"
-            );
+            return new CorrectionDeadlineStatusResponse(
+                    false,
+                    studentModality.getStatus(),
+                    "No hay correcciones solicitadas actualmente",
+                    null, null, null, null, null);
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -872,14 +894,15 @@ public class ModalityDocumentService {
             isExpired = daysRemaining < 0;
         }
 
-        return Map.of(
-                "hasCorrectionRequest", true,
-                "currentStatus", studentModality.getStatus(),
-                "correctionRequestDate", studentModality.getCorrectionRequestDate(),
-                "correctionDeadline", studentModality.getCorrectionDeadline(),
-                "daysRemaining", Math.max(0, daysRemaining),
-                "isExpired", isExpired,
-                "reminderSent", studentModality.getCorrectionReminderSent() != null ? studentModality.getCorrectionReminderSent() : false
+        return new CorrectionDeadlineStatusResponse(
+                true,
+                studentModality.getStatus(),
+                null,
+                studentModality.getCorrectionRequestDate(),
+                studentModality.getCorrectionDeadline(),
+                Math.max(0, daysRemaining),
+                isExpired,
+                studentModality.getCorrectionReminderSent() != null ? studentModality.getCorrectionReminderSent() : false
         );
     }
 }

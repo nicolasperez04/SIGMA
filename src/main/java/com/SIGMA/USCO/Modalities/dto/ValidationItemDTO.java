@@ -13,7 +13,7 @@ public class ValidationItemDTO {
 
     private String requirementName;
 
-    private String expectedValue;
+    private String requiredValue;
 
     private String studentValue;
 

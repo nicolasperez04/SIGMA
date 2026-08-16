@@ -1,19 +1,20 @@
 package com.SIGMA.USCO.notifications.listeners;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationRecipientType;
-import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
+import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import com.SIGMA.USCO.notifications.service.NotificationBuilderHelper;
 import com.SIGMA.USCO.notifications.service.NotificationFactory;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Slf4j
@@ -33,6 +35,7 @@ public class DirectorNotificationListener {
     private final NotificationFactory notificationFactory;
     private final UserRepository userRepository;
     private final StudentDocumentRepository studentDocumentRepository;
+    private final com.SIGMA.USCO.academic.repository.StudentProfileRepository studentProfileRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
@@ -42,6 +45,11 @@ public class DirectorNotificationListener {
                 case MODALITY_CANCELLATION_APPROVED -> handleCancellationApproved(event);
                 case MODALITY_CANCELLATION_REJECTED -> handleCancellationRejected(event);
                 case MODALITY_CANCELLATION_REQUESTED -> handleCancellationRequested(event);
+                case MODALITY_APPROVED_BY_EXAMINERS -> handleModalityApprovedByExaminers(event);
+                case DOCUMENT_CORRECTIONS_REQUESTED -> handleCorrectionsRequested(event);
+                case CORRECTION_REJECTED_FINAL -> handleCorrectionRejectedFinal(event);
+                case DOCUMENT_REVIEW_TIEBREAKER_REQUIRED -> handleTiebreakerRequired(event);
+                case MODALITY_READY_FOR_DEFENSE -> handleModalityReadyForDefense(event);
                 case DIRECTOR_ASSIGNED -> handleDirectorAssigned(event);
                 case DEFENSE_COMPLETED -> handleFinalDefenseResult(event);
                 case DOCUMENT_UPLOADED -> handleStudentDocumentUpdated(event);
@@ -55,45 +63,15 @@ public class DirectorNotificationListener {
     }
 
     private void handleCancellationApproved(ModalityEvent event) {
-        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
+        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         if (sm.getProjectDirector() == null) return;
 
         String miembros = TranslationUtils.getStudentList(sm);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
-        String subject = "Concepto del Director de Proyecto sobre solicitud de cancelación de modalidad";
-        String message = """
-                Estimado/a %s,
-                
-                        Reciba un cordial saludo.
-                
-                        Le informamos que el/la Director/a del proyecto ha emitido un concepto favorable
-                        respecto a la solicitud de cancelación de la siguiente modalidad de grado:
-                
-                        Modalidad:
-                        "%s"
-                
-                        Estudiantes vinculados al proceso:
-                        %s
-                
-                        De acuerdo con el procedimiento académico institucional, la solicitud será ahora
-                        remitida al Comité de Currículo del programa académico, instancia que realizará
-                        la evaluación correspondiente y emitirá la decisión definitiva sobre la cancelación
-                        de la modalidad de grado.
-                
-                        El comité podrá determinar la aprobación o el rechazo de la solicitud, decisión
-                        que será notificada oportunamente a través del sistema institucional.
-                
-                        Esta comunicación se emite con el fin de mantener la trazabilidad y el registro
-                        formal del proceso académico asociado a las modalidades de grado.
-                
-                        Atentamente,
-                
-                        Sistema de Gestión de Modalidades de Grado
-                        Universidad Surcolombiana
-                
-                
-                """.formatted(
+        String subject = NotificationMessageTemplates.DIRECTOR_CANCELLATION_SUBJECT;
+        String message = NotificationMessageTemplates.directorCancellationApproved(
                 sm.getProjectDirector().getName(),
                 modalidadInfo,
                 miembros
@@ -108,48 +86,15 @@ public class DirectorNotificationListener {
     }
 
     private void handleCancellationRejected(ModalityEvent event) {
-        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
+        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         if (sm.getProjectDirector() == null) return;
 
         String miembros = TranslationUtils.getStudentList(sm);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
-        String subject = "Concepto del Director de Proyecto sobre solicitud de cancelación de modalidad";
-        String message = """
-                Estimado/a %s,
-                
-                        Reciba un cordial saludo.
-                
-                        Le informamos que el/la Director/a del proyecto ha evaluado la solicitud de
-                        cancelación correspondiente a la siguiente modalidad de grado:
-                
-                        Modalidad:
-                        "%s"
-                
-                        Estudiantes vinculados al proceso:
-                        %s
-                
-                        Después de realizar la revisión correspondiente, el/la Director/a del proyecto
-                        ha emitido un concepto no favorable respecto a la solicitud de cancelación.
-                
-                        En consecuencia, la solicitud no será remitida al Comité de Currículo y
-                        la modalidad de grado continuará su desarrollo conforme al estado académico
-                        vigente y a los lineamientos institucionales establecidos para el proceso
-                        de modalidades de grado.
-                
-                        Esta notificación se emite con el fin de mantener la trazabilidad y el
-                        registro formal del proceso académico dentro del sistema institucional.
-                
-                        Si requiere información adicional o desea realizar seguimiento al caso,
-                        puede comunicarse con la Jefatura del Programa Académico correspondiente.
-                
-                        Atentamente,
-                
-                        Sistema de Gestión de Modalidades de Grado 
-                        Universidad Surcolombiana
-                
-                
-                """.formatted(
+        String subject = NotificationMessageTemplates.DIRECTOR_CANCELLATION_SUBJECT;
+        String message = NotificationMessageTemplates.directorCancellationRejected(
                 sm.getProjectDirector().getName(),
                 modalidadInfo,
                 miembros
@@ -164,45 +109,24 @@ public class DirectorNotificationListener {
     }
 
     private void handleCancellationRequested(ModalityEvent event) {
-        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
+        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         if (sm.getProjectDirector() == null) return;
 
         String miembros = TranslationUtils.getStudentList(sm);
+        User leader = sm.getLeader();
+        var leaderProfile = studentProfileRepository.findByUserId(leader.getId()).orElse(null);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
-        String subject = "Solicitud de cancelación de modalidad recibida";
-        String message = """
-                Estimado/a %s,
-                
-                Reciba un cordial saludo.
-                
-                Le informamos que se ha registrado una solicitud formal de cancelación
-                correspondiente a la siguiente modalidad de grado:
-                
-                Modalidad:
-                "%s"
-                
-                Estudiantes vinculados al proceso:
-                %s
-                
-                De acuerdo con el procedimiento académico establecido, esta solicitud
-                requiere su revisión y concepto en calidad de Director/a de Proyecto.
-                Una vez emitida su valoración, el caso será remitido al Comité de
-                Currículo del Programa para su análisis y decisión final.
-                
-                Le agradecemos realizar la revisión correspondiente dentro de los
-                plazos institucionales establecidos y efectuar el seguimiento del
-                proceso a través del sistema.
-                
-                Atentamente,
-                
-                Sistema SIGMA
-                Sistema de Gestión de Modalidades de Grado
-                Universidad Surcolombiana
-                
-                """.formatted(
+        String subject = NotificationMessageTemplates.DIRECTOR_CANCELLATION_REQUESTED_SUBJECT;
+        String message = NotificationMessageTemplates.directorCancellationRequested(
                 sm.getProjectDirector().getName(),
                 modalidadInfo,
+                sm.getAcademicProgram().getName(),
+                leader.getName() + " " + leader.getLastName(),
+                leaderProfile != null && leaderProfile.getSemester() != null ? String.valueOf(leaderProfile.getSemester()) : "No registrado",
+                leaderProfile != null && leaderProfile.getStudentCode() != null ? leaderProfile.getStudentCode() : "No registrado",
+                leader.getEmail(),
                 miembros
         );
 
@@ -214,57 +138,153 @@ public class DirectorNotificationListener {
         );
     }
 
+    private void handleModalityApprovedByExaminers(ModalityEvent event) {
+        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        if (sm.getProjectDirector() == null) return;
+
+        String modalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
+        String programName = sm.getAcademicProgram().getName();
+        String approvalDate = TranslationUtils.formatDateTime(LocalDateTime.now());
+        String subject = "Notificación oficial – Modalidad aprobada por jurado evaluador";
+
+        notificationFactory.buildAndDispatch(
+                NotificationType.MODALITY_APPROVED_BY_EXAMINERS,
+                NotificationRecipientType.PROJECT_DIRECTOR,
+                sm.getProjectDirector(),
+                sm, subject,
+                NotificationMessageTemplates.modalityApprovedByExaminers(
+                        sm.getProjectDirector().getName(),
+                        modalityName,
+                        programName,
+                        approvalDate,
+                        TranslationUtils.getStudentList(sm)
+                )
+        );
+    }
+
+    private void handleCorrectionsRequested(ModalityEvent event) {
+        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        if (sm.getProjectDirector() == null) return;
+
+        String requestedByName = event.get(ModalityEvent.KEY_REQUESTED_BY, String.class);
+        NotificationRecipientType requestedBy = requestedByName != null && !requestedByName.isBlank()
+                ? NotificationRecipientType.valueOf(requestedByName)
+                : null;
+        if (requestedBy != NotificationRecipientType.EXAMINER) return;
+
+        String documentName = studentDocumentRepository.findById(event.get(ModalityEvent.KEY_STUDENT_DOCUMENT_ID, Long.class))
+                .map(doc -> doc.getDocumentConfig().getDocumentName())
+                .orElse("Documento académico");
+        String observations = event.get(ModalityEvent.KEY_OBSERVATIONS, String.class);
+        String resolvedObservations = observations != null && !observations.isBlank()
+                ? observations
+                : "No se registraron observaciones adicionales.";
+        String studentName = sm.getLeader().getName() + " " + sm.getLeader().getLastName();
+        String subject = "Notificación oficial – Correcciones solicitadas por jurado evaluador";
+
+        notificationFactory.buildAndDispatch(
+                NotificationType.DOCUMENT_CORRECTIONS_REQUESTED,
+                NotificationRecipientType.PROJECT_DIRECTOR,
+                sm.getProjectDirector(),
+                sm, subject,
+                NotificationMessageTemplates.directorCorrectionsRequested(
+                        sm.getProjectDirector().getName(),
+                        studentName,
+                        documentName,
+                        resolvedObservations
+                )
+        );
+    }
+
+    private void handleCorrectionRejectedFinal(ModalityEvent event) {
+        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        if (sm.getProjectDirector() == null) return;
+
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
+        String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
+        String reason = event.get(ModalityEvent.KEY_REASON, String.class);
+        String resolvedReason = reason != null && !reason.isBlank()
+                ? reason
+                : "No se registran motivos adicionales.";
+        String studentName = sm.getLeader().getName() + " " + sm.getLeader().getLastName();
+        String subject = "Notificación oficial – Cancelación de modalidad por rechazo definitivo de correcciones";
+
+        notificationFactory.buildAndDispatch(
+                NotificationType.CORRECTION_REJECTED_FINAL,
+                NotificationRecipientType.PROJECT_DIRECTOR,
+                sm.getProjectDirector(),
+                sm, subject,
+                NotificationMessageTemplates.directorCorrectionRejectedFinal(
+                        sm.getProjectDirector().getName(),
+                        studentName,
+                        modalidadInfo,
+                        documentName,
+                        resolvedReason
+                )
+        );
+    }
+
+    private void handleTiebreakerRequired(ModalityEvent event) {
+        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        if (sm.getProjectDirector() == null) return;
+
+        String documentName = event.get(ModalityEvent.KEY_DOCUMENT_NAME, String.class);
+        String studentName = sm.getLeader().getName() + " " + sm.getLeader().getLastName();
+        String subject = "Notificación oficial – Decisión dividida de jurados: se requiere jurado de desempate";
+
+        notificationFactory.buildAndDispatch(
+                NotificationType.DOCUMENT_REVIEW_TIEBREAKER_REQUIRED,
+                NotificationRecipientType.PROJECT_DIRECTOR,
+                sm.getProjectDirector(),
+                sm, subject,
+                NotificationMessageTemplates.directorTiebreakerRequired(
+                        sm.getProjectDirector().getName(),
+                        studentName,
+                        documentName
+                )
+        );
+    }
+
+    private void handleModalityReadyForDefense(ModalityEvent event) {
+        StudentModality sm = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        if (sm.getProjectDirector() == null) return;
+
+        String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(sm);
+        String subject = "Modalidad lista para revisión final por parte de los jurados – Documentos finales aprobados";
+        String message = NotificationMessageTemplates.directorModalityReadyForDefense(
+                sm.getProjectDirector().getName(),
+                TranslationUtils.getStudentList(sm),
+                modalidadInfo
+        );
+        notificationFactory.buildAndDispatch(
+                NotificationType.MODALITY_READY_FOR_DEFENSE,
+                NotificationRecipientType.PROJECT_DIRECTOR,
+                sm.getProjectDirector(),
+                sm, subject, message
+        );
+    }
+
     private void handleDirectorAssigned(ModalityEvent event) {
-        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
-        User director = userRepository.findById(event.get(ModalityEvent.KEY_DIRECTOR_ID, Long.class)).orElseThrow();
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+        User director = userRepository.findById(event.get(ModalityEvent.KEY_DIRECTOR_ID, Long.class))
+                .orElseThrow(() -> new NotFoundException("Director de proyecto no encontrado"));
 
         String miembros = TranslationUtils.getStudentList(modality);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
-        String directorSubject = "Asignación como Director de Proyecto a modalidad de grado";
-        String directorMessage = """
-                Estimado/a %s,
-                
-                Reciba un cordial saludo.
-                
-                Le informamos que ha sido designado/a oficialmente como Director/a de Proyecto
-                para la siguiente modalidad de grado, conforme al registro realizado en el
-                sistema institucional.
-                
-                A continuación, se presentan los datos asociados al proceso:
-                
-                Modalidad de grado:
-                "%s"
-                
-                Programa académico:
-                "%s"
-                
-                Estudiantes vinculados al proyecto:
-                %s
-                
-                Fecha de asignación:
-                %s
-                
-                A partir de esta designación, usted asume la responsabilidad de orientar,
-                supervisar y acompañar el desarrollo académico del proyecto de grado,
-                garantizando el cumplimiento de los lineamientos, cronogramas y criterios
-                de evaluación establecidos por el programa académico.
-                
-                Le recomendamos ingresar al sistema para consultar la información completa
-                de la modalidad y realizar el seguimiento correspondiente al proceso.
-                
-                Atentamente,
-                
-                
-                Sistema de Gestión de Modalidades de Grado
-                Universidad Surcolombiana
-                
-                """.formatted(
+        String directorSubject = NotificationMessageTemplates.DIRECTOR_ASSIGNED_SUBJECT;
+        String directorMessage = NotificationMessageTemplates.directorAssigned(
                 director.getName(),
                 modalidadInfo,
                 modality.getProgramDegreeModality().getAcademicProgram().getName(),
                 miembros,
-                modality.getUpdatedAt()
+                TranslationUtils.formatDateTime(modality.getUpdatedAt())
         );
 
         notificationFactory.buildAndDispatch(
@@ -276,58 +296,19 @@ public class DirectorNotificationListener {
     }
 
     private void handleFinalDefenseResult(ModalityEvent event) {
-        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         User director = modality.getProjectDirector();
         if (director == null) return;
 
         String miembros = TranslationUtils.getStudentList(modality);
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
-        String subject = "Resultado de la sustentación final – Estudiantes asignados";
-        String message = """
-                Estimado/a %s,
-                
-                Reciba un cordial saludo.
-                
-                Le informamos que la sustentación final correspondiente a la modalidad
-                de grado bajo su dirección académica ha sido realizada y registrada
-                oficialmente en el sistema.
-                
-                A continuación, se presentan los detalles del proceso:
-                
-                Modalidad de grado:
-                "%s"
-                
-                Estudiantes:
-                %s
-                
-                Resultado final:
-                %s
-                
-                Distinción académica:
-                %s
-                
-                Observaciones del jurado o comité evaluador:
-                %s
-                
-                Este resultado marca la finalización del proceso académico de
-                sustentación. En su calidad de Director/a de Proyecto, le recomendamos
-                verificar el estado actualizado de la modalidad en el sistema y, si
-                corresponde, coordinar los trámites académicos y administrativos
-                posteriores con la jefatura del programa.
-                
-                Agradecemos el acompañamiento y la orientación brindados durante el
-                desarrollo del proyecto de grado.
-                
-                Atentamente,
-                
-                Sistema SIGMA
-                Sistema de Gestión de Modalidades de Grado
-                Universidad Surcolombiana
-                """.formatted(
+        String subject = NotificationMessageTemplates.DIRECTOR_FINAL_DEFENSE_RESULT_SUBJECT;
+        String message = NotificationMessageTemplates.directorFinalDefenseResult(
                 director.getName(),
-                modalidadInfo,
                 miembros,
+                modalidadInfo,
                 TranslationUtils.translateModalityProcessStatus(event.get(ModalityEvent.KEY_FINAL_STATUS, ModalityProcessStatus.class)),
                 TranslationUtils.translateAcademicDistinction(event.get(ModalityEvent.KEY_ACADEMIC_DISTINCTION, AcademicDistinction.class)),
                 event.get(ModalityEvent.KEY_OBSERVATIONS, String.class) != null ? event.get(ModalityEvent.KEY_OBSERVATIONS, String.class) : "N/A"
@@ -342,41 +323,19 @@ public class DirectorNotificationListener {
     }
 
     private void handleStudentDocumentUpdated(ModalityEvent event) {
-        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId()).orElseThrow();
+        StudentModality modality = studentModalityRepository.findById(event.getStudentModalityId())
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
         if (modality.getProjectDirector() == null) return;
 
-        StudentDocument document = studentDocumentRepository.findById(event.get(ModalityEvent.KEY_STUDENT_DOCUMENT_ID, Long.class)).orElseThrow();
+        StudentDocument document = studentDocumentRepository.findById(event.get(ModalityEvent.KEY_STUDENT_DOCUMENT_ID, Long.class))
+                .orElseThrow(() -> new NotFoundException("Documento no encontrado"));
 
         User student = modality.getLeader();
         User director = modality.getProjectDirector();
 
         String modalidadInfo = NotificationBuilderHelper.buildModalityInfo(modality);
-        String subject = "Documento actualizado – Estudiante asignado";
-        String message = """
-                Estimado/a %s,
-                
-                Reciba un cordial saludo.
-                
-                Le informamos que el estudiante %s ha realizado una actualización en uno de los documentos asociados a la modalidad de grado que actualmente se encuentra bajo su dirección académica.
-                
-                A continuación, se detallan los datos correspondientes:
-                
-                Modalidad de grado:
-                "%s"
-                
-                Documento actualizado:
-                "%s"
-                
-                Estado actual del documento:
-                %s
-                
-                Esta actualización puede requerir su revisión, validación o retroalimentación según el estado reportado y la fase del proceso académico.
-                
-                Le invitamos a ingresar a la plataforma institucional para consultar la versión más reciente del documento y continuar con el seguimiento académico correspondiente.
-                
-                Cordialmente,
-                Sistema de Gestión Académica
-            """.formatted(
+        String subject = NotificationMessageTemplates.DIRECTOR_STUDENT_DOCUMENT_UPDATED_SUBJECT;
+        String message = NotificationMessageTemplates.directorStudentDocumentUpdated(
                 director.getName(),
                 student.getName() + " " + student.getLastName(),
                 modalidadInfo,

@@ -1,28 +1,26 @@
 package com.SIGMA.USCO.notifications.service;
 
-import com.SIGMA.USCO.Modalities.Entity.AcademicCertificate;
-import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
-import com.SIGMA.USCO.Modalities.Entity.enums.CertificateStatus;
-import com.SIGMA.USCO.Modalities.Repository.AcademicCertificateRepository;
-import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.Modalities.entity.AcademicCertificate;
+import com.SIGMA.USCO.Modalities.entity.DefenseExaminer;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction;
+import com.SIGMA.USCO.Modalities.entity.enums.CertificateStatus;
+import com.SIGMA.USCO.Modalities.repository.AcademicCertificateRepository;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import com.SIGMA.USCO.common.exception.NotFoundException;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.PdfPCell;
 import com.itextpdf.text.pdf.PdfPTable;
-import com.itextpdf.text.pdf.PdfWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,8 +28,10 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.SIGMA.USCO.notifications.service.CertificatePdfSupport.*;
 
@@ -140,86 +140,32 @@ public class AcademicCertificatePdfService {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void buildPdf(Path filePath, StudentModality sm, String certNumber) {
-        try {
-            // Márgenes: izq 50, der 50, sup 40, inf 50
-            Document doc = new Document(PageSize.A4, 50, 50, 40, 50);
-            PdfWriter.getInstance(doc, new FileOutputStream(filePath.toFile()));
-            doc.open();
-
-            User director = sm.getProjectDirector();
-            String facultyName  = sm.getProgramDegreeModality().getAcademicProgram().getFaculty().getName();
-            String programName  = sm.getProgramDegreeModality().getAcademicProgram().getName();
-            String modalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
-
-            // ── 1. CABECERA INSTITUCIONAL (logo + membrete) ───────────────────
-            addInstitutionalHeader(doc, facultyName, programName);
-
-            // ── 2. LÍNEA ROJA DIVISORA ─────────────────────────────────────────
-            addRedLine(doc);
-            addSpacing(doc, 6f);
-
-            // ── 3. TÍTULO Y NÚMERO DE ACTA ─────────────────────────────────────
-            Paragraph title = new Paragraph("ACTA DE APROBACIÓN DE MODALIDAD DE GRADO", FONT_TITLE);
-            title.setAlignment(Element.ALIGN_CENTER);
-            title.setSpacingAfter(4f);
-            doc.add(title);
-
-            Paragraph actaNum = new Paragraph("No. " + certNumber, FONT_ACTA_NUM);
-            actaNum.setAlignment(Element.ALIGN_CENTER);
-            actaNum.setSpacingAfter(4f);
-            doc.add(actaNum);
-
-            // Fecha de emisión alineada a la derecha
-            Paragraph issueDate = new Paragraph(
-                    "Neiva, " + LocalDateTime.now().format(DATE_FMT), FONT_BODY);
-            issueDate.setAlignment(Element.ALIGN_RIGHT);
-            issueDate.setSpacingAfter(10f);
-            doc.add(issueDate);
-
-            addGoldLine(doc);
-            addSpacing(doc, 8f);
-
-            // ── 4. CUERPO CERTIFICATORIO ────────────────────────────────────────
+        User director = sm.getProjectDirector();
+        String facultyName  = sm.getProgramDegreeModality().getAcademicProgram().getFaculty().getName();
+        String programName  = sm.getProgramDegreeModality().getAcademicProgram().getName();
+        String modalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
+        buildDocument(filePath, "ACTA DE APROBACIÓN DE MODALIDAD DE GRADO", certNumber, FONT_VERIF,
+                facultyName, programName, "Error al generar el certificado PDF", doc -> {
             addCertificationBody(doc, sm, modalityName);
             addSpacing(doc, 12f);
-
-            // ── 5. SECCIÓN: DATOS DE LOS ESTUDIANTES ──────────────────────────
             addSectionHeader(doc, "I. DATOS DEL GRADUANDO");
             addSpacing(doc, 4f);
             addStudentsTable(doc, sm);
             addSpacing(doc, 10f);
-
-            // ── 6. SECCIÓN: INFORMACIÓN DE LA MODALIDAD ────────────────────────
             addSectionHeader(doc, "II. INFORMACIÓN DE LA MODALIDAD");
             addSpacing(doc, 4f);
             addModalityTable(doc, sm, director);
             addSpacing(doc, 10f);
-
-            // ── 7. SECCIÓN: RESULTADO DE LA EVALUACIÓN ─────────────────────────
             addSectionHeader(doc, "III. RESULTADO DE LA EVALUACIÓN");
             addSpacing(doc, 4f);
             addResultTable(doc, sm);
             addSpacing(doc, 14f);
-
-            // ── 8. NOTA RESOLUTIVA ─────────────────────────────────────────────
             addResolutiveNote(doc, sm);
             addSpacing(doc, 20f);
-
-            // ── 9. FIRMAS ──────────────────────────────────────────────────────
             addSignaturesSection(doc, sm, director);
             addSpacing(doc, 16f);
-
-            // ── 10. PIE DE PÁGINA ─────────────────────────────────────────────
-            addGoldLine(doc);
-            addSpacing(doc, 6f);
-            addFooter(doc, certNumber, FONT_VERIF);
-
-            doc.close();
-            log.info("PDF institucional generado: {}", filePath);
-        } catch (DocumentException | IOException e) {
-            log.error("Error generando PDF institucional: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al generar el certificado PDF", e);
-        }
+        });
+        log.info("PDF institucional generado: {}", filePath);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -252,7 +198,8 @@ public class AcademicCertificatePdfService {
         String distinctionStr = "";
         AcademicDistinction dist = sm.getAcademicDistinction();
         if (dist != null && dist != AcademicDistinction.NO_DISTINCTION) {
-            distinctionStr = " con " + translateDistinction(dist).toLowerCase();
+            // ponytail: vocabulario unificado TranslationUtils (T6.10b/T7.12)
+            distinctionStr = " con la distinción académica: " + TranslationUtils.translateAcademicDistinction(dist);
         }
 
         String bodyText =
@@ -277,9 +224,15 @@ public class AcademicCertificatePdfService {
     private void addStudentsTable(Document doc, StudentModality sm) throws DocumentException {
         List<StudentModalityMember> members = sm.getMembers() != null ? sm.getMembers() : List.of();
 
+        // ponytail: perfiles en 1 query (findAllByUserIdIn) en vez de 1 findByUserId por miembro
+        Map<Long, StudentProfile> profilesByUserId = loadProfilesByUserIds(
+                Stream.concat(Stream.of(sm.getLeader()), members.stream().map(StudentModalityMember::getStudent))
+                        .map(User::getId)
+                        .toList());
+
         if (members.isEmpty()) {
             // Solo el líder
-            addSingleStudentRows(doc, sm, sm.getLeader(), true);
+            addSingleStudentRows(doc, sm, sm.getLeader(), true, profilesByUserId);
         } else {
             boolean first = true;
             for (StudentModalityMember m : members) {
@@ -289,23 +242,30 @@ public class AcademicCertificatePdfService {
                     addThinGoldLine(doc);
                     addSpacing(doc, 4f);
                 }
-                addSingleStudentRows(doc, sm, m.getStudent(), m.getIsLeader() != null && m.getIsLeader());
+                addSingleStudentRows(doc, sm, m.getStudent(), m.getIsLeader() != null && m.getIsLeader(), profilesByUserId);
                 first = false;
             }
         }
     }
 
-    private void addSingleStudentRows(Document doc, StudentModality sm, User student, boolean isLeader)
+    private Map<Long, StudentProfile> loadProfilesByUserIds(List<Long> userIds) {
+        try {
+            return studentProfileRepository.findAllByUserIdIn(userIds).stream()
+                    .collect(Collectors.toMap(p -> p.getId(), p -> p, (a, b) -> a));
+        } catch (Exception e) {
+            log.warn("No se pudieron obtener los códigos de los estudiantes: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    private void addSingleStudentRows(Document doc, StudentModality sm, User student, boolean isLeader,
+                                      Map<Long, StudentProfile> profilesByUserId)
             throws DocumentException {
 
         String studentCode = "No registrado";
-        try {
-            StudentProfile profile = studentProfileRepository.findByUserId(student.getId()).orElse(null);
-            if (profile != null && profile.getStudentCode() != null) {
-                studentCode = profile.getStudentCode();
-            }
-        } catch (Exception e) {
-            log.warn("No se pudo obtener el código del estudiante {}: {}", student.getId(), e.getMessage());
+        StudentProfile profile = profilesByUserId.get(student.getId());
+        if (profile != null && profile.getStudentCode() != null) {
+            studentCode = profile.getStudentCode();
         }
 
         PdfPTable table = new PdfPTable(new float[]{2f, 4f});
@@ -360,7 +320,7 @@ public class AcademicCertificatePdfService {
             PdfPCell lblCell = buildLabelCell(alt = !alt);
             lblCell.addElement(new Phrase("Mención académica:", FONT_LABEL));
             PdfPCell valCell = buildLabelCell(alt);
-            valCell.addElement(new Phrase(translateDistinction(dist), FONT_DISTINCTION));
+            valCell.addElement(new Phrase(TranslationUtils.translateAcademicDistinction(dist), FONT_DISTINCTION));
             table.addCell(lblCell);
             table.addCell(valCell);
         } else {
@@ -446,33 +406,6 @@ public class AcademicCertificatePdfService {
     // Helpers de construcción de celdas y líneas
     // ─────────────────────────────────────────────────────────────────────────
 
-    private String translateDistinction(AcademicDistinction distinction) {
-        if (distinction == null) {
-            return "Sin distinción";
-        }
-
-        return switch (distinction) {
-
-            case AGREED_APPROVED -> "Aprobado sin distinción";
-            case AGREED_MERITORIOUS -> "Aprobado con mención meritoria";
-            case AGREED_LAUREATE -> "Aprobado con mención laureada";
-            case AGREED_REJECTED -> "Rechazado";
-
-            // Desacuerdo pendiente
-            case DISAGREEMENT_PENDING_TIEBREAKER -> "En proceso de evaluación por desempate";
-
-
-            case TIEBREAKER_APPROVED -> "Aprobado sin distinción (por desempate)";
-            case TIEBREAKER_MERITORIOUS -> "Aprobado con mención meritoria (por desempate)";
-            case TIEBREAKER_LAUREATE -> "Aprobado con mención laureada (por desempate)";
-            case TIEBREAKER_REJECTED -> "Rechazado (por desempate)";
-
-
-            case NO_DISTINCTION -> "Sin distinción";
-            default -> "Sin distinción";
-        };
-    }
-
     // Traducción de estados de modalidad
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -532,83 +465,31 @@ public class AcademicCertificatePdfService {
      * y calificación final, pues la modalidad fue aprobada directamente por el Comité.
      */
     private void buildSimplifiedPdf(Path filePath, StudentModality sm, String certNumber) {
-        try {
-            Document doc = new Document(PageSize.A4, 50, 50, 40, 50);
-            PdfWriter.getInstance(doc, new FileOutputStream(filePath.toFile()));
-            doc.open();
-
-            String facultyName  = sm.getProgramDegreeModality().getAcademicProgram().getFaculty().getName();
-            String programName  = sm.getProgramDegreeModality().getAcademicProgram().getName();
-            String modalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
-
-            // ── 1. CABECERA INSTITUCIONAL ─────────────────────────────────────
-            addInstitutionalHeader(doc, facultyName, programName);
-
-            // ── 2. LÍNEA ROJA ─────────────────────────────────────────────────
-            addRedLine(doc);
-            addSpacing(doc, 6f);
-
-            // ── 3. TÍTULO Y NÚMERO DE ACTA ────────────────────────────────────
-            Paragraph title = new Paragraph("ACTA DE APROBACIÓN DE MODALIDAD DE GRADO", FONT_TITLE);
-            title.setAlignment(Element.ALIGN_CENTER);
-            title.setSpacingAfter(4f);
-            doc.add(title);
-
-            Paragraph actaNum = new Paragraph("No. " + certNumber, FONT_ACTA_NUM);
-            actaNum.setAlignment(Element.ALIGN_CENTER);
-            actaNum.setSpacingAfter(4f);
-            doc.add(actaNum);
-
-            Paragraph issueDate = new Paragraph(
-                    "Neiva, " + LocalDateTime.now().format(DATE_FMT), FONT_BODY);
-            issueDate.setAlignment(Element.ALIGN_RIGHT);
-            issueDate.setSpacingAfter(10f);
-            doc.add(issueDate);
-
-            addGoldLine(doc);
-            addSpacing(doc, 8f);
-
-            // ── 4. CUERPO CERTIFICATORIO SIMPLIFICADO ─────────────────────────
+        String facultyName  = sm.getProgramDegreeModality().getAcademicProgram().getFaculty().getName();
+        String programName  = sm.getProgramDegreeModality().getAcademicProgram().getName();
+        String modalityName = sm.getProgramDegreeModality().getDegreeModality().getName();
+        buildDocument(filePath, "ACTA DE APROBACIÓN DE MODALIDAD DE GRADO", certNumber, FONT_VERIF,
+                facultyName, programName, "Error al generar el certificado PDF simplificado", doc -> {
             addSimplifiedCertificationBody(doc, sm, modalityName);
             addSpacing(doc, 12f);
-
-            // ── 5. DATOS DEL GRADUANDO ────────────────────────────────────────
             addSectionHeader(doc, "I. DATOS DEL GRADUANDO");
             addSpacing(doc, 4f);
             addStudentsTable(doc, sm);
             addSpacing(doc, 10f);
-
-            // ── 6. INFORMACIÓN DE LA MODALIDAD (versión simplificada) ─────────
             addSectionHeader(doc, "II. INFORMACIÓN DE LA MODALIDAD");
             addSpacing(doc, 4f);
             addSimplifiedModalityTable(doc, sm);
             addSpacing(doc, 10f);
-
-            // ── 7. DECISIÓN DEL COMITÉ ────────────────────────────────────────
             addSectionHeader(doc, "III. DECISIÓN DEL COMITÉ DE CURRÍCULO");
             addSpacing(doc, 4f);
             addCommitteeDecisionTable(doc, sm);
             addSpacing(doc, 14f);
-
-            // ── 8. NOTA RESOLUTIVA ────────────────────────────────────────────
             addResolutiveNote(doc, sm);
             addSpacing(doc, 20f);
-
-            // ── 9. FIRMA DEL COMITÉ ───────────────────────────────────────────
             addCommitteeSignatureNote(doc);
             addSpacing(doc, 16f);
-
-            // ── 10. PIE DE PÁGINA ─────────────────────────────────────────────
-            addGoldLine(doc);
-            addSpacing(doc, 6f);
-            addFooter(doc, certNumber, FONT_VERIF);
-
-            doc.close();
-            log.info("PDF simplificado (comité) generado: {}", filePath);
-        } catch (DocumentException | IOException e) {
-            log.error("Error generando PDF simplificado: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al generar el certificado PDF simplificado", e);
-        }
+        });
+        log.info("PDF simplificado (comité) generado: {}", filePath);
     }
 
     /**
@@ -691,7 +572,7 @@ public class AcademicCertificatePdfService {
             PdfPCell lblCell = buildLabelCell(alt = !alt);
             lblCell.addElement(new Phrase("Mención académica:", FONT_LABEL));
             PdfPCell valCell = buildLabelCell(alt);
-            valCell.addElement(new Phrase(translateDistinction(dist), FONT_DISTINCTION));
+            valCell.addElement(new Phrase(TranslationUtils.translateAcademicDistinction(dist), FONT_DISTINCTION));
             table.addCell(lblCell);
             table.addCell(valCell);
         }

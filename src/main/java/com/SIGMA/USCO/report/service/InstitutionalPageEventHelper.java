@@ -1,6 +1,5 @@
 package com.SIGMA.USCO.report.service;
 
-import com.itextpdf.text.BaseColor;
 import com.itextpdf.text.Document;
 import com.itextpdf.text.Element;
 import com.itextpdf.text.FontFactory;
@@ -20,14 +19,16 @@ import com.itextpdf.text.pdf.*;
  */
 public class InstitutionalPageEventHelper extends PdfPageEventHelper {
 
-    private static final BaseColor GOLD = new BaseColor(213, 203, 160);
-    private static final BaseColor RED  = new BaseColor(143, 30, 30);
-    private static final BaseColor GRAY = new BaseColor(80, 80, 80);
-
     private final String programName;
+    private final String footerCenterText;
 
     public InstitutionalPageEventHelper(String programName) {
+        this(programName, programName);
+    }
+
+    public InstitutionalPageEventHelper(String programName, String footerCenterText) {
         this.programName = programName;
+        this.footerCenterText = footerCenterText;
     }
 
     @Override
@@ -40,7 +41,7 @@ public class InstitutionalPageEventHelper extends PdfPageEventHelper {
 
         cb.saveState();
         cb.setLineWidth(1f);
-        cb.setColorStroke(GOLD);
+        cb.setColorStroke(InstitutionalPdfHeader.INST_GOLD);
         cb.moveTo(left, bottom + 10f);
         cb.lineTo(right, bottom + 10f);
         cb.stroke();
@@ -48,17 +49,19 @@ public class InstitutionalPageEventHelper extends PdfPageEventHelper {
 
         ColumnText.showTextAligned(cb, Element.ALIGN_LEFT,
                 new Phrase("SIGMA \u2014 Universidad Surcolombiana",
-                        FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, RED)),
+                        FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, InstitutionalPdfHeader.INST_RED)),
                 left, bottom, 0);
 
+        String centerText = footerCenterText != null ? footerCenterText
+                : (programName != null ? programName : "");
         ColumnText.showTextAligned(cb, Element.ALIGN_CENTER,
-                new Phrase(programName != null ? programName : "",
-                        FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, GRAY)),
+                new Phrase(centerText,
+                        FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 8, InstitutionalPdfHeader.TEXT_GRAY)),
                 (left + right) / 2f, bottom, 0);
 
         ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT,
                 new Phrase("P\u00e1g. " + writer.getPageNumber(),
-                        FontFactory.getFont(FontFactory.HELVETICA, 8, GRAY)),
+                        FontFactory.getFont(FontFactory.HELVETICA, 8, InstitutionalPdfHeader.TEXT_GRAY)),
                 right, bottom, 0);
     }
 }

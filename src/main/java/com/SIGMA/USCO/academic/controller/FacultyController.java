@@ -1,7 +1,11 @@
 package com.SIGMA.USCO.academic.controller;
 
 import com.SIGMA.USCO.academic.dto.FacultyDTO;
+import com.SIGMA.USCO.academic.dto.response.FacultyListResponse;
+import com.SIGMA.USCO.academic.dto.response.FacultyResponse;
+import com.SIGMA.USCO.academic.dto.response.MessageResponse;
 import com.SIGMA.USCO.academic.service.FacultyService;
+import com.SIGMA.USCO.common.security.Permissions;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -14,8 +18,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
-
-import java.util.Map;
 
 @Tag(name = "Facultades", description = "Gestión de facultades: creación, actualización, consulta y desactivación")
 @RestController
@@ -30,29 +32,25 @@ public class FacultyController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Facultad creada exitosamente"),
             @ApiResponse(responseCode = "400", description = "Solicitud inválida"),
+            @ApiResponse(responseCode = "409", description = "El código o nombre de la facultad ya existe"),
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/create")
-    @PreAuthorize("hasAuthority('PERM_CREATE_FACULTY')")
-    public ResponseEntity<?> createFaculty(@RequestBody @Valid FacultyDTO request){
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_CREATE_FACULTY + "')")
+    public ResponseEntity<FacultyResponse> createFaculty(@RequestBody @Valid FacultyDTO request){
         FacultyDTO faculty = facultyService.createFaculty(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(
-                Map.of(
-                        "message", "Facultad creada exitosamente.",
-                        "faculty", faculty
-                )
+                new FacultyResponse("Facultad creada exitosamente.", faculty)
         );
     }
 
     @Operation(summary = "Obtener todas las facultades", description = "Retorna la lista completa de todas las facultades del sistema")
     @ApiResponse(responseCode = "200", description = "Lista de facultades obtenida")
     @GetMapping("/all")
-    @PreAuthorize("hasAuthority('PERM_VIEW_FACULTIES')")
-    public ResponseEntity<?> getAllFaculties(){
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_VIEW_FACULTIES + "')")
+    public ResponseEntity<FacultyListResponse> getAllFaculties(){
         return ResponseEntity.ok(
-                Map.of(
-                        "faculties", facultyService.getAllFaculties()
-                )
+                new FacultyListResponse(facultyService.getAllFaculties())
         );
 
     }
@@ -60,11 +58,10 @@ public class FacultyController {
     @Operation(summary = "Obtener facultades activas", description = "Retorna solo las facultades que están activas en el sistema")
     @ApiResponse(responseCode = "200", description = "Lista de facultades activas obtenida")
     @GetMapping("/active")
-    public ResponseEntity<?> getActiveFaculties() {
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<FacultyListResponse> getActiveFaculties() {
         return ResponseEntity.ok(
-                Map.of(
-                        "faculties", facultyService.getActiveFaculties()
-                )
+                new FacultyListResponse(facultyService.getActiveFaculties())
         );
     }
 
@@ -73,17 +70,15 @@ public class FacultyController {
             @ApiResponse(responseCode = "200", description = "Facultad actualizada exitosamente"),
             @ApiResponse(responseCode = "400", description = "Solicitud inválida"),
             @ApiResponse(responseCode = "404", description = "Facultad no encontrada"),
+            @ApiResponse(responseCode = "409", description = "El código o nombre de la facultad ya existe"),
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PutMapping("/update/{id}")
-    @PreAuthorize("hasAuthority('PERM_UPDATE_FACULTY')")
-    public ResponseEntity<?> updateFaculty(@Parameter(description = "ID de la facultad") @PathVariable Long id, @RequestBody @Valid FacultyDTO request) {
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_UPDATE_FACULTY + "')")
+    public ResponseEntity<FacultyResponse> updateFaculty(@Parameter(description = "ID de la facultad") @PathVariable Long id, @RequestBody @Valid FacultyDTO request) {
         FacultyDTO updatedFaculty = facultyService.updateFaculty(id, request);
         return ResponseEntity.ok(
-                Map.of(
-                        "message", "Facultad actualizada exitosamente.",
-                        "faculty", updatedFaculty
-                )
+                new FacultyResponse("Facultad actualizada exitosamente.", updatedFaculty)
         );
     }
 
@@ -94,13 +89,11 @@ public class FacultyController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PutMapping("/desactive/{id}")
-    @PreAuthorize("hasAuthority('PERM_DELETE_FACULTY')")
-    public ResponseEntity<?> desactivate(@Parameter(description = "ID de la facultad") @PathVariable Long id) {
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_DELETE_FACULTY + "')")
+    public ResponseEntity<MessageResponse> desactivate(@Parameter(description = "ID de la facultad") @PathVariable Long id) {
         facultyService.deactivateFaculty(id);
         return ResponseEntity.ok(
-                Map.of(
-                        "message", "Facultad desactivada exitosamente."
-                )
+                new MessageResponse("Facultad desactivada exitosamente.")
         );
     }
 
@@ -111,8 +104,8 @@ public class FacultyController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @GetMapping("/detail/{id}")
-    @PreAuthorize("hasAuthority('PERM_VIEW_FACULTIES')")
-    public ResponseEntity<?> getFacultyDetail(@Parameter(description = "ID de la facultad") @PathVariable Long id) {
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_VIEW_FACULTIES + "')")
+    public ResponseEntity<FacultyDTO> getFacultyDetail(@Parameter(description = "ID de la facultad") @PathVariable Long id) {
         return ResponseEntity.ok(facultyService.getFacultyDetail(id));
     }
 

@@ -15,80 +15,68 @@ import java.util.List;
  * Diseño profesional e institucional con análisis completo de resultados
  */
 @Service
-public class CompletedModalitiesPdfGenerator {
+public class CompletedModalitiesPdfGenerator extends BaseReportPdfGenerator {
 
     public ByteArrayOutputStream generatePDF(CompletedModalitiesReportDTO report) throws DocumentException, IOException {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        Document document = new Document(PageSize.A4, 50, 50, 50, 50);
-        PdfWriter writer = PdfWriter.getInstance(document, outputStream);
-        writer.setPageEvent(new InstitutionalPageEventHelper(report.getAcademicProgramName()));
+        PdfSession session = openDocument(PageSize.A4, 50, 50, 50, 50, report.getAcademicProgramName(), null);
         // IOException propagada desde addCoverPage (carga del logo institucional)
-        document.open();
 
         // Validación de datos
         if (report == null) {
-            document.add(new Paragraph("No hay datos para generar el reporte.", InstitutionalPdfHeader.NORMAL_FONT));
-            document.close();
-            return outputStream;
+            session.document().add(new Paragraph("No hay datos para generar el reporte.", InstitutionalPdfHeader.NORMAL_FONT));
+            close(session);
+            return session.out();
         }
         if (report.getCompletedModalities() == null || report.getCompletedModalities().isEmpty()) {
-            document.add(new Paragraph("No hay modalidades completadas para mostrar.", InstitutionalPdfHeader.NORMAL_FONT));
-            document.close();
-            return outputStream;
+            session.document().add(new Paragraph("No hay modalidades completadas para mostrar.", InstitutionalPdfHeader.NORMAL_FONT));
+            close(session);
+            return session.out();
         }
 
         // 1. Portada
-        addCoverPage(document, report);
+        addCoverPage(session.document(), report);
 
         // 2. Filtros y Resumen Ejecutivo
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addFiltersAndExecutiveSummary(document, report);
+        newPageWithHeader(session, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addFiltersAndExecutiveSummary(session.document(), report);
 
         // 3. Estadísticas Generales
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addGeneralStatistics(document, report);
+        newPageWithHeader(session, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addGeneralStatistics(session.document(), report);
 
         // 4. Análisis por Resultado
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addResultAnalysis(document, report);
+        newPageWithHeader(session, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addResultAnalysis(session.document(), report);
 
         // 5. Análisis por Tipo de Modalidad
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addModalityTypeAnalysis(document, report);
+        newPageWithHeader(session, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addModalityTypeAnalysis(session.document(), report);
 
         // 6. Listado Detallado de Modalidades Completadas
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addCompletedModalitiesListing(document, report);
+        newPageWithHeader(session, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addCompletedModalitiesListing(session.document(), report);
 
         // 7. Análisis Temporal
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addTemporalAnalysis(document, report);
+        newPageWithHeader(session, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addTemporalAnalysis(session.document(), report);
 
         // 8. Desempeño de Directores
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addDirectorPerformance(document, report);
+        newPageWithHeader(session, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addDirectorPerformance(session.document(), report);
 
         // 9. Análisis de Distinciones Académicas
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addDistinctionAnalysis(document, report);
+        newPageWithHeader(session, "Modalidades Completadas \u2014 " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addDistinctionAnalysis(session.document(), report);
 
         // 10. Cierre institucional
-        InstitutionalPdfHeader.addFooterSection(document,
+        InstitutionalPdfHeader.addFooterSection(session.document(),
             "Documento generado autom\u00e1ticamente por el Sistema SIGMA.\n" +
             "Universidad Surcolombiana | Facultad de Ingenier\u00eda | Neiva \u2013 Huila\n" +
             "www.usco.edu.co  \u2022  NIT: 891180084-2",
             "Sistema Integral de Gesti\u00f3n de Modalidades de Grado \u2014 SIGMA | Universidad Surcolombiana");
 
-        document.close();
-        return outputStream;
+        close(session);
+        return session.out();
     }
 
     /**
@@ -171,15 +159,15 @@ public class CompletedModalitiesPdfGenerator {
             metricsTable.setSpacingBefore(10);
             metricsTable.setSpacingAfter(20);
 
-            addMetricCard(metricsTable, "Total Completadas",
+            InstitutionalPdfHeader.addMetricCard(metricsTable, "Total Completadas",
                 String.valueOf(summary.getTotalCompleted()), InstitutionalPdfHeader.INST_GOLD);
-            addMetricCard(metricsTable, "Exitosas",
+            InstitutionalPdfHeader.addMetricCard(metricsTable, "Exitosas",
                 String.valueOf(summary.getTotalSuccessful()), InstitutionalPdfHeader.INST_GOLD);
-            addMetricCard(metricsTable, "Fallidas",
+            InstitutionalPdfHeader.addMetricCard(metricsTable, "Fallidas",
                 String.valueOf(summary.getTotalFailed()), InstitutionalPdfHeader.INST_RED);
-            addMetricCard(metricsTable, "Tasa de Éxito",
+            InstitutionalPdfHeader.addMetricCard(metricsTable, "Tasa de Éxito",
                 String.format("%.1f%%", summary.getSuccessRate()), InstitutionalPdfHeader.INST_GOLD);
-            addMetricCard(metricsTable, "Con Distinción",
+            InstitutionalPdfHeader.addMetricCard(metricsTable, "Con Distinción",
                 String.valueOf(summary.getWithDistinction()), InstitutionalPdfHeader.INST_GOLD);
 
             document.add(metricsTable);
@@ -190,13 +178,13 @@ public class CompletedModalitiesPdfGenerator {
             metrics2Table.setSpacingBefore(5);
             metrics2Table.setSpacingAfter(15);
 
-            addMetricCard(metrics2Table, "Calificación Promedio",
+            InstitutionalPdfHeader.addMetricCard(metrics2Table, "Calificación Promedio",
                 String.format("%.2f", summary.getAverageGrade()), InstitutionalPdfHeader.INST_GOLD);
-            addMetricCard(metrics2Table, "Días Promedio",
+            InstitutionalPdfHeader.addMetricCard(metrics2Table, "Días Promedio",
                 String.format("%.0f", summary.getAverageCompletionDays()), InstitutionalPdfHeader.INST_RED);
-            addMetricCard(metrics2Table, "Total Estudiantes",
+            InstitutionalPdfHeader.addMetricCard(metrics2Table, "Total Estudiantes",
                 String.valueOf(summary.getTotalStudents()), InstitutionalPdfHeader.INST_GOLD);
-            addMetricCard(metrics2Table, "Directores Únicos",
+            InstitutionalPdfHeader.addMetricCard(metrics2Table, "Directores Únicos",
                 String.valueOf(summary.getUniqueDirectors()), InstitutionalPdfHeader.TEXT_GRAY);
 
             document.add(metrics2Table);
@@ -230,13 +218,13 @@ public class CompletedModalitiesPdfGenerator {
         resultsTable.setSpacingAfter(20);
         resultsTable.setHorizontalAlignment(Element.ALIGN_CENTER);
 
-        addStatsCard(resultsTable, "Aprobadas",
+        InstitutionalPdfHeader.addMetricCard(resultsTable, "Aprobadas",
             String.valueOf(stats.getApproved()), InstitutionalPdfHeader.INST_GOLD);
-        addStatsCard(resultsTable, "Reprobadas",
+        InstitutionalPdfHeader.addMetricCard(resultsTable, "Reprobadas",
             String.valueOf(stats.getFailed()), InstitutionalPdfHeader.INST_RED);
-        addStatsCard(resultsTable, "Tasa Aprobación",
+        InstitutionalPdfHeader.addMetricCard(resultsTable, "Tasa Aprobación",
             String.format("%.1f%%", stats.getApprovalRate()), InstitutionalPdfHeader.INST_GOLD);
-        addStatsCard(resultsTable, "Total",
+        InstitutionalPdfHeader.addMetricCard(resultsTable, "Total",
             String.valueOf(stats.getTotalCompleted()), InstitutionalPdfHeader.INST_RED);
 
         document.add(resultsTable);
@@ -307,11 +295,11 @@ public class CompletedModalitiesPdfGenerator {
         distinctionTable.setSpacingAfter(15);
         distinctionTable.setHorizontalAlignment(Element.ALIGN_CENTER);
 
-        addStatsCard(distinctionTable, "Meritoria",
+        InstitutionalPdfHeader.addMetricCard(distinctionTable, "Meritoria",
             String.valueOf(stats.getWithMeritorious()), InstitutionalPdfHeader.INST_GOLD);
-        addStatsCard(distinctionTable, "Laureada",
+        InstitutionalPdfHeader.addMetricCard(distinctionTable, "Laureada",
             String.valueOf(stats.getWithLaudeate()), InstitutionalPdfHeader.INST_GOLD);
-        addStatsCard(distinctionTable, "Sin Distinción",
+        InstitutionalPdfHeader.addMetricCard(distinctionTable, "Sin Distinción",
             String.valueOf(stats.getWithoutDistinction()), InstitutionalPdfHeader.LIGHT_GOLD);
 
         document.add(distinctionTable);
@@ -627,13 +615,13 @@ public class CompletedModalitiesPdfGenerator {
         trendTable.setSpacingBefore(10);
         trendTable.setSpacingAfter(20);
 
-        addStatsCard(trendTable, "Tendencia",
+        InstitutionalPdfHeader.addMetricCard(trendTable, "Tendencia",
             translateTrend(temporal.getTrend()), getTrendColor(temporal.getTrend()));
-        addStatsCard(trendTable, "Tasa de Crecimiento",
+        InstitutionalPdfHeader.addMetricCard(trendTable, "Tasa de Crecimiento",
             String.format("%.1f%%", temporal.getGrowthRate()), InstitutionalPdfHeader.INST_GOLD);
-        addStatsCard(trendTable, "Mejor Periodo",
+        InstitutionalPdfHeader.addMetricCard(trendTable, "Mejor Periodo",
             temporal.getBestPeriod() != null ? temporal.getBestPeriod() : "N/D", InstitutionalPdfHeader.INST_GOLD);
-        addStatsCard(trendTable, "Peor Periodo",
+        InstitutionalPdfHeader.addMetricCard(trendTable, "Peor Periodo",
             temporal.getWorstPeriod() != null ? temporal.getWorstPeriod() : "N/D", InstitutionalPdfHeader.INST_RED);
 
         document.add(trendTable);
@@ -713,11 +701,11 @@ public class CompletedModalitiesPdfGenerator {
         indicatorsTable.setSpacingAfter(20);
         indicatorsTable.setHorizontalAlignment(Element.ALIGN_CENTER);
 
-        addStatsCard(indicatorsTable, "Total Directores",
+        InstitutionalPdfHeader.addMetricCard(indicatorsTable, "Total Directores",
             String.valueOf(performance.getTotalDirectors()), InstitutionalPdfHeader.INST_RED);
-        addStatsCard(indicatorsTable, "Tasa Éxito Prom.",
+        InstitutionalPdfHeader.addMetricCard(indicatorsTable, "Tasa Éxito Prom.",
             String.format("%.1f%%", performance.getAverageSuccessRateByDirector()), InstitutionalPdfHeader.INST_GOLD);
-        addStatsCard(indicatorsTable, "Mejor Director",
+        InstitutionalPdfHeader.addMetricCard(indicatorsTable, "Mejor Director",
             performance.getBestDirector() != null ?
             InstitutionalPdfHeader.truncate(performance.getBestDirector(), 15) : "N/D", InstitutionalPdfHeader.INST_GOLD);
 
@@ -776,13 +764,13 @@ public class CompletedModalitiesPdfGenerator {
         indicatorsTable.setSpacingBefore(10);
         indicatorsTable.setSpacingAfter(20);
 
-        addStatsCard(indicatorsTable, "Total con Distinción",
+        InstitutionalPdfHeader.addMetricCard(indicatorsTable, "Total con Distinción",
             String.valueOf(distinction.getTotalWithDistinction()), InstitutionalPdfHeader.INST_GOLD);
-        addStatsCard(indicatorsTable, "Meritorias",
+        InstitutionalPdfHeader.addMetricCard(indicatorsTable, "Meritorias",
             String.valueOf(distinction.getMeritorious()), new BaseColor(255, 152, 0));
-        addStatsCard(indicatorsTable, "Laureadas",
+        InstitutionalPdfHeader.addMetricCard(indicatorsTable, "Laureadas",
             String.valueOf(distinction.getLaureate()), InstitutionalPdfHeader.INST_GOLD);
-        addStatsCard(indicatorsTable, "Tasa Distinción",
+        InstitutionalPdfHeader.addMetricCard(indicatorsTable, "Tasa Distinción",
             String.format("%.1f%%", distinction.getDistinctionRate()), InstitutionalPdfHeader.INST_GOLD);
 
         document.add(indicatorsTable);
@@ -915,59 +903,18 @@ public class CompletedModalitiesPdfGenerator {
         chartTable.setSpacingAfter(20);
 
         // Barra de aprobados
-        addApprovalBar(chartTable, "Aprobadas", approved, total, InstitutionalPdfHeader.INST_GOLD);
+        float approvedPct = total > 0 ? (float) approved / total : 0;
+        InstitutionalPdfHeader.addBarRow(chartTable, "Aprobadas", String.valueOf(approved),
+            approved + " (" + String.format("%.1f%%", approvedPct * 100) + ")",
+            approvedPct, InstitutionalPdfHeader.INST_GOLD);
 
         // Barra de reprobados
-        addApprovalBar(chartTable, "Reprobadas", failed, total, InstitutionalPdfHeader.INST_RED);
+        float failedPct = total > 0 ? (float) failed / total : 0;
+        InstitutionalPdfHeader.addBarRow(chartTable, "Reprobadas", String.valueOf(failed),
+            failed + " (" + String.format("%.1f%%", failedPct * 100) + ")",
+            failedPct, InstitutionalPdfHeader.INST_RED);
 
         document.add(chartTable);
-    }
-
-    /**
-     * Agregar barra de aprobación
-     */
-    private void addApprovalBar(PdfPTable table, String label, int count, int total, BaseColor color) {
-        PdfPCell containerCell = new PdfPCell();
-        containerCell.setPadding(4);
-        containerCell.setBorder(Rectangle.NO_BORDER);
-
-        PdfPTable innerTable = new PdfPTable(3);
-        try {
-            innerTable.setWidths(new float[]{1.5f, 4f, 1.5f});
-        } catch (DocumentException e) {
-            // Ignorar
-        }
-
-        // Etiqueta
-        PdfPCell labelCell = new PdfPCell(new Phrase(label,
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, InstitutionalPdfHeader.TEXT_BLACK)));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        labelCell.setPadding(3);
-        innerTable.addCell(labelCell);
-
-        // Barra
-        float percentage = total > 0 ? (float) count / total : 0;
-        PdfPCell barCell = InstitutionalPdfHeader.createValueBar(String.valueOf(count), percentage, color);
-        innerTable.addCell(barCell);
-
-        // Valor y porcentaje
-        PdfPCell valueCell = new PdfPCell();
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        valueCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        valueCell.setPadding(3);
-
-        Paragraph valueContent = new Paragraph();
-        valueContent.add(new Chunk(count + " ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, color)));
-        valueContent.add(new Chunk("(" + String.format("%.1f%%", percentage * 100) + ")",
-                FontFactory.getFont(FontFactory.HELVETICA, 9, InstitutionalPdfHeader.TEXT_GRAY)));
-        valueContent.setAlignment(Element.ALIGN_CENTER);
-        valueCell.addElement(valueContent);
-        innerTable.addCell(valueCell);
-
-        containerCell.addElement(innerTable);
-        table.addCell(containerCell);
     }
 
     /**
@@ -993,55 +940,18 @@ public class CompletedModalitiesPdfGenerator {
         chartTable.setSpacingAfter(15);
 
         // Más rápida
-        addTimeBar(chartTable, "Más Rápida", fastest, maxValue, InstitutionalPdfHeader.INST_GOLD);
+        float fastestPct = maxValue > 0 ? (float) fastest / maxValue : 0;
+        InstitutionalPdfHeader.addBarRow(chartTable, "Más Rápida", fastest + " días", fastestPct, InstitutionalPdfHeader.INST_GOLD);
 
         // Promedio
-        addTimeBar(chartTable, "Promedio", average.intValue(), maxValue, InstitutionalPdfHeader.INST_GOLD);
+        float averagePct = maxValue > 0 ? (float) average.intValue() / maxValue : 0;
+        InstitutionalPdfHeader.addBarRow(chartTable, "Promedio", average.intValue() + " días", averagePct, InstitutionalPdfHeader.INST_GOLD);
 
         // Más lenta
-        addTimeBar(chartTable, "Más Lenta", slowest, maxValue, InstitutionalPdfHeader.INST_RED);
+        float slowestPct = maxValue > 0 ? (float) slowest / maxValue : 0;
+        InstitutionalPdfHeader.addBarRow(chartTable, "Más Lenta", slowest + " días", slowestPct, InstitutionalPdfHeader.INST_RED);
 
         document.add(chartTable);
-    }
-
-    /**
-     * Agregar barra de tiempo
-     */
-    private void addTimeBar(PdfPTable table, String label, int days, int maxDays, BaseColor color) {
-        PdfPCell containerCell = new PdfPCell();
-        containerCell.setPadding(3);
-        containerCell.setBorder(Rectangle.NO_BORDER);
-
-        PdfPTable innerTable = new PdfPTable(3);
-        try {
-            innerTable.setWidths(new float[]{1.5f, 4f, 1f});
-        } catch (DocumentException e) {
-            // Ignorar
-        }
-
-        // Etiqueta
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, InstitutionalPdfHeader.SMALL_FONT));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        labelCell.setPadding(3);
-        innerTable.addCell(labelCell);
-
-        // Barra
-        float percentage = maxDays > 0 ? (float) days / maxDays : 0;
-        PdfPCell barCell = InstitutionalPdfHeader.createValueBar(String.valueOf(days), percentage, color);
-        innerTable.addCell(barCell);
-
-        // Valor
-        PdfPCell valueCell = new PdfPCell(new Phrase(days + " días",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, color)));
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        valueCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        valueCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        valueCell.setPadding(3);
-        innerTable.addCell(valueCell);
-
-        containerCell.addElement(innerTable);
-        table.addCell(containerCell);
     }
 
     /**
@@ -1067,55 +977,15 @@ public class CompletedModalitiesPdfGenerator {
         chartTable.setSpacingAfter(15);
 
         // Más baja
-        addGradeBar(chartTable, "Más Baja", lowest, maxValue, InstitutionalPdfHeader.INST_RED);
+        InstitutionalPdfHeader.addBarRow(chartTable, "Más Baja", String.format("%.2f", lowest), (float) (lowest / maxValue), InstitutionalPdfHeader.INST_RED);
 
         // Promedio
-        addGradeBar(chartTable, "Promedio", average, maxValue, InstitutionalPdfHeader.INST_GOLD);
+        InstitutionalPdfHeader.addBarRow(chartTable, "Promedio", String.format("%.2f", average), (float) (average / maxValue), InstitutionalPdfHeader.INST_GOLD);
 
         // Más alta
-        addGradeBar(chartTable, "Más Alta", highest, maxValue, InstitutionalPdfHeader.INST_GOLD);
+        InstitutionalPdfHeader.addBarRow(chartTable, "Más Alta", String.format("%.2f", highest), (float) (highest / maxValue), InstitutionalPdfHeader.INST_GOLD);
 
         document.add(chartTable);
-    }
-
-    /**
-     * Agregar barra de calificación
-     */
-    private void addGradeBar(PdfPTable table, String label, double grade, double maxGrade, BaseColor color) {
-        PdfPCell containerCell = new PdfPCell();
-        containerCell.setPadding(3);
-        containerCell.setBorder(Rectangle.NO_BORDER);
-
-        PdfPTable innerTable = new PdfPTable(3);
-        try {
-            innerTable.setWidths(new float[]{1.5f, 4f, 1f});
-        } catch (DocumentException e) {
-            // Ignorar
-        }
-
-        // Etiqueta
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, InstitutionalPdfHeader.SMALL_FONT));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        labelCell.setPadding(3);
-        innerTable.addCell(labelCell);
-
-        // Barra
-        float percentage = (float) (grade / maxGrade);
-        PdfPCell barCell = InstitutionalPdfHeader.createValueBar(String.format("%.2f", grade), percentage, color);
-        innerTable.addCell(barCell);
-
-        // Valor
-        PdfPCell valueCell = new PdfPCell(new Phrase(String.format("%.2f", grade),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, color)));
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        valueCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-        valueCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        valueCell.setPadding(3);
-        innerTable.addCell(valueCell);
-
-        containerCell.addElement(innerTable);
-        table.addCell(containerCell);
     }
 
     /**
@@ -1140,62 +1010,24 @@ public class CompletedModalitiesPdfGenerator {
         chartTable.setSpacingAfter(15);
 
         // Meritoria
-        addDistinctionBar(chartTable, "Meritoria", meritorious, total,
-                new BaseColor(255, 152, 0)); // Naranja
+        float meritoriousPct = total > 0 ? (float) meritorious / total : 0;
+        InstitutionalPdfHeader.addBarRow(chartTable, "Meritoria", String.valueOf(meritorious),
+                meritorious + " (" + String.format("%.1f%%", meritoriousPct * 100) + ")",
+                meritoriousPct, new BaseColor(255, 152, 0)); // Naranja
 
         // Laureada
-        addDistinctionBar(chartTable, "Laureada", laureate, total, InstitutionalPdfHeader.INST_GOLD);
+        float laureatePct = total > 0 ? (float) laureate / total : 0;
+        InstitutionalPdfHeader.addBarRow(chartTable, "Laureada", String.valueOf(laureate),
+                laureate + " (" + String.format("%.1f%%", laureatePct * 100) + ")",
+                laureatePct, InstitutionalPdfHeader.INST_GOLD);
 
         // Sin distinción
-        addDistinctionBar(chartTable, "Sin Distinción", without, total, InstitutionalPdfHeader.LIGHT_GOLD);
+        float withoutPct = total > 0 ? (float) without / total : 0;
+        InstitutionalPdfHeader.addBarRow(chartTable, "Sin Distinción", String.valueOf(without),
+                without + " (" + String.format("%.1f%%", withoutPct * 100) + ")",
+                withoutPct, InstitutionalPdfHeader.LIGHT_GOLD);
 
         document.add(chartTable);
-    }
-
-    /**
-     * Agregar barra de distinción
-     */
-    private void addDistinctionBar(PdfPTable table, String label, int count, int total, BaseColor color) {
-        PdfPCell containerCell = new PdfPCell();
-        containerCell.setPadding(3);
-        containerCell.setBorder(Rectangle.NO_BORDER);
-
-        PdfPTable innerTable = new PdfPTable(3);
-        try {
-            innerTable.setWidths(new float[]{1.5f, 4f, 1.5f});
-        } catch (DocumentException e) {
-            // Ignorar
-        }
-
-        // Etiqueta
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, InstitutionalPdfHeader.SMALL_FONT));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        labelCell.setPadding(3);
-        innerTable.addCell(labelCell);
-
-        // Barra
-        float percentage = total > 0 ? (float) count / total : 0;
-        PdfPCell barCell = InstitutionalPdfHeader.createValueBar(String.valueOf(count), percentage, color);
-        innerTable.addCell(barCell);
-
-        // Valor y porcentaje
-        PdfPCell valueCell = new PdfPCell();
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        valueCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        valueCell.setPadding(3);
-
-        Paragraph valueContent = new Paragraph();
-        valueContent.add(new Chunk(count + " ",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, color)));
-        valueContent.add(new Chunk("(" + String.format("%.1f%%", percentage * 100) + ")",
-                FontFactory.getFont(FontFactory.HELVETICA, 8, InstitutionalPdfHeader.TEXT_GRAY)));
-        valueContent.setAlignment(Element.ALIGN_CENTER);
-        valueCell.addElement(valueContent);
-        innerTable.addCell(valueCell);
-
-        containerCell.addElement(innerTable);
-        table.addCell(containerCell);
     }
 
     /**
@@ -1245,7 +1077,7 @@ public class CompletedModalitiesPdfGenerator {
                 .sorted(Comparator.comparingDouble(
                         CompletedModalitiesReportDTO.ModalityTypeAnalysisDTO::getSuccessRate).reversed())
                 .limit(5)
-                .collect(java.util.stream.Collectors.toList());
+                .toList();
 
         PdfPTable chartTable = new PdfPTable(1);
         chartTable.setWidthPercentage(100);
@@ -1395,106 +1227,18 @@ public class CompletedModalitiesPdfGenerator {
         chartTable.setSpacingAfter(15);
 
         for (CompletedModalitiesReportDTO.PeriodDataDTO period : periods) {
-            addPeriodEvolutionBar(chartTable, period, maxCompleted);
+            float periodPct = maxCompleted > 0 ? (float) period.getCompleted() / maxCompleted : 0;
+            InstitutionalPdfHeader.addBarRow(chartTable, period.getPeriod(), String.valueOf(period.getCompleted()),
+                period.getCompleted() + " total | " + String.format("%.1f%%", period.getSuccessRate()),
+                periodPct, period.getSuccessRate() >= 70 ? InstitutionalPdfHeader.INST_GOLD : InstitutionalPdfHeader.INST_RED);
         }
 
         document.add(chartTable);
     }
 
-    /**
-     * Agregar barra de evolución de periodo
-     */
-    private void addPeriodEvolutionBar(PdfPTable table,
-                                      CompletedModalitiesReportDTO.PeriodDataDTO period,
-                                      int maxValue) {
-        PdfPCell containerCell = new PdfPCell();
-        containerCell.setPadding(3);
-        containerCell.setBorder(Rectangle.NO_BORDER);
-
-        PdfPTable innerTable = new PdfPTable(3);
-        try {
-            innerTable.setWidths(new float[]{1.2f, 4f, 1.5f});
-        } catch (DocumentException e) {
-            // Ignorar
-        }
-
-        // Periodo
-        PdfPCell periodCell = new PdfPCell(new Phrase(period.getPeriod(),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, InstitutionalPdfHeader.TEXT_BLACK)));
-        periodCell.setBorder(Rectangle.NO_BORDER);
-        periodCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        periodCell.setPadding(3);
-        innerTable.addCell(periodCell);
-
-        // Barra
-        float percentage = maxValue > 0 ? (float) period.getCompleted() / maxValue : 0;
-        BaseColor barColor = period.getSuccessRate() >= 70 ? InstitutionalPdfHeader.INST_GOLD : InstitutionalPdfHeader.INST_RED;
-        PdfPCell barCell = InstitutionalPdfHeader.createValueBar(String.valueOf(period.getCompleted()), percentage, barColor);
-        innerTable.addCell(barCell);
-
-        // Info
-        PdfPCell infoCell = new PdfPCell();
-        infoCell.setBorder(Rectangle.NO_BORDER);
-        infoCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        infoCell.setPadding(3);
-
-        Paragraph infoContent = new Paragraph();
-        infoContent.add(new Chunk(period.getCompleted() + " total",
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 7, barColor)));
-        infoContent.add(new Chunk(" | " + String.format("%.1f%%", period.getSuccessRate()),
-                FontFactory.getFont(FontFactory.HELVETICA, 7, InstitutionalPdfHeader.TEXT_GRAY)));
-        infoCell.addElement(infoContent);
-        innerTable.addCell(infoCell);
-
-        containerCell.addElement(innerTable);
-        table.addCell(containerCell);
-    }
-
     // ==================== FIN DE NUEVOS MÉTODOS ====================
 
     // ==================== MÉTODOS AUXILIARES ====================
-
-    /**
-     * Tarjeta de métrica
-     */
-    private void addMetricCard(PdfPTable table, String label, String value, BaseColor color) {
-        PdfPCell cell = new PdfPCell();
-        cell.setBackgroundColor(color);
-        cell.setPadding(10);
-        cell.setBorder(Rectangle.NO_BORDER);
-        cell.setFixedHeight(60);
-
-        Paragraph content = new Paragraph();
-        content.add(new Chunk(value + "\n",
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, InstitutionalPdfHeader.WHITE)));
-        content.add(new Chunk(label,
-            FontFactory.getFont(FontFactory.HELVETICA, 8, new BaseColor(240, 240, 240))));
-        content.setAlignment(Element.ALIGN_CENTER);
-
-        cell.addElement(content);
-        table.addCell(cell);
-    }
-
-    /**
-     * Tarjeta de estadística
-     */
-    private void addStatsCard(PdfPTable table, String label, String value, BaseColor color) {
-        PdfPCell cell = new PdfPCell();
-        cell.setBackgroundColor(color);
-        cell.setPadding(12);
-        cell.setBorder(Rectangle.NO_BORDER);
-        cell.setFixedHeight(55);
-
-        Paragraph content = new Paragraph();
-        content.add(new Chunk(value + "\n",
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, InstitutionalPdfHeader.WHITE)));
-        content.add(new Chunk(label,
-            FontFactory.getFont(FontFactory.HELVETICA, 8, new BaseColor(240, 240, 240))));
-        content.setAlignment(Element.ALIGN_CENTER);
-
-        cell.addElement(content);
-        table.addCell(cell);
-    }
 
     // ==================== MÉTODOS INSTITUCIONALES ====================
 

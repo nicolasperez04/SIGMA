@@ -1,6 +1,7 @@
 package com.SIGMA.USCO.academic.service;
 
 import com.SIGMA.USCO.academic.dto.AcademicHistoryExtractionResult;
+import com.SIGMA.USCO.common.exception.ValidationException;
 import com.itextpdf.text.pdf.PdfReader;
 import com.itextpdf.text.pdf.parser.LocationTextExtractionStrategy;
 import com.itextpdf.text.pdf.parser.PdfTextExtractor;
@@ -39,12 +40,12 @@ public class AcademicHistoryPdfParserService {
 
     public AcademicHistoryExtractionResult extract(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("Debe adjuntar el historial académico en PDF.");
+            throw new ValidationException("Debe adjuntar el historial académico en PDF.");
         }
 
         String fileName = file.getOriginalFilename() != null ? file.getOriginalFilename().toLowerCase() : "";
         if (!fileName.endsWith(".pdf")) {
-            throw new IllegalArgumentException("El archivo debe estar en formato PDF.");
+            throw new ValidationException("El archivo debe estar en formato PDF.");
         }
 
         logger.info("Iniciando extracción de PDF: {}", fileName);
@@ -55,7 +56,7 @@ public class AcademicHistoryPdfParserService {
 
     AcademicHistoryExtractionResult extractFromText(String rawText) {
         if (rawText == null || rawText.isBlank()) {
-            throw new IllegalArgumentException("No se encontró contenido legible en el documento.");
+            throw new ValidationException("No se encontró contenido legible en el documento.");
         }
 
         String normalized = normalizeForSearch(rawText);
@@ -99,16 +100,16 @@ public class AcademicHistoryPdfParserService {
                 return text;
             }
 
-            throw new IllegalArgumentException(
+            throw new ValidationException(
                     "No se pudo extraer texto del PDF. Sube un PDF original con texto seleccionable (no escaneado)."
             );
 
-        } catch (IllegalArgumentException e) {
+        } catch (ValidationException e) {
             throw e;
         } catch (Exception e) {
             logger.error("Error crítico en extracción de PDF: {}", e.getMessage());
-            throw new IllegalArgumentException(
-                    "No se pudo extraer texto del PDF. Error: " + e.getMessage()
+            throw new ValidationException(
+                    "No se pudo extraer texto del PDF. Sube un PDF original con texto seleccionable (no escaneado)."
             );
         }
     }
@@ -196,11 +197,11 @@ public class AcademicHistoryPdfParserService {
     private String matchProgramName(String text) {
         Matcher matcher = PROGRAM_PATTERN.matcher(text);
         if (!matcher.find()) {
-            throw new IllegalArgumentException("No se encontró el campo 'Programa' en el PDF.");
+            throw new ValidationException("No se encontró el campo 'Programa' en el PDF.");
         }
         String program = matcher.group(1).trim();
         if (program.isBlank()) {
-            throw new IllegalArgumentException("El campo 'Programa' está vacío en el PDF.");
+            throw new ValidationException("El campo 'Programa' está vacío en el PDF.");
         }
         return program;
     }
@@ -208,25 +209,12 @@ public class AcademicHistoryPdfParserService {
     private long matchLong(String text, Pattern pattern, int group, String errorMessage) {
         Matcher matcher = pattern.matcher(text);
         if (!matcher.find()) {
-            throw new IllegalArgumentException(errorMessage);
+            throw new ValidationException(errorMessage);
         }
         try {
             return Long.parseLong(matcher.group(group));
         } catch (NumberFormatException ex) {
-            throw new IllegalArgumentException(errorMessage);
-        }
-    }
-
-    private double matchDouble(String text, Pattern pattern, int group, String errorMessage) {
-        Matcher matcher = pattern.matcher(text);
-        if (!matcher.find()) {
-            throw new IllegalArgumentException(errorMessage);
-        }
-        try {
-            String value = matcher.group(group).replace(',', '.');
-            return Double.parseDouble(value);
-        } catch (NumberFormatException ex) {
-            throw new IllegalArgumentException(errorMessage);
+            throw new ValidationException(errorMessage);
         }
     }
 
@@ -253,7 +241,7 @@ public class AcademicHistoryPdfParserService {
             }
         }
 
-        throw new IllegalArgumentException(errorMessage);
+        throw new ValidationException(errorMessage);
     }
 }
 

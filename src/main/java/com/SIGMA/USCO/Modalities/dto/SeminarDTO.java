@@ -1,6 +1,6 @@
 package com.SIGMA.USCO.Modalities.dto;
 
-import com.SIGMA.USCO.Modalities.Entity.enums.SeminarStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.SeminarStatus;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;

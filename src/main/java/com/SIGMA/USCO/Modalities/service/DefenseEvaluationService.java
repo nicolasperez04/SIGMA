@@ -1,30 +1,41 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.DefenseEvaluationCriteria;
-import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction;
-import com.SIGMA.USCO.Modalities.Entity.enums.DefenseRubricType;
-import com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ProposedMention;
-import com.SIGMA.USCO.Modalities.Repository.DefenseEvaluationCriteriaRepository;
-import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
-import com.SIGMA.USCO.Modalities.Repository.ModalityProcessStatusHistoryRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.entity.DefenseEvaluationCriteria;
+import com.SIGMA.USCO.Modalities.entity.DefenseExaminer;
+import com.SIGMA.USCO.Modalities.entity.ModalityProcessStatusHistory;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction;
+import com.SIGMA.USCO.Modalities.entity.enums.DefenseRubricType;
+import com.SIGMA.USCO.Modalities.entity.enums.ExaminerType;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ProposedMention;
+import com.SIGMA.USCO.Modalities.repository.DefenseEvaluationCriteriaRepository;
+import com.SIGMA.USCO.Modalities.repository.DefenseExaminerRepository;
+import com.SIGMA.USCO.Modalities.repository.ModalityProcessStatusHistoryRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
 import com.SIGMA.USCO.Modalities.dto.DefenseEvaluationCriteriaDTO;
 import com.SIGMA.USCO.Modalities.dto.ExaminerEvaluationDTO;
+import com.SIGMA.USCO.Modalities.dto.response.AcceptDistinctionResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ConsensusEvaluationResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerEvaluationNotFoundResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerEvaluationRecordedResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerFinalEvaluationResponse;
 import com.SIGMA.USCO.Modalities.dto.response.FinalDefenseResponse;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Modalities.dto.response.PendingDistinctionProposalsResponse;
+import com.SIGMA.USCO.Modalities.dto.response.PrimaryEvaluationPendingResponse;
+import com.SIGMA.USCO.Modalities.dto.response.RejectDistinctionResponse;
+import com.SIGMA.USCO.Modalities.dto.response.TiebreakerEvaluationResponse;
+import com.SIGMA.USCO.Modalities.dto.response.TiebreakerRequiredResponse;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import com.SIGMA.USCO.common.exception.NotFoundException;
-import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.common.web.OperationResultResponse;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -53,11 +64,12 @@ public class DefenseEvaluationService {
     private final ModalityStatusTransition modalityStatusTransition;
 
     @Transactional
-    public Map<String, Object> registerFinalDefenseEvaluation(Long studentModalityId, ExaminerEvaluationDTO evaluationDTO) {
+    public Object registerFinalDefenseEvaluation(Long studentModalityId, ExaminerEvaluationDTO evaluationDTO, User examiner) {
 
-        User examiner = SecurityUtils.getCurrentUser();
-
-        StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
+        // Lock pesimista: serializa la evaluación concurrente de ambos jurados principales.
+        // El segundo voto espera al commit del primero y ve su evaluación → el chequeo de
+        // consenso (ambos evaluaron) nunca pierde un voto.
+        StudentModality studentModality = studentModalityRepository.findWithLockingById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         DefenseExaminer defenseExaminer = defenseExaminerRepository
@@ -65,6 +77,13 @@ public class DefenseEvaluationService {
                 .orElseThrow(() -> new NotFoundException(
                         "No está asignado como jurado de esta sustentación"
                 ));
+
+        if (!programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRole(
+                examiner.getId(),
+                studentModality.getAcademicProgram().getId(),
+                ProgramRole.EXAMINER)) {
+            throw new ForbiddenException("No eres jurado del programa de esta modalidad");
+        }
 
         if (defenseEvaluationCriteriaRepository.existsByDefenseExaminerId(defenseExaminer.getId())) {
             throw new ValidationException("Ya ha registrado su evaluación para esta sustentación");
@@ -124,7 +143,7 @@ public class DefenseEvaluationService {
                     || criteriaDTO.getEntrepreneurshipMethodologyTechnicalApproach() == null
                     || criteriaDTO.getEntrepreneurshipAnalyticalCreativeCapacity() == null
                     || criteriaDTO.getEntrepreneurshipDefenseSustentation() == null) {
-                throw new ValidationException("Para la modalidad de Emprendimiento y fortalecimiento de empresa debe enviar los 5 criterios específicos de la rúbrica empresarial.");
+                throw new ValidationException("Para la modalidad de " + ModalityServiceUtils.ENTREPRENEURSHIP_MODALITY_NAME + " debe enviar los 5 criterios específicos de la rúbrica empresarial.");
             }
 
             criteriaBuilder
@@ -177,8 +196,47 @@ public class DefenseEvaluationService {
     }
 
     @Transactional
-    public Map<String, Object> getFinalDefenseEvaluationForExaminer(Long studentModalityId) {
-        User examiner = SecurityUtils.getCurrentUser();
+    public OperationResultResponse resetDefenseEvaluation(Long studentModalityId, User committeeMember) {
+
+        StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+
+        if (!programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRole(
+                committeeMember.getId(),
+                studentModality.getAcademicProgram().getId(),
+                ProgramRole.PROGRAM_CURRICULUM_COMMITTEE)) {
+            throw new ForbiddenException("No tienes permiso para restablecer la evaluación de esta sustentación");
+        }
+
+        List<DefenseEvaluationCriteria> criteria = defenseEvaluationCriteriaRepository.findByStudentModalityId(studentModalityId);
+        ModalityProcessStatus status = studentModality.getStatus();
+        boolean stuck = status == ModalityProcessStatus.UNDER_EVALUATION_PRIMARY_EXAMINERS
+                || status == ModalityProcessStatus.UNDER_EVALUATION_TIEBREAKER
+                || status == ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER;
+
+        if (!stuck && criteria.isEmpty()) {
+            throw new ValidationException("La modalidad no tiene una evaluación pendiente de restablecer");
+        }
+
+        defenseEvaluationCriteriaRepository.deleteAll(criteria);
+
+        if (studentModality.getAcademicDistinction() == AcademicDistinction.DISAGREEMENT_PENDING_TIEBREAKER) {
+            studentModality.setAcademicDistinction(null);
+            studentModality.setUpdatedAt(LocalDateTime.now());
+            studentModalityRepository.save(studentModality);
+        }
+
+        ModalityProcessStatus target = studentModality.getDefenseDate() != null
+                ? ModalityProcessStatus.DEFENSE_SCHEDULED
+                : ModalityProcessStatus.EXAMINERS_ASSIGNED;
+        modalityStatusTransition.transition(studentModality, target, committeeMember,
+                "Evaluación de sustentación restablecida por el comité de currículo. Los jurados pueden volver a evaluar.");
+
+        return new OperationResultResponse(true, "Evaluación de sustentación restablecida. Los jurados pueden volver a evaluar.", studentModalityId);
+    }
+
+    @Transactional
+    public Object getFinalDefenseEvaluationForExaminer(Long studentModalityId, User examiner) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -195,29 +253,29 @@ public class DefenseEvaluationService {
 
         if (evaluation == null) {
             return (
-                    Map.of(
-                            "success", false,
-                            "message", "No hay evaluación registrada para este jurado en esta modalidad"
+                    new ExaminerEvaluationNotFoundResponse(
+                            false,
+                            "No hay evaluación registrada para este jurado en esta modalidad"
                     )
             );
         }
 
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("success", true);
-        response.put("evaluationId", evaluation.getId());
-        response.put("grade", evaluation.getGrade());
-        response.put("approved", evaluation.getGrade() != null && evaluation.getGrade() >= 3.5);
-        response.put("observations", evaluation.getObservations());
-        response.put("evaluationDate", evaluation.getEvaluatedAt());
-        response.put("isFinalDecision", evaluation.getIsFinalDecision());
-        response.put("examinerType", defenseExaminer.getExaminerType());
-
-        response.put("evaluationCriteria", buildDefenseCriteriaResponse(evaluation));
-
-        return (response);
+        return (
+                new ExaminerFinalEvaluationResponse(
+                        true,
+                        evaluation.getId(),
+                        evaluation.getGrade(),
+                        evaluation.getGrade() != null && evaluation.getGrade() >= 3.5,
+                        evaluation.getObservations(),
+                        evaluation.getEvaluatedAt(),
+                        evaluation.getIsFinalDecision(),
+                        defenseExaminer.getExaminerType(),
+                        buildDefenseCriteriaResponse(evaluation)
+                )
+        );
     }
 
-    private Map<String, Object> processPrimaryExaminerEvaluation(StudentModality studentModality, DefenseEvaluationCriteria currentEvaluation, User examiner) {
+    private Object processPrimaryExaminerEvaluation(StudentModality studentModality, DefenseEvaluationCriteria currentEvaluation, User examiner) {
 
         if (studentModality.getStatus() == ModalityProcessStatus.DEFENSE_COMPLETED) {
             studentModality.setStatus(ModalityProcessStatus.UNDER_EVALUATION_PRIMARY_EXAMINERS);
@@ -231,11 +289,11 @@ public class DefenseEvaluationService {
         if (!bothEvaluated) {
 
             return (
-                    Map.of(
-                            "success", true,
-                            "message", "Evaluación registrada correctamente. Esperando evaluación del otro jurado principal.",
-                            "grade", currentEvaluation.getGrade(),
-                            "approved", currentEvaluation.getGrade() >= 3.5
+                    new PrimaryEvaluationPendingResponse(
+                            true,
+                            "Evaluación registrada correctamente. Esperando evaluación del otro jurado principal.",
+                            currentEvaluation.getGrade(),
+                            currentEvaluation.getGrade() >= 3.5
                     )
             );
         }
@@ -254,7 +312,7 @@ public class DefenseEvaluationService {
         }
     }
 
-    private Map<String, Object> applyFinalResultWithConsensus(StudentModality studentModality, List<DefenseEvaluationCriteria> primaryEvaluations, User examiner) {
+    private ConsensusEvaluationResponse applyFinalResultWithConsensus(StudentModality studentModality, List<DefenseEvaluationCriteria> primaryEvaluations, User examiner) {
 
         // La nota final es el promedio de las dos notas de los jurados principales (punto 4)
         Double averageGrade = defenseEvaluationCriteriaRepository
@@ -302,7 +360,7 @@ public class DefenseEvaluationService {
         String mentionNotes = primaryEvaluations.stream()
                 .filter(e -> e.getObservations() != null && !e.getObservations().isBlank())
                 .map(e -> "Jurado " + (e.getDefenseExaminer().getExaminerType() != null
-                        ? e.getDefenseExaminer().getExaminerType().name() : "") + ": " + e.getObservations())
+                        ? TranslationUtils.translateExaminerType(e.getDefenseExaminer().getExaminerType()) : "") + ": " + e.getObservations())
                 .collect(Collectors.joining(" | "));
 
         String observations;
@@ -312,7 +370,7 @@ public class DefenseEvaluationService {
                     "Resultado: APROBADO. Los jurados proponen la distinción: %s. " +
                     "PENDIENTE DE REVISIÓN por el Comité de Currículo. Argumentos: %s",
                     averageGrade,
-                    ModalityServiceUtils.translateAcademicDistinction(distinction),
+                    TranslationUtils.translateAcademicDistinction(distinction),
                     mentionNotes.isBlank() ? "Sin argumentos adicionales" : mentionNotes
             );
         } else {
@@ -321,7 +379,7 @@ public class DefenseEvaluationService {
                     "Resultado: %s. Distinción: %s",
                     averageGrade,
                     approved ? "APROBADO" : "REPROBADO",
-                    ModalityServiceUtils.translateAcademicDistinction(distinction)
+                    TranslationUtils.translateAcademicDistinction(distinction)
             );
         }
 
@@ -342,25 +400,25 @@ public class DefenseEvaluationService {
         String message;
         if (pendingDistinctionReview) {
             message = "¡Felicitaciones! Tu modalidad de grado ha sido aprobada por consenso de los jurados. Los jurados han propuesto una distinción honorífica (" +
-                    ModalityServiceUtils.translateAcademicDistinction(distinction) + "). El Comité de Currículo debe revisar y decidir si acepta o rechaza la distinción.";
+                    TranslationUtils.translateAcademicDistinction(distinction) + "). El Comité de Currículo debe revisar y decidir si acepta o rechaza la distinción.";
         } else {
             message = approved ? "¡Felicitaciones! Tu modalidad de grado ha sido aprobada por consenso de los jurados." : "Tu modalidad de grado ha sido reprobada por consenso de los jurados.";
         }
 
         return (
-                Map.of(
-                        "exito", true,
-                        "consenso", true,
-                        "estadoFinal", finalStatus.name(),
-                        "distincionAcademica", ModalityServiceUtils.translateAcademicDistinction(distinction),
-                        "calificacionFinal", averageGrade,
-                        "distincionPendienteRevision", pendingDistinctionReview,
-                        "mensaje", message
+                new ConsensusEvaluationResponse(
+                        true,
+                        true,
+                        finalStatus.name(),
+                        TranslationUtils.translateAcademicDistinction(distinction),
+                        averageGrade,
+                        pendingDistinctionReview,
+                        message
                 )
         );
     }
 
-    private Map<String, Object> requestTiebreakerExaminer(StudentModality studentModality, List<DefenseEvaluationCriteria> primaryEvaluations, User examiner) {
+    private TiebreakerRequiredResponse requestTiebreakerExaminer(StudentModality studentModality, List<DefenseEvaluationCriteria> primaryEvaluations, User examiner) {
 
         String observations = String.format(
                 "DESACUERDO entre jurados principales. Jurado 1: %s (%.2f). Jurado 2: %s (%.2f). " +
@@ -375,17 +433,17 @@ public class DefenseEvaluationService {
         modalityStatusTransition.transition(studentModality, ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER, examiner, observations);
 
         return (
-                Map.of(
-                        "success", true,
-                        "hasConsensus", false,
-                        "requiresTiebreaker", true,
-                        "status", ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER,
-                        "message", "No hay consenso entre los jurados principales. Se requiere asignar un tercer jurado para desempatar."
+                new TiebreakerRequiredResponse(
+                        true,
+                        false,
+                        true,
+                        ModalityProcessStatus.DISAGREEMENT_REQUIRES_TIEBREAKER,
+                        "No hay consenso entre los jurados principales. Se requiere asignar un tercer jurado para desempatar."
                 )
         );
     }
 
-    private Map<String, Object> processTiebreakerEvaluation(StudentModality studentModality, DefenseEvaluationCriteria tiebreakerEvaluation, User examiner) {
+    private TiebreakerEvaluationResponse processTiebreakerEvaluation(StudentModality studentModality, DefenseEvaluationCriteria tiebreakerEvaluation, User examiner) {
 
         tiebreakerEvaluation.setIsFinalDecision(true);
         defenseEvaluationCriteriaRepository.save(tiebreakerEvaluation);
@@ -466,22 +524,20 @@ public class DefenseEvaluationService {
         }
 
         return (
-                Map.of(
-                        "success", true,
-                        "isTiebreaker", true,
-                        "finalStatus", finalStatus,
-                        "academicDistinction", distinction,
-                        "finalGrade", tiebreakerGrade,
-                        "pendingDistinctionReview", pendingDistinctionReview,
-                        "message", message
+                new TiebreakerEvaluationResponse(
+                        true,
+                        true,
+                        finalStatus,
+                        distinction,
+                        tiebreakerGrade,
+                        pendingDistinctionReview,
+                        message
                 )
         );
     }
 
     @Transactional(readOnly = true)
-    public FinalDefenseResponse getFinalDefenseResult(Long studentModalityId) {
-
-        User user = SecurityUtils.getCurrentUser();
+    public FinalDefenseResponse getFinalDefenseResult(Long studentModalityId, User user) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -513,6 +569,14 @@ public class DefenseEvaluationService {
             throw new ValidationException("La modalidad aún no tiene un resultado final registrado");
         }
 
+        return buildFinalDefenseResult(
+                studentModality,
+                studentModality.getLeader().getName() + " " + studentModality.getLeader().getLastName(),
+                studentModality.getLeader().getEmail()
+        );
+    }
+
+    private FinalDefenseResponse buildFinalDefenseResult(StudentModality studentModality, String studentName, String studentEmail) {
         ModalityProcessStatus finalStatus = studentModality.getStatus();
 
         ModalityProcessStatusHistory history =
@@ -526,13 +590,19 @@ public class DefenseEvaluationService {
                         );
 
         List<DefenseExaminer> defenseExaminers = defenseExaminerRepository
-                .findByStudentModalityId(studentModalityId);
+                .findByStudentModalityId(studentModality.getId());
+
+        List<Long> examinerIds = defenseExaminers.stream()
+                .map(DefenseExaminer::getId)
+                .toList();
+        Map<Long, DefenseEvaluationCriteria> criteriaByExaminerId = examinerIds.isEmpty() ? Map.of()
+                : defenseEvaluationCriteriaRepository.findByDefenseExaminerIdIn(examinerIds)
+                        .stream()
+                        .collect(Collectors.toMap(c -> c.getDefenseExaminer().getId(), c -> c));
 
         List<FinalDefenseResponse.ExaminerEvaluationDetail> examinerEvaluations = defenseExaminers.stream()
                 .map(defenseExaminer -> {
-                    DefenseEvaluationCriteria evaluation = defenseEvaluationCriteriaRepository
-                            .findByDefenseExaminerId(defenseExaminer.getId())
-                            .orElse(null);
+                    DefenseEvaluationCriteria evaluation = criteriaByExaminerId.get(defenseExaminer.getId());
 
                     if (evaluation == null) {
                         return null;
@@ -564,11 +634,8 @@ public class DefenseEvaluationService {
         return (
                 FinalDefenseResponse.builder()
                         .studentModalityId(studentModality.getId())
-                        .studentName(
-                                studentModality.getLeader().getName() + " " +
-                                        studentModality.getLeader().getLastName()
-                        )
-                        .studentEmail(studentModality.getLeader().getEmail())
+                        .studentName(studentName)
+                        .studentEmail(studentEmail)
                         .finalStatus(finalStatus)
                         .approved(finalStatus == ModalityProcessStatus.GRADED_APPROVED)
                         .academicDistinction(studentModality.getAcademicDistinction())
@@ -651,9 +718,7 @@ public class DefenseEvaluationService {
     }
 
     @Transactional(readOnly = true)
-    public Object getMyFinalDefenseResult() {
-
-        User student = SecurityUtils.getCurrentUser();
+    public Object getMyFinalDefenseResult(User student) {
 
         StudentModality studentModality = studentModalityRepository
                 .findByStudent(student)
@@ -672,71 +737,10 @@ public class DefenseEvaluationService {
             );
         }
 
-        ModalityProcessStatus finalStatus = studentModality.getStatus();
-
-        ModalityProcessStatusHistory history = historyRepository
-                .findTopByStudentModalityAndStatusOrderByChangeDateDesc(
-                        studentModality,
-                        finalStatus
-                )
-                .orElseThrow(() -> new NotFoundException(
-                        "No se encontró historial de evaluación final"
-                ));
-
-        List<DefenseExaminer> defenseExaminers = defenseExaminerRepository
-                .findByStudentModalityId(studentModality.getId());
-
-        List<FinalDefenseResponse.ExaminerEvaluationDetail> examinerEvaluations = defenseExaminers.stream()
-                .map(defenseExaminer -> {
-                    DefenseEvaluationCriteria evaluation = defenseEvaluationCriteriaRepository
-                            .findByDefenseExaminerId(defenseExaminer.getId())
-                            .orElse(null);
-
-                    if (evaluation == null) {
-                        return null;
-                    }
-
-                    return FinalDefenseResponse.ExaminerEvaluationDetail.builder()
-                            .examinerName(defenseExaminer.getExaminer().getName() + " " +
-                                        defenseExaminer.getExaminer().getLastName())
-                            .examinerType(defenseExaminer.getExaminerType().name())
-                            .grade(evaluation.getGrade())
-                            .approved(evaluation.getGrade() != null && evaluation.getGrade() >= 3.5)
-                            .observations(evaluation.getObservations())
-                            .evaluationDate(evaluation.getEvaluatedAt())
-                            .isFinalDecision(evaluation.getIsFinalDecision())
-                            .evaluationCriteria(buildFinalDefenseCriteriaDetail(evaluation))
-                            .build();
-                })
-                .filter(detail -> detail != null)
-                .toList();
-
-        boolean hasConsensus = studentModality.getAcademicDistinction() != null &&
-                              (studentModality.getAcademicDistinction().name().startsWith("AGREED_"));
-
-        boolean wasTiebreaker = studentModality.getAcademicDistinction() != null &&
-                               (studentModality.getAcademicDistinction().name().startsWith("TIEBREAKER_"));
-
-        return (
-                FinalDefenseResponse.builder()
-                        .studentModalityId(studentModality.getId())
-                        .studentName(student.getName() + " " + student.getLastName())
-                        .studentEmail(student.getEmail())
-                        .finalStatus(finalStatus)
-                        .approved(finalStatus == ModalityProcessStatus.GRADED_APPROVED)
-                        .academicDistinction(studentModality.getAcademicDistinction())
-                        .finalGrade(studentModality.getFinalGrade())
-                        .observations(history.getObservations())
-                        .evaluationDate(history.getChangeDate())
-                        .evaluatedBy(
-                                history.getResponsible() != null
-                                        ? history.getResponsible().getName()
-                                        : "Comité de currículo de programa"
-                        )
-                        .hasConsensus(hasConsensus)
-                        .wasTiebreaker(wasTiebreaker)
-                        .examinerEvaluations(examinerEvaluations)
-                        .build()
+        return buildFinalDefenseResult(
+                studentModality,
+                student.getName() + " " + student.getLastName(),
+                student.getEmail()
         );
     }
 
@@ -752,8 +756,7 @@ public class DefenseEvaluationService {
      * Solo el comité del programa académico correspondiente puede ver estas modalidades.
      */
     @Transactional(readOnly = true)
-    public Map<String, Object> getPendingDistinctionProposals() {
-        User committeeMember = SecurityUtils.getCurrentUser();
+    public PendingDistinctionProposalsResponse getPendingDistinctionProposals(User committeeMember) {
 
         List<Long> programIds = programAuthorityRepository
                 .findByUser_Id(committeeMember.getId())
@@ -773,19 +776,40 @@ public class DefenseEvaluationService {
                         programIds
                 );
 
+        List<Long> pendingIds = pendingModalities.stream()
+                .map(StudentModality::getId)
+                .toList();
+        Map<Long, List<DefenseExaminer>> examinersByModality = pendingIds.isEmpty() ? Map.of()
+                : defenseExaminerRepository.findByStudentModalityIdIn(pendingIds)
+                        .stream()
+                        .collect(Collectors.groupingBy(de -> de.getStudentModality().getId()));
+        List<Long> examinerIds = examinersByModality.values().stream()
+                .flatMap(List::stream)
+                .map(DefenseExaminer::getId)
+                .toList();
+        Map<Long, DefenseEvaluationCriteria> criteriaByExaminerId = examinerIds.isEmpty() ? Map.of()
+                : defenseEvaluationCriteriaRepository.findByDefenseExaminerIdIn(examinerIds)
+                        .stream()
+                        .collect(Collectors.toMap(c -> c.getDefenseExaminer().getId(), c -> c));
+        List<Long> leaderIds = pendingModalities.stream()
+                .map(sm -> sm.getLeader().getId())
+                .toList();
+        Map<Long, StudentProfile> profilesByUserId = leaderIds.isEmpty() ? Map.of()
+                : studentProfileRepository.findAllByUserIdIn(leaderIds)
+                        .stream()
+                        .collect(Collectors.toMap(StudentProfile::getId, p -> p));
+
         List<Map<String, Object>> result = pendingModalities.stream()
                 .sorted(Comparator.comparing(StudentModality::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(sm -> {
                     User leader = sm.getLeader();
-                    StudentProfile leaderProfile = studentProfileRepository.findByUserId(leader.getId()).orElse(null);
+                    StudentProfile leaderProfile = profilesByUserId.get(leader.getId());
 
                     // Obtener las evaluaciones de los jurados para ver los argumentos
-                    List<DefenseExaminer> examiners = defenseExaminerRepository.findByStudentModalityId(sm.getId());
+                    List<DefenseExaminer> examiners = examinersByModality.getOrDefault(sm.getId(), List.of());
                     List<Map<String, Object>> examinerDetails = examiners.stream()
                             .map(de -> {
-                                DefenseEvaluationCriteria eval = defenseEvaluationCriteriaRepository
-                                        .findByDefenseExaminerId(de.getId())
-                                        .orElse(null);
+                                DefenseEvaluationCriteria eval = criteriaByExaminerId.get(de.getId());
                                 Map<String, Object> examinerMap = new LinkedHashMap<>();
                                 examinerMap.put("examinerId", de.getExaminer().getId());
                                 examinerMap.put("examinerName", de.getExaminer().getName() + " " + de.getExaminer().getLastName());
@@ -819,12 +843,12 @@ public class DefenseEvaluationService {
                             : null);
                     return row;
                 })
-                .collect(Collectors.toList());
+                .toList();
 
-        return (Map.of(
-                "success", true,
-                "totalPending", result.size(),
-                "pendingDistinctionProposals", result
+        return (new PendingDistinctionProposalsResponse(
+                true,
+                result.size(),
+                result
         ));
     }
 
@@ -836,8 +860,7 @@ public class DefenseEvaluationService {
      * @param notes             Notas/observaciones del comité al aceptar (opcional)
      */
     @Transactional
-    public Map<String, Object> acceptDistinctionProposal(Long studentModalityId, String notes) {
-        User committeeMember = SecurityUtils.getCurrentUser();
+    public AcceptDistinctionResponse acceptDistinctionProposal(Long studentModalityId, String notes, User committeeMember) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -866,8 +889,8 @@ public class DefenseEvaluationService {
         String observations = String.format(
                 "El Comité de Currículo ACEPTÓ la distinción honorífica propuesta por los jurados. " +
                 "Distinción propuesta: %s → Distinción confirmada: %s. %s",
-                ModalityServiceUtils.translateAcademicDistinction(proposedDistinction),
-                ModalityServiceUtils.translateAcademicDistinction(confirmedDistinction),
+                TranslationUtils.translateAcademicDistinction(proposedDistinction),
+                TranslationUtils.translateAcademicDistinction(confirmedDistinction),
                 notes != null && !notes.isBlank() ? "Observaciones del comité: " + notes : ""
         );
 
@@ -881,12 +904,12 @@ public class DefenseEvaluationService {
                 ModalityEvent.KEY_OBSERVATIONS, observations
         )));
 
-        return (Map.of(
-                "success", true,
-                "studentModalityId", studentModalityId,
-                "newStatus", ModalityProcessStatus.GRADED_APPROVED,
-                "confirmedDistinction", confirmedDistinction,
-                "message", "Distinción honorífica aceptada correctamente. La modalidad queda APROBADA con distinción " +
+        return (new AcceptDistinctionResponse(
+                true,
+                studentModalityId,
+                ModalityProcessStatus.GRADED_APPROVED,
+                confirmedDistinction,
+                "Distinción honorífica aceptada correctamente. La modalidad queda APROBADA con distinción " +
                         ModalityServiceUtils.translateProposedDistinction(confirmedDistinction) + "."
         ));
     }
@@ -899,12 +922,10 @@ public class DefenseEvaluationService {
      * @param reason            Razón del rechazo (obligatorio)
      */
     @Transactional
-    public Map<String, Object> rejectDistinctionProposal(Long studentModalityId, String reason) {
+    public RejectDistinctionResponse rejectDistinctionProposal(Long studentModalityId, String reason, User committeeMember) {
         if (reason == null || reason.isBlank()) {
             throw new ValidationException("Debe proporcionar una razón para rechazar la distinción propuesta.");
         }
-
-        User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -930,8 +951,8 @@ public class DefenseEvaluationService {
                 "El Comité de Currículo RECHAZÓ la distinción honorífica propuesta por los jurados. " +
                 "Distinción propuesta: %s → Distinción final: %s (sin mención especial). " +
                 "Razón del rechazo: %s",
-                ModalityServiceUtils.translateAcademicDistinction(proposedDistinction),
-                ModalityServiceUtils.translateAcademicDistinction(rejectedDistinction),
+                TranslationUtils.translateAcademicDistinction(proposedDistinction),
+                TranslationUtils.translateAcademicDistinction(rejectedDistinction),
                 reason
         );
 
@@ -945,13 +966,13 @@ public class DefenseEvaluationService {
                 ModalityEvent.KEY_OBSERVATIONS, observations
         )));
 
-        return (Map.of(
-                "success", true,
-                "studentModalityId", studentModalityId,
-                "newStatus", ModalityProcessStatus.GRADED_APPROVED,
-                "finalDistinction", rejectedDistinction,
-                "reason", reason,
-                "message", "Distinción honorífica rechazada. La modalidad queda APROBADA sin distinción especial."
+        return (new RejectDistinctionResponse(
+                true,
+                studentModalityId,
+                ModalityProcessStatus.GRADED_APPROVED,
+                rejectedDistinction,
+                reason,
+                "Distinción honorífica rechazada. La modalidad queda APROBADA sin distinción especial."
         ));
     }
 
@@ -983,8 +1004,7 @@ public class DefenseEvaluationService {
     }
 
     @Transactional
-    public Map<String, Object> getExaminerEvaluationForModality(Long studentModalityId) {
-        User examiner = SecurityUtils.getCurrentUser();
+    public Object getExaminerEvaluationForModality(Long studentModalityId, User examiner) {
 
         DefenseExaminer defenseExaminer = defenseExaminerRepository
                 .findByStudentModalityIdAndExaminerId(studentModalityId, examiner.getId())
@@ -999,9 +1019,9 @@ public class DefenseEvaluationService {
                 .orElse(null);
 
         if (evaluation == null) {
-            return (Map.of(
-                "success", false,
-                "message", "No ha registrado evaluación para esta modalidad"
+            return (new ExaminerEvaluationNotFoundResponse(
+                    false,
+                    "No ha registrado evaluación para esta modalidad"
             ));
         }
 
@@ -1011,9 +1031,9 @@ public class DefenseEvaluationService {
                 .evaluationDate(evaluation.getEvaluatedAt())
                 .build();
 
-        return (Map.of(
-            "success", true,
-            "evaluation", dto
+        return (new ExaminerEvaluationRecordedResponse(
+                true,
+                dto
         ));
     }
 }

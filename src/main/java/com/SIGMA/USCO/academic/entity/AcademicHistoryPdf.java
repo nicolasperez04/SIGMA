@@ -1,16 +1,22 @@
 package com.SIGMA.USCO.academic.entity;
 
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.entity.User;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 import java.time.LocalDateTime;
 
 @Entity
-@Data
+@Getter
+@Setter
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(onlyExplicitlyIncluded = true)
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -19,6 +25,8 @@ public class AcademicHistoryPdf {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @EqualsAndHashCode.Include
+    @ToString.Include
     private Long id;
 
     @ManyToOne(optional = false)
@@ -30,38 +38,45 @@ public class AcademicHistoryPdf {
     private User uploadedBy;
 
     @Column(nullable = false)
+    @ToString.Include
     private String filePath;
 
     @Column(nullable = false)
+    @ToString.Include
     private String originalFileName;
-
-    @Column(nullable = false)
-    private LocalDateTime uploadDate;
 
     // Datos extraídos del PDF para búsqueda y auditoría
     @Column(name = "extracted_program_name")
+    @ToString.Include
     private String extractedProgramName;
 
     @Column(name = "extracted_approved_credits")
+    @ToString.Include
     private Long extractedApprovedCredits;
 
     @Column(name = "extracted_total_credits")
+    @ToString.Include
     private Long extractedTotalCredits;
 
     @Column(name = "extracted_gpa")
+    @ToString.Include
     private Double extractedGpa;
 
     // Metadata
     @Column(name = "file_size_bytes")
+    @ToString.Include
     private Long fileSizeBytes;
 
     @Column(length = 500)
+    @ToString.Include
     private String notes;
 
     @Column(nullable = false, updatable = false)
+    @ToString.Include
     private LocalDateTime createdAt;
 
     @Column
+    @ToString.Include
     private LocalDateTime updatedAt;
 
     @PrePersist

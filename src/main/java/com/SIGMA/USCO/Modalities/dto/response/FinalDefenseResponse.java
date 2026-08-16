@@ -1,6 +1,6 @@
 package com.SIGMA.USCO.Modalities.dto.response;
 
-import com.SIGMA.USCO.Modalities.Entity.enums.*;
+import com.SIGMA.USCO.Modalities.entity.enums.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

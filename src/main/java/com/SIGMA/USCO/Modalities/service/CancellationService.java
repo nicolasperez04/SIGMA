@@ -1,29 +1,35 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.ModalityProcessStatusHistory;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.ModalityProcessStatusHistoryRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.entity.ModalityProcessStatusHistory;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.MemberStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.ModalityProcessStatusHistoryRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
 import com.SIGMA.USCO.Modalities.dto.CancellationList;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Modalities.dto.response.CancellationRejectedByDirectorResponse;
+import com.SIGMA.USCO.Modalities.dto.response.CancellationRejectedResponse;
+import com.SIGMA.USCO.Modalities.dto.response.CancellationRequestResponse;
+import com.SIGMA.USCO.Modalities.dto.response.DirectorAssignmentResponse;
+import com.SIGMA.USCO.Modalities.dto.response.DirectorChangeResponse;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.common.security.Roles;
+import com.SIGMA.USCO.common.web.OperationResultResponse;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
 import com.SIGMA.USCO.documents.entity.enums.DocumentType;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
-import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -53,9 +59,7 @@ public class CancellationService {
     private final ModalityStatusTransition modalityStatusTransition;
 
     @Transactional
-    public Map<String, Object> requestCancellation(Long studentModalityId) {
-
-        User student = SecurityUtils.getCurrentUser();
+    public CancellationRequestResponse requestCancellation(Long studentModalityId, User student) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -78,11 +82,28 @@ public class CancellationService {
         }
 
         // Validar que la modalidad no esté ya en proceso de cancelación
+        // ponytail: CANCELLATION_REJECTED* no necesita bloqueo — rejectModalityCancellationByDirector/rejectCancellation
+        // restauran el estado previo a la solicitud, por lo que nunca queda un estado de cancelación vivo.
         if (studentModality.getStatus() == ModalityProcessStatus.CANCELLATION_REQUESTED ||
+                studentModality.getStatus() == ModalityProcessStatus.CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR ||
                 studentModality.getStatus() == ModalityProcessStatus.MODALITY_CANCELLED) {
 
             throw new ValidationException(
                     "La modalidad ya tiene una solicitud de cancelación"
+            );
+        }
+
+        // Validar que la modalidad no esté en un estado final
+        if (studentModality.getStatus() == ModalityProcessStatus.GRADED_APPROVED ||
+                studentModality.getStatus() == ModalityProcessStatus.GRADED_FAILED ||
+                studentModality.getStatus() == ModalityProcessStatus.MODALITY_CLOSED ||
+                studentModality.getStatus() == ModalityProcessStatus.SEMINAR_CANCELED ||
+                studentModality.getStatus() == ModalityProcessStatus.CANCELLED_BY_CORRECTION_TIMEOUT ||
+                studentModality.getStatus() == ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL ||
+                studentModality.getStatus() == ModalityProcessStatus.PENDING_DISTINCTION_COMMITTEE_REVIEW) {
+
+            throw new ValidationException(
+                    "La modalidad está en un estado final y no puede solicitarse su cancelación"
             );
         }
 
@@ -122,12 +143,12 @@ public class CancellationService {
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_REQUESTED, studentModality.getId(), student.getId(), Map.of(ModalityEvent.KEY_STUDENT_ID, student.getId()))
         );
 
-        return Map.of(
-                        "success", true,
-                        "message", "Solicitud de cancelación enviada correctamente",
-                        "studentModalityId", studentModalityId,
-                        "newStatus", ModalityProcessStatus.CANCELLATION_REQUESTED
-                );
+        return new CancellationRequestResponse(
+                true,
+                "Solicitud de cancelación enviada correctamente",
+                studentModalityId,
+                ModalityProcessStatus.CANCELLATION_REQUESTED
+        );
     }
 
     public Resource getCancellationDocumentResource(StudentDocument document) throws MalformedURLException {
@@ -140,9 +161,7 @@ public class CancellationService {
     }
 
     @Transactional
-    public Map<String, Object> approveModalityCancellationByDirector(Long studentModalityId) {
-
-        User projectDirector = SecurityUtils.getCurrentUser();
+    public OperationResultResponse approveModalityCancellationByDirector(Long studentModalityId, User projectDirector) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -165,22 +184,20 @@ public class CancellationService {
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_APPROVED, studentModality.getId(), projectDirector.getId(), Map.of(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, projectDirector.getId()))
         );
 
-        return Map.of(
-                        "success", true,
-                        "message", "Solicitud de cancelación aprobada. Será enviada al comité de currículo para aprobación final"
-                );
+        return new OperationResultResponse(
+                true,
+                "Solicitud de cancelación aprobada. Será enviada al comité de currículo para aprobación final"
+        );
     }
 
     @Transactional
-    public Map<String, Object> rejectModalityCancellationByDirector(Long studentModalityId, String reason) {
+    public CancellationRejectedByDirectorResponse rejectModalityCancellationByDirector(Long studentModalityId, String reason, User projectDirector) {
 
         if (reason == null || reason.isBlank()) {
             throw new ValidationException(
                     "Debe indicar el motivo del rechazo de la cancelación"
             );
         }
-
-        User projectDirector = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -196,15 +213,26 @@ public class CancellationService {
             );
         }
 
-        ModalityProcessStatus previousStatus = ModalityProcessStatus.PROPOSAL_APPROVED;
-
+        // ===== OBTENER ESTADO PREVIO A LA SOLICITUD DE CANCELACIÓN =====
+        // Mismo patrón determinista que rejectCancellation (comité): restaurar el
+        // último estado del historial que NO sea de cancelación, en lugar de asumir
+        // history[-2] (frágil: depende del orden y del contenido exacto del historial).
         List<ModalityProcessStatusHistory> history = historyRepository
                 .findByStudentModalityIdOrderByChangeDateAsc(studentModalityId);
 
-        if (history.size() >= 2) {
+        List<ModalityProcessStatus> cancellationStatuses = List.of(
+                ModalityProcessStatus.CANCELLATION_REQUESTED,
+                ModalityProcessStatus.CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR,
+                ModalityProcessStatus.CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR,
+                ModalityProcessStatus.CANCELLATION_REJECTED
+        );
 
-            previousStatus = history.get(history.size() - 2).getStatus();
-        }
+        ModalityProcessStatus previousStatus = history.stream()
+                .filter(h -> !cancellationStatuses.contains(h.getStatus()))
+                .sorted((h1, h2) -> h2.getChangeDate().compareTo(h1.getChangeDate()))
+                .findFirst()
+                .map(ModalityProcessStatusHistory::getStatus)
+                .orElse(ModalityProcessStatus.MODALITY_SELECTED);
 
         modalityStatusTransition.transition(studentModality, ModalityProcessStatus.CANCELLATION_REJECTED_BY_PROJECT_DIRECTOR, projectDirector,
                 "El director de proyecto rechazó la solicitud de cancelación. Motivo: " + reason);
@@ -216,17 +244,15 @@ public class CancellationService {
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_REJECTED, studentModality.getId(), projectDirector.getId(), Map.of(ModalityEvent.KEY_REASON, reason, ModalityEvent.KEY_COMMITTEE_MEMBER_ID, projectDirector.getId()))
         );
 
-        return Map.of(
-                        "success", true,
-                        "message", "Solicitud de cancelación rechazada. La modalidad continúa en proceso normal",
-                        "restoredStatus", previousStatus
-                );
+        return new CancellationRejectedByDirectorResponse(
+                true,
+                "Solicitud de cancelación rechazada. La modalidad continúa en proceso normal",
+                previousStatus
+        );
     }
 
     @Transactional
-    public Map<String, Object> approveCancellation(Long studentModalityId) {
-
-        User committeeMember = SecurityUtils.getCurrentUser();
+    public OperationResultResponse approveCancellation(Long studentModalityId, User committeeMember) {
 
         StudentModality modality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -253,26 +279,33 @@ public class CancellationService {
         modalityStatusTransition.transition(modality, ModalityProcessStatus.MODALITY_CANCELLED, committeeMember,
                 "Cancelación aprobada por el comité de currículo del programa");
 
+        // Limpiar defensa/nota para evitar "defensas fantasma" en listados y reportes.
+        // No se borran miembros: se conserva trazabilidad.
+        modality.setDefenseDate(null);
+        modality.setDefenseLocation(null);
+        modality.setFinalGrade(null);
+        modality.setAcademicDistinction(null);
+        modality.setCorrectionRequestDate(null);
+        modality.setCorrectionDeadline(null);
+
         applicationEventPublisher.publishEvent(
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_APPROVED, modality.getId(), committeeMember.getId(), Map.of(ModalityEvent.KEY_COMMITTEE_MEMBER_ID, committeeMember.getId()))
         );
 
-        return Map.of(
-                        "success", true,
-                        "message", "La modalidad fue cancelada correctamente"
-                );
+        return new OperationResultResponse(
+                true,
+                "La modalidad fue cancelada correctamente"
+        );
     }
 
     @Transactional
-    public Map<String, Object> rejectCancellation(Long studentModalityId, String reason) {
+    public CancellationRejectedResponse rejectCancellation(Long studentModalityId, String reason, User committeeMember) {
 
         if (reason == null || reason.isBlank()) {
             throw new ValidationException(
                     "Debe indicar el motivo del rechazo"
             );
         }
-
-        User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality modality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -339,18 +372,16 @@ public class CancellationService {
                 new ModalityEvent(NotificationType.MODALITY_CANCELLATION_REJECTED, modality.getId(), committeeMember.getId(), Map.of(ModalityEvent.KEY_REASON, reason, ModalityEvent.KEY_COMMITTEE_MEMBER_ID, committeeMember.getId()))
         );
 
-        return Map.of(
-                        "success", true,
-                        "message", "Solicitud de cancelación rechazada. La modalidad ha sido restaurada a su estado previo.",
-                        "restoredStatus", stateToRestore.name(),
-                        "restoredStatusDescription", ModalityServiceUtils.describeModalityStatus(stateToRestore)
-                );
+        return new CancellationRejectedResponse(
+                true,
+                "Solicitud de cancelación rechazada. La modalidad ha sido restaurada a su estado previo.",
+                stateToRestore.name(),
+                ModalityServiceUtils.describeModalityStatus(stateToRestore)
+        );
     }
 
     @Transactional(readOnly = true)
-    public List<CancellationList> getPendingCancellations() {
-
-        User committeeMember = SecurityUtils.getCurrentUser();
+    public List<CancellationList> getPendingCancellations(User committeeMember) {
 
         List<Long> academicProgramIds =
                 programAuthorityRepository
@@ -393,9 +424,7 @@ public class CancellationService {
     }
 
     @Transactional
-    public Map<String, Object> assignProjectDirector(Long studentModalityId, Long directorId) {
-
-        User committeeMember = SecurityUtils.getCurrentUser();
+    public DirectorAssignmentResponse assignProjectDirector(Long studentModalityId, Long directorId, User committeeMember) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad del estudiante no encontrada"));
@@ -422,7 +451,7 @@ public class CancellationService {
 
         boolean hasDirectorRole =
                 director.getRoles().stream()
-                        .anyMatch(role -> role.getName().equalsIgnoreCase("PROJECT_DIRECTOR"));
+                        .anyMatch(role -> role.getName().equalsIgnoreCase(Roles.ROLE_PROJECT_DIRECTOR));
 
         if (!hasDirectorRole) {
             throw new ValidationException(
@@ -472,24 +501,22 @@ public class CancellationService {
                 ))
         );
 
-        return Map.of(
-                        "success", true,
-                        "studentModalityId", studentModality.getId(),
-                        "directorAssigned", director.getEmail(),
-                        "message", "Director asignado correctamente a la modalidad"
-                );
+        return new DirectorAssignmentResponse(
+                true,
+                studentModality.getId(),
+                director.getEmail(),
+                "Director asignado correctamente a la modalidad"
+        );
     }
 
     @Transactional
-    public Map<String, Object> changeProjectDirector(Long studentModalityId, Long newDirectorId, String reason) {
+    public DirectorChangeResponse changeProjectDirector(Long studentModalityId, Long newDirectorId, String reason, User committeeMember) {
 
         if (reason == null || reason.isBlank()) {
             throw new ValidationException(
                     "Debe proporcionar una razón para el cambio de director"
             );
         }
-
-        User committeeMember = SecurityUtils.getCurrentUser();
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad del estudiante no encontrada"));
@@ -520,7 +547,7 @@ public class CancellationService {
         }
 
         boolean hasDirectorRole = newDirector.getRoles().stream()
-                .anyMatch(role -> role.getName().equalsIgnoreCase("PROJECT_DIRECTOR"));
+                .anyMatch(role -> role.getName().equalsIgnoreCase(Roles.ROLE_PROJECT_DIRECTOR));
 
         if (!hasDirectorRole) {
             throw new ValidationException(
@@ -575,28 +602,21 @@ public class CancellationService {
                 ))
         );
 
-        List<StudentModalityMember> activeMembers = studentModalityMemberRepository
-                .findByStudentModalityIdAndStatus(studentModality.getId(), MemberStatus.ACTIVE);
-
-        for (StudentModalityMember member : activeMembers) {
-            /* DEAD: DirectorChangedEvent has no listener — no-op */
-        }
-
-        return Map.of(
-                        "success", true,
-                        "studentModalityId", studentModality.getId(),
-                        "previousDirector", Map.of(
-                                "id", currentDirector.getId(),
-                                "email", currentDirector.getEmail(),
-                                "name", currentDirector.getName() + " " + currentDirector.getLastName()
-                        ),
-                        "newDirector", Map.of(
-                                "id", newDirector.getId(),
-                                "email", newDirector.getEmail(),
-                                "name", newDirector.getName() + " " + newDirector.getLastName()
-                        ),
-                        "reason", reason,
-                        "message", "Director de proyecto cambiado exitosamente"
-                );
+        return new DirectorChangeResponse(
+                true,
+                studentModality.getId(),
+                new DirectorChangeResponse.DirectorInfo(
+                        currentDirector.getId(),
+                        currentDirector.getEmail(),
+                        currentDirector.getName() + " " + currentDirector.getLastName()
+                ),
+                new DirectorChangeResponse.DirectorInfo(
+                        newDirector.getId(),
+                        newDirector.getEmail(),
+                        newDirector.getName() + " " + newDirector.getLastName()
+                ),
+                reason,
+                "Director de proyecto cambiado exitosamente"
+        );
     }
 }

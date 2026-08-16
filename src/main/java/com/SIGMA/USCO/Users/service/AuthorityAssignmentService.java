@@ -1,11 +1,11 @@
 package com.SIGMA.USCO.Users.service;
 
-import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
-import com.SIGMA.USCO.Users.Entity.Role;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Users.entity.ProgramAuthority;
+import com.SIGMA.USCO.Users.entity.Role;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.dto.request.AssignExaminerMultipleProgramsRequest;
-import com.SIGMA.USCO.Users.dto.request.assignAuthorityProgram;
+import com.SIGMA.USCO.Users.dto.request.AssignAuthorityProgramRequest;
 import com.SIGMA.USCO.Users.dto.response.ExaminerAssignmentResponse;
 import com.SIGMA.USCO.Users.dto.response.ExaminerProgramItem;
 import com.SIGMA.USCO.Users.dto.response.ExaminerProgramsResponse;
@@ -20,6 +20,7 @@ import com.SIGMA.USCO.academic.repository.AcademicProgramRepository;
 import com.SIGMA.USCO.common.exception.ConflictException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.common.security.Roles;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,22 +38,22 @@ public class AuthorityAssignmentService {
     private final ProgramAuthorityRepository programAuthorityRepository;
 
     @Transactional
-    public void assignProgramHead(assignAuthorityProgram request){
-        assignAuthority(request.getUserId(), request.getAcademicProgramId(), "PROGRAM_HEAD", ProgramRole.PROGRAM_HEAD);
+    public void assignProgramHead(AssignAuthorityProgramRequest request){
+        assignAuthority(request.getUserId(), request.getAcademicProgramId(), Roles.ROLE_PROGRAM_HEAD, ProgramRole.PROGRAM_HEAD);
     }
 
     @Transactional
-    public void assignProjectDirector(assignAuthorityProgram request){
-        assignAuthority(request.getUserId(), request.getAcademicProgramId(), "PROJECT_DIRECTOR", ProgramRole.PROJECT_DIRECTOR);
+    public void assignProjectDirector(AssignAuthorityProgramRequest request){
+        assignAuthority(request.getUserId(), request.getAcademicProgramId(), Roles.ROLE_PROJECT_DIRECTOR, ProgramRole.PROJECT_DIRECTOR);
     }
 
     @Transactional
-    public void assignCommittee(assignAuthorityProgram request){
-        assignAuthority(request.getUserId(), request.getAcademicProgramId(), "PROGRAM_CURRICULUM_COMMITTEE", ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
+    public void assignCommittee(AssignAuthorityProgramRequest request){
+        assignAuthority(request.getUserId(), request.getAcademicProgramId(), Roles.ROLE_PROGRAM_CURRICULUM_COMMITTEE, ProgramRole.PROGRAM_CURRICULUM_COMMITTEE);
     }
 
     @Transactional
-    public void assignExaminer(assignAuthorityProgram request){
+    public void assignExaminer(AssignAuthorityProgramRequest request){
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
@@ -65,7 +66,7 @@ public class AuthorityAssignmentService {
             throw new ConflictException("El jurado ya está asociado a este programa académico");
         }
 
-        assignAuthorityChecked(user, program, "EXAMINER", ProgramRole.EXAMINER);
+        assignAuthorityChecked(user, program, Roles.ROLE_EXAMINER, ProgramRole.EXAMINER);
     }
 
     @Transactional
@@ -103,13 +104,13 @@ public class AuthorityAssignmentService {
      * Un jurado puede estar vinculado a múltiples programas académicos.
      */
     @Transactional
-    public ExaminerAssignmentResponse assignExaminerToAdditionalProgram(assignAuthorityProgram request) {
+    public ExaminerAssignmentResponse assignExaminerToAdditionalProgram(AssignAuthorityProgramRequest request) {
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
         boolean hasExaminerRole = user.getRoles().stream()
-                .anyMatch(r -> r.getName().equals("EXAMINER"));
+                .anyMatch(r -> r.getName().equals(Roles.ROLE_EXAMINER));
         if (!hasExaminerRole) {
             throw new ValidationException("El usuario no tiene el rol EXAMINER");
         }
@@ -123,7 +124,7 @@ public class AuthorityAssignmentService {
             throw new ValidationException("El jurado ya está asociado al programa: " + program.getName());
         }
 
-        assignAuthorityChecked(user, program, "EXAMINER", ProgramRole.EXAMINER);
+        assignAuthorityChecked(user, program, Roles.ROLE_EXAMINER, ProgramRole.EXAMINER);
 
         return ExaminerAssignmentResponse.builder()
                 .success(true)
@@ -176,11 +177,11 @@ public class AuthorityAssignmentService {
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
-        Role examinerRole = roleRepository.findByName("EXAMINER")
+        Role examinerRole = roleRepository.findByName(Roles.ROLE_EXAMINER)
                 .orElseThrow(() -> new NotFoundException("Rol EXAMINER no encontrado"));
 
         // Asignar el rol EXAMINER si el usuario aún no lo tiene
-        if (user.getRoles().stream().noneMatch(r -> r.getName().equals("EXAMINER"))) {
+        if (user.getRoles().stream().noneMatch(r -> r.getName().equals(Roles.ROLE_EXAMINER))) {
             user.getRoles().add(examinerRole);
             userRepository.save(user);
         }
@@ -203,6 +204,7 @@ public class AuthorityAssignmentService {
      * Asocia al usuario EXAMINER dado a cada programa de la lista.
      * Los programas inexistentes o donde ya esté asociado se omiten (no generan error).
      */
+    @Transactional
     public AssignmentResult assignExaminerToPrograms(User user, List<Long> programIds) {
 
         List<ProgramAssignmentItem> assigned = new ArrayList<>();
@@ -233,7 +235,7 @@ public class AuthorityAssignmentService {
                 continue;
             }
 
-            assignAuthorityChecked(user, program, "EXAMINER", ProgramRole.EXAMINER);
+            assignAuthorityChecked(user, program, Roles.ROLE_EXAMINER, ProgramRole.EXAMINER);
 
             assigned.add(ProgramAssignmentItem.builder()
                     .academicProgramId(program.getId())
@@ -257,7 +259,7 @@ public class AuthorityAssignmentService {
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
         boolean hasExaminerRole = user.getRoles().stream()
-                .anyMatch(r -> r.getName().equals("EXAMINER"));
+                .anyMatch(r -> r.getName().equals(Roles.ROLE_EXAMINER));
         if (!hasExaminerRole) {
             throw new ValidationException("El usuario no tiene el rol EXAMINER");
         }

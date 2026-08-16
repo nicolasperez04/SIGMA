@@ -1,18 +1,17 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Modalities.service.ModalityServiceUtils;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.report.dto.*;
-import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,11 +33,10 @@ public class CompletedModalitiesReportService {
 
 
     @Transactional(readOnly = true)
-    public CompletedModalitiesReportDTO generateCompletedModalitiesReport(CompletedModalitiesFilterDTO filters) {
+    public CompletedModalitiesReportDTO generateCompletedModalitiesReport(CompletedModalitiesFilterDTO filters, String userEmail) {
         long startTime = System.currentTimeMillis();
 
         // Obtener usuario autenticado y su programa
-        String userEmail = SecurityUtils.getCurrentUser().getEmail();
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
         // Obtener modalidades completadas (aprobadas o fallidas)
@@ -51,7 +49,7 @@ public class CompletedModalitiesReportService {
                 .findForProgramHead(List.of(userProgram.getId())).stream()
                 .filter(m -> completedStatuses.contains(m.getStatus()))
                 .filter(m -> m.getAcademicProgram().getId().equals(userProgram.getId()))
-                .collect(Collectors.toList());
+                .toList();
 
         // Aplicar filtros adicionales
         completedModalities = applyCompletedFilters(completedModalities, filters);
@@ -143,8 +141,9 @@ public class CompletedModalitiesReportService {
                 .filter(m -> filterByGradeRange(m, filters.getMinGrade(), filters.getMaxGrade()))
                 .filter(m -> filterByDistinction(m, filters.getOnlyWithDistinction(), filters.getDistinctionType()))
                 .filter(m -> filterByDirectorId(m, filters.getDirectorId()))
+                .filter(m -> filterByUpdatedAtRange(m, filters.getStartDate(), filters.getEndDate()))
                 .filter(m -> ReportUtils.filterByModalityTypeFilter(m, filters.getModalityTypeFilter()))
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private boolean filterByResults(StudentModality modality, List<String> results) {
@@ -191,6 +190,14 @@ public class CompletedModalitiesReportService {
                modality.getProjectDirector().getId().equals(directorId);
     }
 
+    private boolean filterByUpdatedAtRange(StudentModality modality, LocalDateTime startDate, LocalDateTime endDate) {
+        // ponytail: endDate inclusivo — el frontend envía ISO con hora, no hay truncado de día.
+        if (startDate == null && endDate == null) return true;
+        if (modality.getUpdatedAt() == null) return false;
+        if (startDate != null && modality.getUpdatedAt().isBefore(startDate)) return false;
+        return endDate == null || !modality.getUpdatedAt().isAfter(endDate);
+    }
+
     /**
      * Construye filtros aplicados
      */
@@ -226,6 +233,10 @@ public class CompletedModalitiesReportService {
 
         if (filters.getDistinctionType() != null) {
             filterParts.add("Distinción: " + filters.getDistinctionType());
+        }
+
+        if (filters.getStartDate() != null || filters.getEndDate() != null) {
+            filterParts.add("Desde: " + filters.getStartDate() + " / Hasta: " + filters.getEndDate());
         }
 
         String description = filterParts.isEmpty() ?
@@ -312,7 +323,7 @@ public class CompletedModalitiesReportService {
                     .completionDays(completionDays)
                     .finalGrade(modality.getFinalGrade())
                     .gradeDescription(describeGrade(modality.getFinalGrade()))
-                    .academicDistinction(ModalityServiceUtils.translateAcademicDistinction(modality.getAcademicDistinction()))
+                    .academicDistinction(TranslationUtils.translateAcademicDistinction(modality.getAcademicDistinction()))
                     .students(students)
                     .studentCount(students.size())
                     .isGroup(students.size() > 1)
@@ -348,7 +359,7 @@ public class CompletedModalitiesReportService {
         List<String> observations = new ArrayList<>();
 
         if (modality.getAcademicDistinction() != null) {
-            observations.add("Con distinción académica: " + ModalityServiceUtils.translateAcademicDistinction(modality.getAcademicDistinction()));
+            observations.add("Con distinción académica: " + TranslationUtils.translateAcademicDistinction(modality.getAcademicDistinction()));
         }
 
         if (modality.getFinalGrade() != null && modality.getFinalGrade() >= 4.5) {
@@ -442,7 +453,7 @@ public class CompletedModalitiesReportService {
                 .filter(d -> d.getCompletionDays() != null)
                 .map(CompletedModalitiesReportDTO.CompletedModalityDetailDTO::getCompletionDays)
                 .sorted()
-                .collect(Collectors.toList());
+                .toList();
 
         double avgDays = completionDays.stream().mapToInt(Integer::intValue).average().orElse(0.0);
         Integer fastestDays = completionDays.isEmpty() ? null : completionDays.get(0);
@@ -454,23 +465,23 @@ public class CompletedModalitiesReportService {
                 .filter(d -> d.getFinalGrade() != null)
                 .map(CompletedModalitiesReportDTO.CompletedModalityDetailDTO::getFinalGrade)
                 .sorted()
-                .collect(Collectors.toList());
+                .toList();
 
         double avgGrade = grades.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
         Double highestGrade = grades.isEmpty() ? null : grades.get(grades.size() - 1);
         Double lowestGrade = grades.isEmpty() ? null : grades.get(0);
-        Double medianGrade = calculateMedianDouble(grades);
+        Double medianGrade = calculateMedian(grades);
 
         // Distinciones
         long meritorious = modalities.stream()
                 .filter(m -> m.getAcademicDistinction() != null && (
-                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.AGREED_MERITORIOUS ||
-                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.TIEBREAKER_MERITORIOUS))
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction.AGREED_MERITORIOUS ||
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction.TIEBREAKER_MERITORIOUS))
                 .count();
         long laureate = modalities.stream()
                 .filter(m -> m.getAcademicDistinction() != null && (
-                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.AGREED_LAUREATE ||
-                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.TIEBREAKER_LAUREATE))
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction.AGREED_LAUREATE ||
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction.TIEBREAKER_LAUREATE))
                 .count();
         long withoutDistinction = modalities.size() - meritorious - laureate;
 
@@ -518,23 +529,13 @@ public class CompletedModalitiesReportService {
                 .build();
     }
 
-    private Double calculateMedian(List<Integer> values) {
+    private <T extends Number> Double calculateMedian(List<T> values) {
         if (values.isEmpty()) return null;
         int size = values.size();
         if (size % 2 == 0) {
-            return (values.get(size / 2 - 1) + values.get(size / 2)) / 2.0;
+            return (values.get(size / 2 - 1).doubleValue() + values.get(size / 2).doubleValue()) / 2.0;
         } else {
             return values.get(size / 2).doubleValue();
-        }
-    }
-
-    private Double calculateMedianDouble(List<Double> values) {
-        if (values.isEmpty()) return null;
-        int size = values.size();
-        if (size % 2 == 0) {
-            return (values.get(size / 2 - 1) + values.get(size / 2)) / 2.0;
-        } else {
-            return values.get(size / 2);
         }
     }
 
@@ -547,11 +548,11 @@ public class CompletedModalitiesReportService {
 
         List<CompletedModalitiesReportDTO.CompletedModalityDetailDTO> successful = details.stream()
                 .filter(d -> "SUCCESS".equals(d.getResult()))
-                .collect(Collectors.toList());
+                .toList();
 
         List<CompletedModalitiesReportDTO.CompletedModalityDetailDTO> failed = details.stream()
                 .filter(d -> "FAILED".equals(d.getResult()))
-                .collect(Collectors.toList());
+                .toList();
 
         double successRate = details.size() > 0 ? (successful.size() * 100.0) / details.size() : 0.0;
         double failureRate = details.size() > 0 ? (failed.size() * 100.0) / details.size() : 0.0;
@@ -694,7 +695,7 @@ public class CompletedModalitiesReportService {
                             .build();
                 })
                 .sorted(Comparator.comparing(CompletedModalitiesReportDTO.ModalityTypeAnalysisDTO::getTotalCompleted).reversed())
-                .collect(Collectors.toList());
+                .toList();
     }
 
     /**
@@ -747,7 +748,7 @@ public class CompletedModalitiesReportService {
                 })
                 .sorted(Comparator.comparing(CompletedModalitiesReportDTO.PeriodDataDTO::getYear)
                         .thenComparing(CompletedModalitiesReportDTO.PeriodDataDTO::getSemester))
-                .collect(Collectors.toList());
+                .toList();
 
         // Determinar tendencia
         String trend = "STABLE";
@@ -828,7 +829,7 @@ public class CompletedModalitiesReportService {
                 .sorted(Comparator.comparing(CompletedModalitiesReportDTO.TopDirectorDTO::getSuccessRate).reversed()
                         .thenComparing(CompletedModalitiesReportDTO.TopDirectorDTO::getTotalSupervised).reversed())
                 .limit(10)
-                .collect(Collectors.toList());
+                .toList();
 
         double avgSuccessRate = topDirectors.stream()
                 .mapToDouble(CompletedModalitiesReportDTO.TopDirectorDTO::getSuccessRate)
@@ -855,14 +856,14 @@ public class CompletedModalitiesReportService {
 
         long meritorious = modalities.stream()
                 .filter(m -> m.getAcademicDistinction() != null && (
-                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.AGREED_MERITORIOUS ||
-                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.TIEBREAKER_MERITORIOUS))
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction.AGREED_MERITORIOUS ||
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction.TIEBREAKER_MERITORIOUS))
                 .count();
 
         long laureate = modalities.stream()
                 .filter(m -> m.getAcademicDistinction() != null && (
-                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.AGREED_LAUREATE ||
-                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.Entity.enums.AcademicDistinction.TIEBREAKER_LAUREATE))
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction.AGREED_LAUREATE ||
+                        m.getAcademicDistinction() == com.SIGMA.USCO.Modalities.entity.enums.AcademicDistinction.TIEBREAKER_LAUREATE))
                 .count();
 
         long totalWithDistinction = meritorious + laureate;
@@ -880,7 +881,7 @@ public class CompletedModalitiesReportService {
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                 .limit(5)
                 .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
+                .toList();
 
         // Directores con más distinciones
         Map<String, Long> distinctionsByDirector = modalities.stream()
@@ -894,7 +895,7 @@ public class CompletedModalitiesReportService {
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                 .limit(5)
                 .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
+                .toList();
 
         return CompletedModalitiesReportDTO.DistinctionAnalysisDTO.builder()
                 .totalWithDistinction((int) totalWithDistinction)
@@ -917,7 +918,7 @@ public class CompletedModalitiesReportService {
             return details.stream()
                     .sorted(Comparator.comparing(CompletedModalitiesReportDTO.CompletedModalityDetailDTO::getCompletionDate,
                             Comparator.nullsLast(Comparator.reverseOrder())))
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
         Comparator<CompletedModalitiesReportDTO.CompletedModalityDetailDTO> comparator = null;
@@ -949,6 +950,6 @@ public class CompletedModalitiesReportService {
 
         return details.stream()
                 .sorted(comparator)
-                .collect(Collectors.toList());
+                .toList();
     }
 }

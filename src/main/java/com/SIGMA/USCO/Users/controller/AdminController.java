@@ -1,21 +1,23 @@
 package com.SIGMA.USCO.Users.controller;
 
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityStatus;
 import com.SIGMA.USCO.Modalities.dto.ModalityDTO;
 import com.SIGMA.USCO.Users.dto.request.AssignExaminerMultipleProgramsRequest;
-import com.SIGMA.USCO.Users.dto.request.assignAuthorityProgram;
+import com.SIGMA.USCO.Users.dto.request.AssignAuthorityProgramRequest;
 import com.SIGMA.USCO.Users.dto.request.PermissionDTO;
 import com.SIGMA.USCO.Users.dto.request.RegisterUserByAdminRequest;
 import com.SIGMA.USCO.Users.dto.request.RoleRequest;
 import com.SIGMA.USCO.Users.dto.request.UpdateUserRequest;
 import com.SIGMA.USCO.Users.dto.response.ExaminerAssignmentResponse;
 import com.SIGMA.USCO.Users.dto.response.ExaminerProgramsResponse;
+import com.SIGMA.USCO.Users.dto.response.MessageResponse;
 import com.SIGMA.USCO.Users.dto.response.MultipleAssignmentResponse;
 import com.SIGMA.USCO.Users.dto.response.RegisterUserResponse;
 import com.SIGMA.USCO.Users.dto.response.UserResponse;
-import com.SIGMA.USCO.Users.service.AdminCatalogService;
+import com.SIGMA.USCO.Modalities.service.AdminCatalogService;
 import com.SIGMA.USCO.Users.service.AuthorityAssignmentService;
 import com.SIGMA.USCO.Users.service.UserAdminService;
+import com.SIGMA.USCO.common.security.Permissions;
 import com.SIGMA.USCO.common.web.PaginatedResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -32,7 +34,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 @Tag(name = "Administración", description = "Operaciones administrativas: roles, permisos, usuarios y autoridades")
 @RestController
@@ -49,10 +50,11 @@ public class AdminController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Rol creado exitosamente"),
             @ApiResponse(responseCode = "400", description = "Solicitud inválida"),
+            @ApiResponse(responseCode = "409", description = "El rol ya existe"),
             @ApiResponse(responseCode = "403", description = "Acceso denegado - sin permiso PERM_CREATE_ROLE")
     })
     @PostMapping("/createRole")
-    @PreAuthorize("hasAuthority('PERM_CREATE_ROLE')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_CREATE_ROLE + "')")
     public ResponseEntity<String> createRole(@Valid @RequestBody RoleRequest request) {
         userAdminService.createRole(request);
         return ResponseEntity.ok(" Rol creado correctamente.");
@@ -66,7 +68,7 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "Rol no encontrado")
     })
     @PutMapping("/updateRole/{id}")
-    @PreAuthorize("hasAuthority('PERM_UPDATE_ROLE')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_UPDATE_ROLE + "')")
     public ResponseEntity<String> updateRole(@Parameter(description = "ID del rol") @PathVariable Long id, @Valid @RequestBody RoleRequest request) {
         userAdminService.updateRole(id, request);
         return ResponseEntity.ok(" Rol actualizado correctamente.");
@@ -79,7 +81,7 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/assignRole")
-    @PreAuthorize("hasAuthority('PERM_ASSIGN_ROLE')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ASSIGN_ROLE + "')")
     public ResponseEntity<String> assignRoleToUser(@Valid @RequestBody UpdateUserRequest request) {
         userAdminService.assignRoleToUser(request);
         return ResponseEntity.ok("Rol asignado correctamente al usuario.");
@@ -92,7 +94,7 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/changeUserStatus")
-    @PreAuthorize("hasAuthority('PERM_ACTIVATE_OR_DEACTIVATE_USER')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ACTIVATE_OR_DEACTIVATE_USER + "')")
     public ResponseEntity<String> changeUserStatus(@Valid @RequestBody UpdateUserRequest request){
         userAdminService.changeUserStatus(request);
         return ResponseEntity.ok("Estado del usuario actualizado correctamente.");
@@ -101,7 +103,7 @@ public class AdminController {
     @Operation(summary = "Obtener roles", description = "Obtiene la lista de todos los roles del sistema")
     @ApiResponse(responseCode = "200", description = "Lista de roles obtenida")
     @GetMapping("/getRoles")
-    @PreAuthorize("hasAuthority('PERM_VIEW_ROLE')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_VIEW_ROLE + "')")
     public ResponseEntity<List<RoleRequest>> getRoles() {
         return ResponseEntity.ok(userAdminService.getRoles());
     }
@@ -110,10 +112,11 @@ public class AdminController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Permiso creado"),
             @ApiResponse(responseCode = "400", description = "Solicitud inválida"),
+            @ApiResponse(responseCode = "409", description = "El permiso ya existe"),
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/createPermission")
-    @PreAuthorize("hasAuthority('PERM_CREATE_PERMISSION')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_CREATE_PERMISSION + "')")
     public ResponseEntity<String> createPermission(@Valid @RequestBody PermissionDTO request) {
         userAdminService.createPermission(request);
         return ResponseEntity.ok(" Permiso creado correctamente.");
@@ -122,7 +125,7 @@ public class AdminController {
     @Operation(summary = "Obtener permisos", description = "Obtiene la lista de todos los permisos disponibles")
     @ApiResponse(responseCode = "200", description = "Lista de permisos obtenida")
     @GetMapping("/getPermissions")
-    @PreAuthorize("hasAuthority('PERM_VIEW_PERMISSION')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_VIEW_PERMISSION + "')")
     public ResponseEntity<List<PermissionDTO>> getPermissions() {
         return ResponseEntity.ok(userAdminService.getPermissions());
     }
@@ -133,7 +136,7 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @GetMapping("/getUsers")
-    @PreAuthorize("hasAuthority('PERM_VIEW_USER')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_VIEW_USER + "')")
     public ResponseEntity<PaginatedResponse<UserResponse>> getUsers(
             @Parameter(description = "Filtrar por estado (ACTIVE, INACTIVE)") @RequestParam(required = false) String status,
             @Parameter(description = "Filtrar por nombre de rol") @RequestParam(required = false) String role,
@@ -155,7 +158,7 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PutMapping("/changeUserStatus/{userId}")
-    @PreAuthorize("hasAuthority('PERM_ACTIVATE_OR_DEACTIVATE_USER')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ACTIVATE_OR_DEACTIVATE_USER + "')")
     public ResponseEntity<String> desactiveUser(@Parameter(description = "ID del usuario") @PathVariable Long userId) {
         userAdminService.desactiveUser(userId);
         return ResponseEntity.ok("Usuario desactivado correctamente.");
@@ -164,7 +167,7 @@ public class AdminController {
     @Operation(summary = "Obtener modalidades", description = "Obtiene lista de modalidades con filtro opcional de estado")
     @ApiResponse(responseCode = "200", description = "Lista de modalidades obtenida")
     @GetMapping("/modalities")
-    @PreAuthorize("hasAuthority('PERM_VIEW_MODALITIES_ADMIN')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_VIEW_MODALITIES_ADMIN + "')")
     public ResponseEntity<List<ModalityDTO>> getModalities(@Parameter(description = "Filtrar por estado de modalidad") @RequestParam(required = false) ModalityStatus status) {
         return ResponseEntity.ok(adminCatalogService.getModalities(status));
     }
@@ -176,13 +179,11 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/assign-program-head")
-    @PreAuthorize("hasAuthority('PERM_ASSIGN_PROGRAM_HEAD')")
-    public ResponseEntity<?> assignProgramHead(@Valid @RequestBody assignAuthorityProgram request){
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ASSIGN_PROGRAM_HEAD + "')")
+    public ResponseEntity<MessageResponse> assignProgramHead(@Valid @RequestBody AssignAuthorityProgramRequest request){
         authorityAssignmentService.assignProgramHead(request);
         return ResponseEntity.ok(
-                Map.of(
-                    "message", "Se ha asignado el jefe de programa correctamente"
-                 )
+                new MessageResponse("Se ha asignado el jefe de programa correctamente")
         );
     }
 
@@ -193,13 +194,11 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/assign-project-director")
-    @PreAuthorize("hasAuthority('PERM_ASSIGN_PROGRAM_HEAD')")
-    public ResponseEntity<?> assignProjectDirector(@Valid @RequestBody assignAuthorityProgram request){
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ASSIGN_PROGRAM_HEAD + "')")
+    public ResponseEntity<MessageResponse> assignProjectDirector(@Valid @RequestBody AssignAuthorityProgramRequest request){
         authorityAssignmentService.assignProjectDirector(request);
         return ResponseEntity.ok(
-                Map.of(
-                        "message", "Se ha asignado el director de proyecto correctamente"
-                )
+                new MessageResponse("Se ha asignado el director de proyecto correctamente")
         );
     }
 
@@ -210,13 +209,11 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/assign-committee-member")
-    @PreAuthorize("hasAuthority('PERM_ASSIGN_PROGRAM_HEAD')")
-    public ResponseEntity<?> assignCommittee(@Valid @RequestBody assignAuthorityProgram request){
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ASSIGN_PROGRAM_HEAD + "')")
+    public ResponseEntity<MessageResponse> assignCommittee(@Valid @RequestBody AssignAuthorityProgramRequest request){
         authorityAssignmentService.assignCommittee(request);
         return ResponseEntity.ok(
-                Map.of(
-                        "message", "Se ha asignado el miembro del comité correctamente"
-                )
+                new MessageResponse("Se ha asignado el miembro del comité correctamente")
         );
     }
 
@@ -227,13 +224,11 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/assign-examiner")
-    @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
-    public ResponseEntity<?> assignExaminer(@Valid @RequestBody assignAuthorityProgram request){
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ASSIGN_EXAMINER + "')")
+    public ResponseEntity<MessageResponse> assignExaminer(@Valid @RequestBody AssignAuthorityProgramRequest request){
         authorityAssignmentService.assignExaminer(request);
         return ResponseEntity.ok(
-                Map.of(
-                        "message", "Se ha asignado el jurado/evaluador (examiner) correctamente"
-                )
+                new MessageResponse("Se ha asignado el jurado/evaluador (examiner) correctamente")
         );
     }
 
@@ -241,10 +236,11 @@ public class AdminController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Usuario registrado exitosamente"),
             @ApiResponse(responseCode = "400", description = "Solicitud inválida"),
+            @ApiResponse(responseCode = "409", description = "Este correo ya está registrado en el sistema"),
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/register-user")
-    @PreAuthorize("hasAuthority('PERM_CREATE_USER')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_CREATE_USER + "')")
     public ResponseEntity<RegisterUserResponse> registerUserByAdmin(@Valid @RequestBody RegisterUserByAdminRequest request) {
         return ResponseEntity.ok(userAdminService.registerUserByAdmin(request));
     }
@@ -263,7 +259,7 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/examiner/assign-programs")
-    @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ASSIGN_EXAMINER + "')")
     public ResponseEntity<MultipleAssignmentResponse> assignExaminerToMultiplePrograms(
             @Valid @RequestBody AssignExaminerMultipleProgramsRequest request) {
         return ResponseEntity.ok(authorityAssignmentService.assignExaminerToMultiplePrograms(request));
@@ -276,11 +272,12 @@ public class AdminController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Jurado vinculado exitosamente"),
             @ApiResponse(responseCode = "400", description = "Solicitud inválida"),
+            @ApiResponse(responseCode = "409", description = "El jurado ya está asociado a este programa académico"),
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/examiner/assign-program")
-    @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
-    public ResponseEntity<ExaminerAssignmentResponse> assignExaminerToAdditionalProgram(@Valid @RequestBody assignAuthorityProgram request) {
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ASSIGN_EXAMINER + "')")
+    public ResponseEntity<ExaminerAssignmentResponse> assignExaminerToAdditionalProgram(@Valid @RequestBody AssignAuthorityProgramRequest request) {
         return ResponseEntity.ok(authorityAssignmentService.assignExaminerToAdditionalProgram(request));
     }
 
@@ -294,7 +291,7 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @DeleteMapping("/examiner/{userId}/program/{academicProgramId}")
-    @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ASSIGN_EXAMINER + "')")
     public ResponseEntity<ExaminerAssignmentResponse> removeExaminerFromProgram(
             @Parameter(description = "ID del usuario jurado") @PathVariable Long userId,
             @Parameter(description = "ID del programa académico") @PathVariable Long academicProgramId) {
@@ -307,7 +304,7 @@ public class AdminController {
     )
     @ApiResponse(responseCode = "200", description = "Lista de programas obtenida")
     @GetMapping("/examiner/{userId}/programs")
-    @PreAuthorize("hasAuthority('PERM_ASSIGN_EXAMINER')")
+    @PreAuthorize("hasAuthority('" + Permissions.PERM_ASSIGN_EXAMINER + "')")
     public ResponseEntity<ExaminerProgramsResponse> getExaminerPrograms(@Parameter(description = "ID del usuario jurado") @PathVariable Long userId) {
         return ResponseEntity.ok(authorityAssignmentService.getExaminerPrograms(userId));
     }

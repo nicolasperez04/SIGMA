@@ -33,6 +33,7 @@ public class InstitutionalPdfHeader {
     public static final BaseColor TEXT_BLACK   = BaseColor.BLACK;
     public static final BaseColor TEXT_GRAY    = new BaseColor(80, 80, 80);
     public static final BaseColor WHITE        = BaseColor.WHITE;
+    public static final BaseColor LIGHT_GRAY   = new BaseColor(240, 240, 240);
 
     // ── Fuentes compartidas ──────────────────────────────────────────────────
     public static final Font FONT_UNIV        = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13f, INST_RED);
@@ -391,7 +392,7 @@ public class InstitutionalPdfHeader {
         barTable.addCell(filledCell);
 
         PdfPCell emptyCell = new PdfPCell();
-        emptyCell.setBackgroundColor(new BaseColor(240, 240, 240));
+        emptyCell.setBackgroundColor(LIGHT_GRAY);
         emptyCell.setBorder(Rectangle.NO_BORDER);
         emptyCell.setMinimumHeight(12f);
         barTable.addCell(emptyCell);
@@ -441,6 +442,75 @@ public class InstitutionalPdfHeader {
         containerCell.setPadding(0);
 
         return containerCell;
+    }
+
+    // ── Fila de barra y tarjeta de métrica ───────────────────────────────────
+
+    /**
+     * Fila de gráfico de barras: etiqueta | barra | valor.
+     * percentage es fracción 0-1 (misma convención que createValueBar).
+     */
+    public static void addBarRow(PdfPTable table, String label, String barText, String valueText,
+                                 float percentage, BaseColor color) {
+        PdfPCell containerCell = new PdfPCell();
+        containerCell.setPadding(3);
+        containerCell.setBorder(Rectangle.NO_BORDER);
+
+        PdfPTable innerTable = new PdfPTable(3);
+        try {
+            innerTable.setWidths(new float[]{1.5f, 4f, 1.5f});
+        } catch (DocumentException e) {
+            // Ignorar
+        }
+
+        PdfPCell labelCell = new PdfPCell(new Phrase(label,
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, TEXT_BLACK)));
+        labelCell.setBorder(Rectangle.NO_BORDER);
+        labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        labelCell.setPadding(3);
+        innerTable.addCell(labelCell);
+
+        innerTable.addCell(createValueBar(barText, percentage, color));
+
+        PdfPCell valueCell = new PdfPCell(new Phrase(valueText,
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, color)));
+        valueCell.setBorder(Rectangle.NO_BORDER);
+        valueCell.setHorizontalAlignment(Element.ALIGN_CENTER);
+        valueCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        valueCell.setPadding(3);
+        innerTable.addCell(valueCell);
+
+        containerCell.addElement(innerTable);
+        table.addCell(containerCell);
+    }
+
+    /**
+     * Variante de barra donde el text dentro del relleno coincide con el valor.
+     */
+    public static void addBarRow(PdfPTable table, String label, String text,
+                                 float percentage, BaseColor color) {
+        addBarRow(table, label, text, text, percentage, color);
+    }
+
+    /**
+     * Tarjeta de métrica rellena con el color institucional.
+     */
+    public static void addMetricCard(PdfPTable table, String label, String value, BaseColor color) {
+        PdfPCell cell = new PdfPCell();
+        cell.setBackgroundColor(color);
+        cell.setPadding(10);
+        cell.setBorder(Rectangle.NO_BORDER);
+        cell.setFixedHeight(60);
+
+        Paragraph content = new Paragraph();
+        content.add(new Chunk(value + "\n",
+                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16, WHITE)));
+        content.add(new Chunk(label,
+                FontFactory.getFont(FontFactory.HELVETICA, 8, LIGHT_GRAY)));
+        content.setAlignment(Element.ALIGN_CENTER);
+
+        cell.addElement(content);
+        table.addCell(cell);
     }
 
     // ── Portada helpers ───────────────────────────────────────────────────────

@@ -6,7 +6,6 @@ import com.SIGMA.USCO.report.dto.ModalityDetailReportDTO;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.PdfPCell;
 import com.itextpdf.text.pdf.PdfPTable;
-import com.itextpdf.text.pdf.PdfWriter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -19,47 +18,40 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
-public class PdfReport {
+public class PdfReport extends BaseReportPdfGenerator {
 
     // =========================================================================
     //  PUNTO DE ENTRADA
     // =========================================================================
 
     public ByteArrayOutputStream generatePDF(GlobalModalityReportDTO report) throws DocumentException, IOException {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        Document document = new Document(PageSize.A4, 50, 50, 50, 50);
-        PdfWriter.getInstance(document, outputStream);
-        document.open();
+        PdfSession session = openDocument(PageSize.A4, 50, 50, 50, 50, null, null);
 
         // 1. Portada con header institucional
-        addCoverPage(document, report);
+        addCoverPage(session.document(), report);
 
         // 2. Resumen Ejecutivo
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte de Modalidades Activas");
-        addExecutiveSummary(document, report.getExecutiveSummary());
+        newPageWithHeader(session, "Reporte de Modalidades Activas");
+        addExecutiveSummary(session.document(), report.getExecutiveSummary());
 
         // 3. Indicadores de gestión
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte de Modalidades Activas");
-        addManagementIndicators(document, report.getExecutiveSummary(), report.getModalities());
+        newPageWithHeader(session, "Reporte de Modalidades Activas");
+        addManagementIndicators(session.document(), report.getExecutiveSummary(), report.getModalities());
 
         // 4. Distribuciones visuales
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte de Modalidades Activas");
-        addVisualDistributions(document, report.getExecutiveSummary());
+        InstitutionalPdfHeader.addInternalHeader(session.document(), "Reporte de Modalidades Activas");
+        addVisualDistributions(session.document(), report.getExecutiveSummary());
 
         // 5. Análisis de directores
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte de Modalidades Activas");
-        addDirectorAnalysis(document, report.getModalities());
+        newPageWithHeader(session, "Reporte de Modalidades Activas");
+        addDirectorAnalysis(session.document(), report.getModalities());
 
         // 6. Detalle de modalidades
-        addModalityDetails(document, report.getModalities());
+        addModalityDetails(session.document(), report.getModalities());
 
         // 7. Observaciones y pie
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Reporte de Modalidades Activas");
-        InstitutionalPdfHeader.addSectionTitle(document, "6. OBSERVACIONES Y NOTAS");
+        newPageWithHeader(session, "Reporte de Modalidades Activas");
+        InstitutionalPdfHeader.addSectionTitle(session.document(), "6. OBSERVACIONES Y NOTAS");
 
         StringBuilder noteText = new StringBuilder();
         if (report.getAcademicProgramName() != null) {
@@ -74,10 +66,10 @@ public class PdfReport {
 
         String closingText = "Generado por SIGMA — Sistema de Gestión de Modalidades de Grado\nUniversidad Surcolombiana · " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_FULL);
 
-        InstitutionalPdfHeader.addFooterSection(document, noteText.toString(), closingText);
+        InstitutionalPdfHeader.addFooterSection(session.document(), noteText.toString(), closingText);
 
-        document.close();
-        return outputStream;
+        close(session);
+        return session.out();
     }
 
 
@@ -212,7 +204,7 @@ public class PdfReport {
         }
 
         long withoutDirector = modalities.stream()
-                .filter(m -> m.getDirector() == null && !isDirectorNotRequired(m.getModalityName()))
+                .filter(m -> m.getDirector() == null && ReportUtils.isDirectorRequired(m.getModalityName()))
                 .count();
         if (withoutDirector > 0) {
             addMetricRow(alertsTable, "⚠ Modalidades requieren director",
@@ -430,19 +422,10 @@ public class PdfReport {
         if (modality.getDirector() != null) {
             director = modality.getDirector().getFullName();
         } else {
-            director = isDirectorNotRequired(modality.getModalityName()) ? "No requerido" : "Sin asignar";
+            director = !ReportUtils.isDirectorRequired(modality.getModalityName()) ? "No requerido" : "Sin asignar";
         }
         table.addCell(createCell(director, Element.ALIGN_LEFT));
         table.addCell(createCell(modality.getDaysSinceStart() + " días", Element.ALIGN_CENTER));
-    }
-
-    private boolean isDirectorNotRequired(String modalityName) {
-        if (modalityName == null) return false;
-        String n = modalityName.toUpperCase().trim();
-        return n.contains("PLAN COMPLEMENTARIO") ||
-               n.contains("PRODUCCIÓN ACADEMICA") ||
-               n.contains("PRODUCCION ACADEMICA") ||
-               n.contains("SEMINARIO");
     }
 
     private PdfPCell createCell(String text, int alignment) {

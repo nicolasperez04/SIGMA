@@ -3,10 +3,12 @@ package com.SIGMA.USCO.documents.service;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
@@ -18,6 +20,9 @@ public class ProjectTitleExtractionService {
     private final ProjectTitleService projectTitleService;
     private final StudentDocumentRepository studentDocumentRepository;
 
+    // ponytail: REQUIRES_NEW — el AFTER_COMMIT corre sin tx del publicador y las
+    // relaciones LAZY de StudentDocument necesitan sesión abierta para navegarse
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onStudentDocumentUpdated(ModalityEvent event) {
         if (event.getType() != NotificationType.DOCUMENT_UPLOADED) return;

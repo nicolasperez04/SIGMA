@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -44,5 +45,11 @@ public class ModalityReportFilterDTO {
      * Indica si se deben incluir solo modalidades con director asignado
      */
     private Boolean onlyWithDirector;
+
+    /**
+     * Filtro por rango de fecha de última actualización (inclusive)
+     */
+    private LocalDateTime startDate;
+    private LocalDateTime endDate;
 }
 

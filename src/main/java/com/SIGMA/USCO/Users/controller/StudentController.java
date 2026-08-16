@@ -1,6 +1,8 @@
 package com.SIGMA.USCO.Users.controller;
 
 import com.SIGMA.USCO.Modalities.dto.StudentModalityDTO;
+import com.SIGMA.USCO.Modalities.dto.StudentModalityHistoryDTO;
+import com.SIGMA.USCO.Modalities.dto.response.CancellationRequestResponse;
 import com.SIGMA.USCO.Modalities.service.CancellationService;
 import com.SIGMA.USCO.Modalities.service.StudentModalityListingService;
 import com.SIGMA.USCO.Users.dto.response.AcademicHistoryProfileResponse;
@@ -8,6 +10,8 @@ import com.SIGMA.USCO.Users.dto.response.StudentDocumentDTO;
 import com.SIGMA.USCO.Users.dto.response.StudentResponse;
 import com.SIGMA.USCO.Users.service.StudentService;
 import com.SIGMA.USCO.academic.dto.StudentProfileRequest;
+import com.SIGMA.USCO.common.security.Roles;
+import com.SIGMA.USCO.common.web.OperationResultResponse;
 import com.SIGMA.USCO.documents.dto.StatusHistoryDTO;
 import com.SIGMA.USCO.documents.service.DocumentService;
 import com.SIGMA.USCO.security.SecurityUtils;
@@ -31,7 +35,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Map;
 
 @Tag(name = "Estudiantes", description = "Operaciones para estudiantes: perfil, documentos, modalidades y cancelaciones")
 @RestController
@@ -52,9 +55,9 @@ public class StudentController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/profile")
-    @PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
     public ResponseEntity<String> updateStudentProfile(@RequestBody @Valid StudentProfileRequest request){
-        studentService.updateStudentProfile(request);
+        studentService.updateStudentProfile(request, SecurityUtils.getCurrentUser());
         return ResponseEntity.ok("Perfil académico actualizado correctamente");
     }
 
@@ -65,31 +68,42 @@ public class StudentController {
             @ApiResponse(responseCode = "403", description = "Acceso denegado")
     })
     @PostMapping("/profile/from-academic-history")
-    @PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
     public ResponseEntity<AcademicHistoryProfileResponse> updateStudentProfileFromAcademicHistory(
             @Parameter(description = "Archivo PDF del historial académico") @RequestParam("file") MultipartFile file
     ) {
-        return ResponseEntity.ok(studentService.updateStudentProfileFromAcademicHistory(file));
+        return ResponseEntity.ok(studentService.updateStudentProfileFromAcademicHistory(file, SecurityUtils.getCurrentUser()));
     }
 
     @Operation(summary = "Obtener perfil del estudiante", description = "Retorna la información completa del perfil del estudiante autenticado")
     @ApiResponse(responseCode = "200", description = "Perfil obtenido exitosamente")
     @GetMapping("/profile")
-    @PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
     public ResponseEntity<StudentResponse> getStudentInfo() {
-        return ResponseEntity.ok(studentService.getStudentProfile());
+        return ResponseEntity.ok(studentService.getStudentProfile(SecurityUtils.getCurrentUser()));
     }
 
     @Operation(summary = "Obtener modalidad actual", description = "Retorna la modalidad de grado activa del estudiante autenticado")
     @ApiResponse(responseCode = "200", description = "Modalidad obtenida exitosamente")
     @GetMapping("/modality/current")
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
     public ResponseEntity<StudentModalityDTO> getCurrentStudentModality() {
-        return ResponseEntity.ok(modalityListingService.getCurrentStudentModality());
+        return ResponseEntity.ok(modalityListingService.getCurrentStudentModality(SecurityUtils.getCurrentUser()));
+    }
+
+    @Operation(summary = "Obtener historial de modalidades", description = "Retorna todas las modalidades del estudiante (líder o miembro) ordenadas por fecha de creación desc. El frontend lo usa como gate para bloquear reinicios de modalidades ya aprobadas o canceladas")
+    @ApiResponse(responseCode = "200", description = "Historial obtenido exitosamente")
+    @GetMapping("/modalities/history")
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
+    public ResponseEntity<com.SIGMA.USCO.common.web.ApiResponse<List<StudentModalityHistoryDTO>>> getCompletedModalitiesHistory() {
+        return ResponseEntity.ok(com.SIGMA.USCO.common.web.ApiResponse.success(
+                modalityListingService.getCompletedModalitiesHistory(SecurityUtils.getCurrentUser())));
     }
 
     @Operation(summary = "Obtener historial de documento", description = "Retorna el historial de cambios y estados de un documento específico")
     @ApiResponse(responseCode = "200", description = "Historial obtenido exitosamente")
     @GetMapping("/documents/{studentDocumentId}/history")
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
     public ResponseEntity<List<StatusHistoryDTO>> getDocumentHistory(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) {
         return ResponseEntity.ok(documentService.getDocumentHistory(studentDocumentId, SecurityUtils.getCurrentUser()));
     }
@@ -101,16 +115,17 @@ public class StudentController {
             @ApiResponse(responseCode = "404", description = "Modalidad no encontrada")
     })
     @PostMapping("/{studentModalityId}/request-cancellation")
-    public ResponseEntity<Map<String, Object>> requestCancellation(@Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId) {
-        return ResponseEntity.ok(cancellationService.requestCancellation(studentModalityId));
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
+    public ResponseEntity<CancellationRequestResponse> requestCancellation(@Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId) {
+        return ResponseEntity.ok(cancellationService.requestCancellation(studentModalityId, SecurityUtils.getCurrentUser()));
     }
 
     @Operation(summary = "Obtener mis documentos", description = "Retorna la lista de documentos requeridos y su estado para la modalidad actual del estudiante")
     @ApiResponse(responseCode = "200", description = "Lista de documentos obtenida")
     @GetMapping("/my-documents")
-    @PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
     public ResponseEntity<List<StudentDocumentDTO>> getMyDocuments() {
-        return ResponseEntity.ok(studentService.getMyDocuments());
+        return ResponseEntity.ok(studentService.getMyDocuments(SecurityUtils.getCurrentUser()));
     }
 
     @Operation(summary = "Cargar documento de cancelación", description = "Carga el documento de justificación para la solicitud de cancelación de una modalidad")
@@ -120,15 +135,13 @@ public class StudentController {
             @ApiResponse(responseCode = "404", description = "Modalidad no encontrada")
     })
     @PostMapping("/cancellation-document/{studentModalityId}")
-    public ResponseEntity<?> uploadCancellationDocument(
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
+    public ResponseEntity<OperationResultResponse> uploadCancellationDocument(
             @Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId,
             @Parameter(description = "Archivo de justificación en PDF") @RequestParam("file") MultipartFile file) {
         documentService.uploadCancellationDocument(studentModalityId, file, SecurityUtils.getCurrentUser());
         return ResponseEntity.ok(
-                Map.of(
-                        "success", true,
-                        "message", "Documento de justificación cargado correctamente"
-                )
+                new OperationResultResponse(true, "Documento de justificación cargado correctamente")
         );
     }
 
@@ -139,9 +152,9 @@ public class StudentController {
             @ApiResponse(responseCode = "404", description = "Documento no encontrado")
     })
     @GetMapping("/documents/{studentDocumentId}/view")
-    @PreAuthorize("hasRole('STUDENT')")
+    @PreAuthorize("hasRole('" + Roles.ROLE_STUDENT + "')")
     public ResponseEntity<Resource> viewMyDocument(@Parameter(description = "ID del documento del estudiante") @PathVariable Long studentDocumentId) {
-        Resource resource = studentService.viewMyDocument(studentDocumentId);
+        Resource resource = studentService.viewMyDocument(studentDocumentId, SecurityUtils.getCurrentUser());
 
         String contentType = "application/octet-stream";
         try {

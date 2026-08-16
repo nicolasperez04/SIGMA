@@ -1,12 +1,16 @@
 package com.SIGMA.USCO.notifications.service;
 
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.common.exception.InternalException;
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.PdfPCell;
 import com.itextpdf.text.pdf.PdfPTable;
+import com.itextpdf.text.pdf.PdfWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -50,6 +54,15 @@ public final class CertificatePdfSupport {
     public static final Font FONT_FOOTER      = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE,  7f, GRAY_MID);
     public static final Font FONT_SIGN_NAME   = FontFactory.getFont(FontFactory.HELVETICA_BOLD,    8f, BaseColor.BLACK);
     public static final Font FONT_SIGN_ROLE   = FontFactory.getFont(FontFactory.HELVETICA,          7f, GRAY_MID);
+
+    /** Determina si la modalidad es "completa" (tiene sustentación programada, jurados asignados
+     * o director de proyecto). Si no tiene ninguno, se considera simplificada (aprobada por comité). */
+    public static boolean isCompleteModality(StudentModality modality) {
+        boolean hasDefenseDate = modality.getDefenseDate() != null;
+        boolean hasExaminers = modality.getDefenseExaminers() != null && !modality.getDefenseExaminers().isEmpty();
+        boolean hasDirector = modality.getProjectDirector() != null;
+        return hasDefenseDate || hasExaminers || hasDirector;
+    }
 
     // ── DateTimeFormatter en español ──────────────────────────────────────────
     public static final DateTimeFormatter DATE_FMT =
@@ -227,6 +240,49 @@ public final class CertificatePdfSupport {
         Paragraph verif = new Paragraph("Código de verificación: " + certNumber, verifFont);
         verif.setAlignment(Element.ALIGN_CENTER);
         doc.add(verif);
+    }
+
+    /** Cuerpo variable del acta (las secciones entre la línea dorada superior y el pie). */
+    @FunctionalInterface
+    public interface CertificateDocumentBody {
+        void build(Document doc) throws DocumentException, IOException;
+    }
+
+    /** Esqueleto de 10 pasos común a los 3 generadores de actas: cabecera, título, número,
+     * fecha, cuerpo variable (interfaz {@link CertificateDocumentBody}), línea dorada y pie. */
+    public static void buildDocument(Path filePath, String title, String certNumber, Font verifFont,
+                                     String facultyName, String programName, String errorMessage,
+                                     CertificateDocumentBody body) {
+        try {
+            Document doc = new Document(PageSize.A4, 50, 50, 40, 50);
+            PdfWriter.getInstance(doc, new FileOutputStream(filePath.toFile()));
+            doc.open();
+            addInstitutionalHeader(doc, facultyName, programName);
+            addRedLine(doc);
+            addSpacing(doc, 6f);
+            Paragraph titleP = new Paragraph(title, FONT_TITLE);
+            titleP.setAlignment(Element.ALIGN_CENTER);
+            titleP.setSpacingAfter(4f);
+            doc.add(titleP);
+            Paragraph actaNum = new Paragraph("No. " + certNumber, FONT_ACTA_NUM);
+            actaNum.setAlignment(Element.ALIGN_CENTER);
+            actaNum.setSpacingAfter(4f);
+            doc.add(actaNum);
+            Paragraph issueDate = new Paragraph("Neiva, " + LocalDateTime.now().format(DATE_FMT), FONT_BODY);
+            issueDate.setAlignment(Element.ALIGN_RIGHT);
+            issueDate.setSpacingAfter(10f);
+            doc.add(issueDate);
+            addGoldLine(doc);
+            addSpacing(doc, 8f);
+            body.build(doc);
+            addGoldLine(doc);
+            addSpacing(doc, 6f);
+            addFooter(doc, certNumber, verifFont);
+            doc.close();
+        } catch (DocumentException | IOException e) {
+            log.error("Error generando PDF: {}", e.getMessage(), e);
+            throw new InternalException(errorMessage, e);
+        }
     }
 
     /** Hash SHA-256 del archivo (para trazabilidad) */

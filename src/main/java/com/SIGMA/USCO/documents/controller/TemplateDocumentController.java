@@ -13,6 +13,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "Plantillas de Documentos", description = "Descarga de plantillas de documentos para modalidades de grado")
@@ -30,6 +31,7 @@ public class TemplateDocumentController {
             @ApiResponse(responseCode = "404", description = "Plantilla no encontrada")
     })
     @GetMapping("/{id}/download")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Resource> downloadTemplate(@Parameter(description = "ID de la plantilla de documento") @PathVariable Long id) {
         Resource resource = templateDocumentService.downloadTemplate(id);
         return ResponseEntity.ok()

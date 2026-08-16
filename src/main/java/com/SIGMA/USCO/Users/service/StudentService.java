@@ -1,12 +1,12 @@
 package com.SIGMA.USCO.Users.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.Faculty;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.academic.dto.StudentProfileRequest;
 import com.SIGMA.USCO.Users.dto.response.AcademicHistoryProfileResponse;
 import com.SIGMA.USCO.Users.dto.response.StudentDocumentDTO;
@@ -21,12 +21,11 @@ import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import com.SIGMA.USCO.documents.entity.enums.DocumentType;
-import com.SIGMA.USCO.documents.entity.enums.DocumentStatus;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.academic.entity.AcademicHistoryPdf;
 import com.SIGMA.USCO.academic.repository.AcademicHistoryPdfRepository;
-import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
-import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.shared.util.ResourceAccessPolicy;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
@@ -35,7 +34,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -72,18 +73,22 @@ public class StudentService {
     private final AcademicProgramRepository academicProgramRepository;
     private final AcademicHistoryPdfParserService academicHistoryPdfParserService;
     private final ResourceAccessPolicy resourceAccessPolicy;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional
-    public void updateStudentProfile(StudentProfileRequest request) {
+    public void updateStudentProfile(StudentProfileRequest request, User user) {
 
-        User user = SecurityUtils.getCurrentUser();
-        String email = user.getEmail();
+        // ponytail: @MapsId en StudentProfile.user cascada persist al User detached => re-cargar managed en tx
+        User managedUser = userRepository.findById(user.getId())
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+
+        String email = managedUser.getEmail();
 
         StudentProfile studentProfile = studentProfileRepository
-                .findByUserId(user.getId())
+                .findByUserId(managedUser.getId())
                 .orElseGet(() -> {
                     StudentProfile sp = new StudentProfile();
-                    sp.setUser(user);
+                    sp.setUser(managedUser);
                     return sp;
                 });
 
@@ -148,10 +153,10 @@ public class StudentService {
         studentProfileRepository.save(studentProfile);
     }
 
-    @Transactional
-    public AcademicHistoryProfileResponse updateStudentProfileFromAcademicHistory(MultipartFile file) {
+    // ponytail: sin @Transactional — el Files.copy de saveAcademicHistoryPdf NO debe correr dentro de una tx de BD
+    // (los saves de repositorio de Spring Data tienen su propia tx corta)
+    public AcademicHistoryProfileResponse updateStudentProfileFromAcademicHistory(MultipartFile file, User user) {
 
-        User user = SecurityUtils.getCurrentUser();
         String email = user.getEmail();
 
         String studentCode = extractStudentCodeFromEmail(email);
@@ -172,7 +177,8 @@ public class StudentService {
         try {
             extracted = academicHistoryPdfParserService.extract(file);
         } catch (IllegalArgumentException e) {
-            throw new ValidationException(e.getMessage());
+            logger.warn("No fue posible procesar el PDF del historial académico: {}", e.getMessage(), e);
+            throw new ValidationException("No fue posible procesar el PDF del historial académico.");
         } catch (Error e) {
             throw new ValidationException(
                     "No fue posible procesar el PDF en este servidor. " +
@@ -220,22 +226,10 @@ public class StudentService {
             );
         }
 
-        StudentProfile studentProfile = studentProfileRepository
-                .findByUserId(user.getId())
-                .orElseGet(() -> {
-                    StudentProfile sp = new StudentProfile();
-                    sp.setUser(user);
-                    return sp;
-                });
-
-        studentProfile.setFaculty(faculty);
-        studentProfile.setAcademicProgram(program);
-        studentProfile.setStudentCode(studentCode);
-        studentProfile.setApprovedCredits(extracted.getApprovedCredits());
-        studentProfile.setGpa(extracted.getGpa());
-        studentProfile.setSemester(inferredSemester);
-
-        studentProfileRepository.save(studentProfile);
+        StudentProfile studentProfile = loadOrCreateProfile(
+                user, program, faculty, studentCode,
+                extracted.getApprovedCredits(), extracted.getGpa(), inferredSemester
+        );
 
         // Guardar el PDF del historial académico en filesystem y BD
         String filePath = saveAcademicHistoryPdf(file, user, studentCode);
@@ -395,9 +389,8 @@ public class StudentService {
 
 
     @Transactional(readOnly = true)
-    public StudentResponse getStudentProfile() {
+    public StudentResponse getStudentProfile(User user) {
 
-        User user = SecurityUtils.getCurrentUser();
         Optional<StudentProfile> profileOpt = studentProfileRepository.findByUserId(user.getId());
 
         return StudentResponse.builder()
@@ -416,13 +409,11 @@ public class StudentService {
     }
 
     @Transactional(readOnly = true)
-    public List<StudentDocumentDTO> getMyDocuments(){
-
-        User currentUser = SecurityUtils.getCurrentUser();
+    public List<StudentDocumentDTO> getMyDocuments(User user){
 
         // Buscar la modalidad activa donde el usuario es miembro
         List<StudentModality> activeModalities =
-                studentModalityMemberRepository.findActiveModalitiesByUserId(currentUser.getId());
+                studentModalityMemberRepository.findActiveModalitiesByUserId(user.getId());
 
         if (activeModalities.isEmpty()) {
             throw new NotFoundException("No se encontró ninguna modalidad activa asociada al estudiante");
@@ -452,16 +443,14 @@ public class StudentService {
     }
 
     @Transactional(readOnly = true)
-    public Resource viewMyDocument(Long studentDocumentId) {
-
-        User currentUser = SecurityUtils.getCurrentUser();
+    public Resource viewMyDocument(Long studentDocumentId, User user) {
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
                 .orElseThrow(() -> new NotFoundException("Documento no encontrado"));
 
         resourceAccessPolicy.requireActiveMember(
                 document.getStudentModality().getId(),
-                currentUser,
+                user,
                 "No tienes permiso para ver este documento"
         );
 
@@ -481,6 +470,33 @@ public class StudentService {
         return resource;
     }
 
+    // ponytail: @MapsId en StudentProfile.user cascada persist al User detached => re-cargar managed en tx.
+    // TransactionTemplate (no @Transactional): el caller updateStudentProfileFromAcademicHistory es NO transaccional
+    // (T5.12, Files.copy fuera de tx) y @Transactional en un private + auto-invocación no se proxea.
+    private StudentProfile loadOrCreateProfile(User detachedUser, AcademicProgram program, Faculty faculty,
+                                               String studentCode, long approvedCredits, double gpa, long semester) {
+        return new TransactionTemplate(transactionManager).execute(status -> {
+            User managed = userRepository.findById(detachedUser.getId())
+                    .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+
+            StudentProfile sp = studentProfileRepository.findByUserId(managed.getId())
+                    .orElseGet(() -> {
+                        StudentProfile p = new StudentProfile();
+                        p.setUser(managed);
+                        return p;
+                    });
+
+            sp.setFaculty(faculty);
+            sp.setAcademicProgram(program);
+            sp.setStudentCode(studentCode);
+            sp.setApprovedCredits(approvedCredits);
+            sp.setGpa(gpa);
+            sp.setSemester(semester);
+
+            return studentProfileRepository.save(sp);
+        });
+    }
+
     private String saveAcademicHistoryPdf(MultipartFile file, User user, String studentCode) {
         try {
             // Validar que el archivo no sea nulo o vacío
@@ -493,13 +509,14 @@ public class StudentService {
             String originalFilename = file.getOriginalFilename();
             
             // Generar nombre único para el archivo (similar a uploadRequiredDocument)
-            String uniqueFileName = UUID.randomUUID() + "_" + originalFilename;
+            String uniqueFileName = UUID.randomUUID() + "_" +
+                    (originalFilename == null || originalFilename.isBlank()
+                            ? "historial.pdf"
+                            : TranslationUtils.sanitizeFileName(originalFilename));
 
             // Crear estructura de carpetas: uploadDir/Historial_Academico/{userName}_{lastName}_{userId}/
             // Similar a la estructura de uploadRequiredDocument
-            String studentFolder = user.getName() + user.getLastName() + "_" +
-                    user.getLastName() + "_" +
-                    user.getId();
+            String studentFolder = TranslationUtils.studentFolder(user.getName(), user.getLastName(), user.getId());
 
             Path basePath = Paths.get(uploadDir, "Historial_Academico", studentFolder);
             Files.createDirectories(basePath);
@@ -525,7 +542,6 @@ public class StudentService {
                     .uploadedBy(user)
                     .filePath(fullPath.toString())
                     .originalFileName(originalFilename)
-                    .uploadDate(LocalDateTime.now())
                     .fileSizeBytes(file.getSize())
                     .notes("PDF del historial académico subido por el estudiante")
                     .build();
@@ -540,29 +556,6 @@ public class StudentService {
             academicHistoryPdfRepository.save(academicHistoryPdf);
             logger.info("AcademicHistoryPdf guardado en BD para estudiante {}: ID = {}", 
                     studentCode, academicHistoryPdf.getId());
-
-            // También guardar en StudentDocument para que aparezca en "Mis documentos"
-            StudentDocument document = new StudentDocument();
-            document.setFileName(originalFilename);
-            document.setFilePath(fullPath.toString());
-            document.setUploadDate(LocalDateTime.now());
-            document.setNotes("Historial académico PDF - " + originalFilename);
-            document.setStatus(DocumentStatus.PENDING);
-
-            // Asociar a la modalidad activa del estudiante (si existe)
-            Optional<StudentModality> activeModality = studentModalityMemberRepository
-                    .findActiveModalitiesByUserId(user.getId())
-                    .stream()
-                    .findFirst();
-
-            if (activeModality.isPresent()) {
-                document.setStudentModality(activeModality.get());
-                studentDocumentRepository.save(document);
-                logger.info("StudentDocument guardado para estudiante {} en modalidad: {}", 
-                        studentCode, activeModality.get().getId());
-            } else {
-                logger.warn("No se encontró modalidad activa para guardar StudentDocument - estudiante: {}", studentCode);
-            }
 
             return fullPath.toString();
         } catch (IOException e) {

@@ -1,6 +1,6 @@
 package com.SIGMA.USCO.Modalities.dto;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

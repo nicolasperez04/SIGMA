@@ -1,18 +1,17 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
-import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import com.SIGMA.USCO.report.dto.*;
-import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,11 +33,10 @@ public class GlobalReportService {
 
 
     @Transactional(readOnly = true)
-    public GlobalModalityReportDTO generateGlobalReport() {
+    public GlobalModalityReportDTO generateGlobalReport(String userEmail) {
         long startTime = System.currentTimeMillis();
 
         // Obtener usuario autenticado y su programa
-        String userEmail = SecurityUtils.getCurrentUser().getEmail();
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
         Long userProgramId = userProgram.getId();
         String programName = userProgram.getName();
@@ -48,7 +46,7 @@ public class GlobalReportService {
         List<StudentModality> activeModalities = studentModalityRepository.findByStatusIn(ReportUtils.getActiveStatuses())
                 .stream()
                 .filter(modality -> modality.getAcademicProgram().getId().equals(userProgramId))
-                .collect(java.util.stream.Collectors.toList());
+                .toList();
 
         // Generar resumen ejecutivo
         ExecutiveSummaryDTO executiveSummary = generateExecutiveSummary(activeModalities);
@@ -98,11 +96,10 @@ public class GlobalReportService {
      * @return Reporte filtrado por tipo de modalidad
      */
     @Transactional(readOnly = true)
-    public GlobalModalityReportDTO generateFilteredReport(ModalityReportFilterDTO filters) {
+    public GlobalModalityReportDTO generateFilteredReport(ModalityReportFilterDTO filters, String userEmail) {
         long startTime = System.currentTimeMillis();
 
         // Obtener usuario autenticado y su programa
-        String userEmail = SecurityUtils.getCurrentUser().getEmail();
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
         Long userProgramId = userProgram.getId();
         String programName = userProgram.getName();
@@ -112,7 +109,7 @@ public class GlobalReportService {
         List<StudentModality> allModalities = studentModalityRepository.findForProgramHead(List.of(userProgramId))
                 .stream()
                 .filter(modality -> modality.getAcademicProgram().getId().equals(userProgramId))
-                .collect(Collectors.toList());
+                .toList();
 
         // Aplicar filtros
         List<StudentModality> filteredModalities = applyFilters(allModalities, filters);
@@ -165,7 +162,7 @@ public class GlobalReportService {
         List<StudentModality> allModalities = studentModalityRepository.findForProgramHead(List.of(userProgram.getId()))
                 .stream()
                 .filter(modality -> modality.getAcademicProgram().getId().equals(userProgram.getId()))
-                .collect(Collectors.toList());
+                .toList();
 
         // Agrupar por tipo de modalidad
         Map<Long, List<StudentModality>> modalitiesByType = allModalities.stream()
@@ -191,7 +188,7 @@ public class GlobalReportService {
                 })
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(AvailableModalityTypesDTO.ModalityTypeInfo::getName))
-                .collect(Collectors.toList());
+                .toList();
 
         return AvailableModalityTypesDTO.builder()
                 .availableTypes(typeInfoList)
@@ -240,17 +237,17 @@ public class GlobalReportService {
 
 
         long individualCount = activeModalities.stream()
-                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.INDIVIDUAL)
+                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.INDIVIDUAL)
                 .count();
         long groupCount = activeModalities.stream()
-                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.GROUP)
+                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.GROUP)
                 .count();
 
 
         double avgStudentsPerGroup = 0.0;
         if (groupCount > 0) {
             long totalStudentsInGroups = activeModalities.stream()
-                    .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.GROUP)
+                    .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.GROUP)
                     .mapToLong(m -> membersByModality.getOrDefault(m.getId(), List.of()).size())
                     .sum();
             avgStudentsPerGroup = (double) totalStudentsInGroups / groupCount;
@@ -305,7 +302,7 @@ public class GlobalReportService {
         return activeModalities.stream()
                 .map(modality -> buildModalityDetail(modality, membersByModality, profilesByUserId, activeModalities))
                 .sorted(Comparator.comparing(ModalityDetailReportDTO::getLastUpdate).reversed())
-                .collect(Collectors.toList());
+                .toList();
     }
 
 
@@ -428,7 +425,7 @@ public class GlobalReportService {
                             .build();
                 })
                 .sorted(Comparator.comparing(ProgramStatisticsDTO::getTotalActiveModalities).reversed())
-                .collect(Collectors.toList());
+                .toList();
     }
 
 
@@ -515,8 +512,20 @@ public class GlobalReportService {
                         matches = modality.getProjectDirector() != null;
                     }
 
+                    // Filtrar por rango de fechas de última actualización
+                    // ponytail: endDate inclusivo — el frontend envía ISO con hora, no hay truncado de día.
+                    if (matches && filters.getStartDate() != null &&
+                            (modality.getUpdatedAt() == null || modality.getUpdatedAt().isBefore(filters.getStartDate()))) {
+                        matches = false;
+                    }
+
+                    if (matches && filters.getEndDate() != null &&
+                            (modality.getUpdatedAt() == null || modality.getUpdatedAt().isAfter(filters.getEndDate()))) {
+                        matches = false;
+                    }
+
                     return matches;
                 })
-                .collect(Collectors.toList());
+                .toList();
     }
 }

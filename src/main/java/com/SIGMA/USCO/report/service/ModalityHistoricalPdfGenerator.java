@@ -15,74 +15,58 @@ import java.util.List;
  * Análisis temporal completo con diseño profesional e institucional
  */
 @Service
-public class ModalityHistoricalPdfGenerator {
+public class ModalityHistoricalPdfGenerator extends BaseReportPdfGenerator {
 
 
     public ByteArrayOutputStream generatePDF(ModalityHistoricalReportDTO report)
             throws DocumentException, IOException {
 
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        Document document = new Document(PageSize.A4, 50, 50, 50, 50);
-        PdfWriter writer = PdfWriter.getInstance(document, outputStream);
-
-        // Agregar eventos de página (encabezado y pie de página)
-        writer.setPageEvent(new InstitutionalPageEventHelper(report.getAcademicProgramName()));
-
-        document.open();
+        PdfSession session = openDocument(PageSize.A4, 50, 50, 50, 50, report.getAcademicProgramName(), null);
 
         // 1. Portada
-        addCoverPage(document, report);
+        addCoverPage(session.document(), report);
 
         // 2. Información General de la Modalidad
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addModalityGeneralInfo(document, report);
+        newPageWithHeader(session, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addModalityGeneralInfo(session.document(), report);
 
         // 3. Estado Actual
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addCurrentState(document, report);
+        newPageWithHeader(session, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addCurrentState(session.document(), report);
 
         // 4. Análisis Histórico por Periodos
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addHistoricalAnalysis(document, report);
+        newPageWithHeader(session, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addHistoricalAnalysis(session.document(), report);
 
         // 5. Análisis de Tendencias y Evolución
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addTrendsAnalysis(document, report);
+        newPageWithHeader(session, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addTrendsAnalysis(session.document(), report);
 
         // 6. Análisis Comparativo
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addComparativeAnalysis(document, report);
+        newPageWithHeader(session, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addComparativeAnalysis(session.document(), report);
 
         // 7. Estadísticas de Directores
         if (report.getDirectorStatistics() != null &&
             report.getDirectorStatistics().getTotalUniqueDirectors() > 0) {
-            document.newPage();
-            InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-            addDirectorStatistics(document, report);
+            newPageWithHeader(session, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+            addDirectorStatistics(session.document(), report);
         }
 
         // 8. Estadísticas de Estudiantes
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addStudentStatistics(document, report);
+        newPageWithHeader(session, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addStudentStatistics(session.document(), report);
 
         // 9. Análisis de Desempeño
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addPerformanceAnalysis(document, report);
+        newPageWithHeader(session, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addPerformanceAnalysis(session.document(), report);
 
         // 10. Proyecciones y Recomendaciones
-        document.newPage();
-        InstitutionalPdfHeader.addInternalHeader(document, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
-        addProjectionsAndRecommendations(document, report);
+        newPageWithHeader(session, "Histórico de Modalidad — " + report.getGeneratedAt().format(InstitutionalPdfHeader.DATE_SHORT));
+        addProjectionsAndRecommendations(session.document(), report);
 
         // 11. Pie institucional de cierre
-        InstitutionalPdfHeader.addFooterSection(document,
+        InstitutionalPdfHeader.addFooterSection(session.document(),
                 "Este análisis histórico ha sido generado automáticamente por el sistema SIGMA " +
                 "a partir de los datos académicos registrados. Las proyecciones son estimaciones " +
                 "basadas en tendencias históricas y deben complementarse con juicio profesional " +
@@ -90,8 +74,8 @@ public class ModalityHistoricalPdfGenerator {
                 "Sistema Integral de Gestión de Modalidades de Grado — SIGMA\n" +
                 "Universidad Surcolombiana | Facultad de Ingeniería | Neiva – Huila");
 
-        document.close();
-        return outputStream;
+        close(session);
+        return session.out();
     }
 
 
@@ -207,13 +191,13 @@ public class ModalityHistoricalPdfGenerator {
         // Tabla de métricas actuales
         PdfPTable metricsTable = createMetricsTable();
 
-        addMetricCell(metricsTable, "Instancias Activas",
+        InstitutionalPdfHeader.addMetricCard(metricsTable, "Instancias Activas",
             String.valueOf(current.getActiveInstances()), InstitutionalPdfHeader.INST_GOLD);
-        addMetricCell(metricsTable, "Estudiantes Inscritos",
+        InstitutionalPdfHeader.addMetricCard(metricsTable, "Estudiantes Inscritos",
             String.valueOf(current.getTotalStudentsEnrolled()), InstitutionalPdfHeader.INST_GOLD);
-        addMetricCell(metricsTable, "Directores Asignados",
+        InstitutionalPdfHeader.addMetricCard(metricsTable, "Directores Asignados",
             String.valueOf(current.getAssignedDirectors()), InstitutionalPdfHeader.INST_GOLD);
-        addMetricCell(metricsTable, "Popularidad Actual",
+        InstitutionalPdfHeader.addMetricCard(metricsTable, "Popularidad Actual",
             translatePopularity(current.getCurrentPopularity()),
             getPopularityColor(current.getCurrentPopularity()));
 
@@ -538,13 +522,13 @@ public class ModalityHistoricalPdfGenerator {
         // Resumen general
         PdfPTable summaryTable = createMetricsTable();
 
-        addMetricCell(summaryTable, "Total Directores Únicos",
+        InstitutionalPdfHeader.addMetricCard(summaryTable, "Total Directores Únicos",
             String.valueOf(dirStats.getTotalUniqueDirectors()), InstitutionalPdfHeader.INST_RED);
-        addMetricCell(summaryTable, "Directores Actuales",
+        InstitutionalPdfHeader.addMetricCard(summaryTable, "Directores Actuales",
             String.valueOf(dirStats.getCurrentActiveDirectors()), InstitutionalPdfHeader.INST_GOLD);
-        addMetricCell(summaryTable, "Promedio Instancias/Director",
+        InstitutionalPdfHeader.addMetricCard(summaryTable, "Promedio Instancias/Director",
             String.format("%.1f", dirStats.getAverageInstancesPerDirector()), InstitutionalPdfHeader.INST_GOLD);
-        addMetricCell(summaryTable, "Director Más Experimentado",
+        InstitutionalPdfHeader.addMetricCard(summaryTable, "Director Más Experimentado",
             dirStats.getMostExperiencedDirector() != null ?
                 dirStats.getMostExperiencedDirector() : "N/D",
             InstitutionalPdfHeader.INST_GOLD);
@@ -620,13 +604,13 @@ public class ModalityHistoricalPdfGenerator {
         // Métricas principales
         PdfPTable metricsTable = createMetricsTable();
 
-        addMetricCell(metricsTable, "Total Estudiantes Históricos",
+        InstitutionalPdfHeader.addMetricCard(metricsTable, "Total Estudiantes Históricos",
             String.valueOf(studStats.getTotalHistoricalStudents()), InstitutionalPdfHeader.INST_RED);
-        addMetricCell(metricsTable, "Estudiantes Actuales",
+        InstitutionalPdfHeader.addMetricCard(metricsTable, "Estudiantes Actuales",
             String.valueOf(studStats.getCurrentStudents()), InstitutionalPdfHeader.INST_GOLD);
-        addMetricCell(metricsTable, "Promedio Est./Instancia",
+        InstitutionalPdfHeader.addMetricCard(metricsTable, "Promedio Est./Instancia",
             String.format("%.1f", studStats.getAverageStudentsPerInstance()), InstitutionalPdfHeader.INST_GOLD);
-        addMetricCell(metricsTable, "Tipo Preferido",
+        InstitutionalPdfHeader.addMetricCard(metricsTable, "Tipo Preferido",
             studStats.getPreferredType() != null ? studStats.getPreferredType() : "MIXTO",
             InstitutionalPdfHeader.INST_GOLD);
 
@@ -944,25 +928,7 @@ public class ModalityHistoricalPdfGenerator {
         return table;
     }
 
-    /**
-     * Agregar celda de métrica
-     */
-    private void addMetricCell(PdfPTable table, String label, String value, BaseColor color) {
-        PdfPCell cell = new PdfPCell();
-        cell.setBackgroundColor(color);
-        cell.setPadding(10);
-        cell.setBorder(Rectangle.NO_BORDER);
-
-        Paragraph content = new Paragraph();
-        content.add(new Chunk(value + "\n",
-            FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, InstitutionalPdfHeader.WHITE)));
-        content.add(new Chunk(label,
-            FontFactory.getFont(FontFactory.HELVETICA, 9, new BaseColor(240, 240, 240))));
-        content.setAlignment(Element.ALIGN_CENTER);
-
-        cell.addElement(content);
-        table.addCell(cell);
-    }
+    
 
     /**
      * Agregar fila de estado
@@ -1230,7 +1196,15 @@ public class ModalityHistoricalPdfGenerator {
         chartTable.setSpacingAfter(15);
 
         for (ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO period : periods) {
-            addEnhancedPeriodBar(chartTable, period, maxValue, avgValue);
+            float pct = maxValue > 0 ? (float) period.getTotalInstances() / maxValue : 0;
+            String indicator = period.getTotalInstances() > avgValue ? " ▲" :
+                              period.getTotalInstances() < avgValue ? " ▼" : " ●";
+            BaseColor barColor = period.getTotalInstances() >= avgValue ?
+                InstitutionalPdfHeader.INST_GOLD : InstitutionalPdfHeader.INST_RED;
+
+            InstitutionalPdfHeader.addBarRow(chartTable, period.getPeriodLabel(),
+                    String.valueOf(period.getTotalInstances()),
+                    period.getTotalInstances() + indicator, pct, barColor);
         }
 
         document.add(chartTable);
@@ -1259,62 +1233,7 @@ public class ModalityHistoricalPdfGenerator {
         table.addCell(cell);
     }
 
-    /**
-     * Agregar barra de periodo mejorada con comparación al promedio
-     */
-    private void addEnhancedPeriodBar(PdfPTable table,
-                                     ModalityHistoricalReportDTO.AcademicPeriodAnalysisDTO period,
-                                     int maxValue,
-                                     double avgValue) {
-        PdfPCell containerCell = new PdfPCell();
-        containerCell.setPadding(4);
-        containerCell.setBorder(Rectangle.NO_BORDER);
 
-        // Tabla interna: label + barra + valor
-        PdfPTable innerTable = new PdfPTable(3);
-        try {
-            innerTable.setWidths(new float[]{1.2f, 4f, 1f});
-        } catch (DocumentException e) {
-            // Ignorar
-        }
-
-        // Etiqueta del periodo
-        PdfPCell labelCell = new PdfPCell(new Phrase(period.getPeriodLabel(),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, InstitutionalPdfHeader.TEXT_BLACK)));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        labelCell.setPadding(3);
-        innerTable.addCell(labelCell);
-
-        // Barra de progreso con color según relación con promedio
-        float percentage = maxValue > 0 ? (float) period.getTotalInstances() / maxValue : 0;
-        BaseColor barColor = period.getTotalInstances() >= avgValue ? InstitutionalPdfHeader.INST_GOLD : InstitutionalPdfHeader.INST_RED;
-
-        PdfPCell barCell = InstitutionalPdfHeader.createValueBar(String.valueOf(period.getTotalInstances()), percentage, barColor);
-        innerTable.addCell(barCell);
-
-        // Valor y comparación con promedio
-        PdfPCell valueCell = new PdfPCell();
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        valueCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        valueCell.setPadding(3);
-
-        Paragraph valueContent = new Paragraph();
-        valueContent.add(new Chunk(String.valueOf(period.getTotalInstances()),
-                FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, barColor)));
-
-        // Indicador visual de comparación con promedio
-        String indicator = period.getTotalInstances() > avgValue ? " ▲" :
-                          period.getTotalInstances() < avgValue ? " ▼" : " ●";
-        valueContent.add(new Chunk(indicator,
-                FontFactory.getFont(FontFactory.HELVETICA, 8, barColor)));
-
-        valueCell.addElement(valueContent);
-        innerTable.addCell(valueCell);
-
-        containerCell.addElement(innerTable);
-        table.addCell(containerCell);
-    }
 
     /**
      * Agregar indicador de tendencia general

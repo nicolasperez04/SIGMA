@@ -1,18 +1,18 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.Modalities.Entity.DefenseEvaluationCriteria;
-import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityType;
-import com.SIGMA.USCO.Modalities.Repository.DefenseEvaluationCriteriaRepository;
-import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Modalities.entity.DefenseEvaluationCriteria;
+import com.SIGMA.USCO.Modalities.entity.DefenseExaminer;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.MemberStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityType;
+import com.SIGMA.USCO.Modalities.repository.DefenseEvaluationCriteriaRepository;
+import com.SIGMA.USCO.Modalities.repository.DefenseExaminerRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Users.entity.ProgramAuthority;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
@@ -130,7 +130,7 @@ public class ReportUtils {
                     .gpa(profile != null ? profile.getGpa() : null)
                     .isLeader(member.getIsLeader())
                     .build();
-        }).collect(Collectors.toList());
+        }).toList();
     }
 
     public static Map<Long, StudentProfile> loadProfilesByUserIds(List<Long> userIds, StudentProfileRepository profileRepo) {
@@ -179,7 +179,7 @@ public class ReportUtils {
         }
         List<ProgramAuthority> programHeads = authorities.stream()
                 .filter(pa -> pa.getRole() == ProgramRole.PROGRAM_HEAD)
-                .collect(Collectors.toList());
+                .toList();
         if (programHeads.size() == 1) {
             return programHeads.get(0).getAcademicProgram();
         }

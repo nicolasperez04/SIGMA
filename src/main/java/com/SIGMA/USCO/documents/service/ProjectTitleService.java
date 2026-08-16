@@ -1,11 +1,13 @@
 package com.SIGMA.USCO.documents.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
-import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
+import com.SIGMA.USCO.common.security.Permissions;
+import com.SIGMA.USCO.common.security.Roles;
+import com.SIGMA.USCO.shared.util.ResourceAccessPolicy;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -85,9 +87,6 @@ public class ProjectTitleService {
         } else {
             // Limpiar y validar el título
             String cleanTitle = projectTitle.trim();
-            if (cleanTitle.length() > 500) {
-                cleanTitle = cleanTitle.substring(0, 500);
-            }
             modality.setModalityTitle(cleanTitle);
             log.info("Título de proyecto actualizado manualmente para modalidad ID {}: {}", 
                 studentModalityId, cleanTitle);
@@ -113,27 +112,18 @@ public class ProjectTitleService {
 
     private boolean isAuthorized(StudentModality modality, User current) {
         boolean isStaff = current.getAuthorities().stream().anyMatch(a ->
-                a.getAuthority().equals("ROLE_ADMIN")
-                        || a.getAuthority().equals("ROLE_PROGRAM_HEAD")
-                        || a.getAuthority().equals("PERM_VIEW_REPORT"));
+                a.getAuthority().equals("ROLE_" + Roles.ROLE_ADMIN)
+                        || a.getAuthority().equals("ROLE_" + Roles.ROLE_PROGRAM_HEAD)
+                        || a.getAuthority().equals(Permissions.PERM_VIEW_REPORT));
         return isStaff || isParticipant(modality, current);
     }
 
     private boolean isParticipant(StudentModality modality, User current) {
-        return tryRequire(() -> resourceAccessPolicy.requireLeader(modality, current, "No autorizado"))
-                || tryRequire(() -> resourceAccessPolicy.requireActiveMember(modality.getId(), current, "No autorizado"))
-                || tryRequire(() -> resourceAccessPolicy.requireAssignedExaminer(modality.getId(), current, "No autorizado"))
+        return resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireLeader(modality, current, "No autorizado"))
+                || resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireActiveMember(modality.getId(), current, "No autorizado"))
+                || resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireAssignedExaminer(modality.getId(), current, "No autorizado"))
                 || (modality.getProjectDirector() != null
                 && modality.getProjectDirector().getId().equals(current.getId()));
-    }
-
-    private boolean tryRequire(Runnable check) {
-        try {
-            check.run();
-            return true;
-        } catch (ForbiddenException e) {
-            return false;
-        }
     }
 
 }

@@ -1,19 +1,31 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.entity.DefenseExaminer;
+import com.SIGMA.USCO.Modalities.entity.ModalityProcessStatusHistory;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.ExaminerType;
+import com.SIGMA.USCO.Modalities.entity.enums.MemberStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.DefenseExaminerRepository;
+import com.SIGMA.USCO.Modalities.repository.ModalityProcessStatusHistoryRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.dto.response.EditRequestCreatedResponse;
+import com.SIGMA.USCO.Modalities.dto.response.EditRequestDetailResponse;
+import com.SIGMA.USCO.Modalities.dto.response.EditRequestResolutionResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerEditRequestsResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerEvaluationNotFoundResponse;
 import com.SIGMA.USCO.Modalities.dto.response.ExaminerFinalDocumentEvaluationResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ExaminerListResponse;
 import com.SIGMA.USCO.Modalities.dto.response.ExaminerProposalEvaluationResponse;
+import com.SIGMA.USCO.Modalities.dto.response.ModalityEditRequestsResponse;
+import com.SIGMA.USCO.Modalities.dto.response.MyEditRequestsResponse;
+import com.SIGMA.USCO.Modalities.dto.response.PendingEditRequestsResponse;
 import com.SIGMA.USCO.Modalities.dto.response.ProposalEvaluationInfo;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.documents.entity.DocumentEditRequest;
 import com.SIGMA.USCO.documents.entity.DocumentEditRequestVote;
 import com.SIGMA.USCO.documents.entity.ExaminerDocumentReview;
@@ -38,13 +50,14 @@ import com.SIGMA.USCO.documents.dto.DocumentEditResolutionDTO;
 import com.SIGMA.USCO.documents.dto.DocumentEditRequestResponseDTO;
 import com.SIGMA.USCO.common.exception.BusinessException;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.InternalException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
-import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
-import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.shared.util.ResourceAccessPolicy;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.common.security.Roles;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
-import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -54,9 +67,9 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -67,7 +80,9 @@ public class DocumentEditRequestService {
     private final DocumentEditRequestRepository documentEditRequestRepository;
     private final DocumentEditRequestVoteRepository documentEditRequestVoteRepository;
     private final StudentModalityRepository studentModalityRepository;
+    private final ModalityProcessStatusHistoryRepository historyRepository;
     private final DefenseExaminerRepository defenseExaminerRepository;
+    private final ProgramAuthorityRepository programAuthorityRepository;
     private final StudentModalityMemberRepository studentModalityMemberRepository;
     private final StudentDocumentRepository studentDocumentRepository;
     private final StudentDocumentStatusHistoryRepository documentHistoryRepository;
@@ -84,8 +99,7 @@ public class DocumentEditRequestService {
      * Ruta: GET /modalities/documents/{studentDocumentId}/examiner-proposal-evaluation
      */
     @Transactional(readOnly = true)
-    public Object getMyProposalEvaluation(Long studentDocumentId) {
-        User examiner = SecurityUtils.getCurrentUser();
+    public Object getMyProposalEvaluation(Long studentDocumentId, User examiner) {
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
                 .orElseThrow(() -> new NotFoundException("Documento no encontrado"));
@@ -107,10 +121,7 @@ public class DocumentEditRequestService {
                 .orElse(null);
 
         if (review == null) {
-            return Map.of(
-                    "success", false,
-                    "message", "No has emitido veredicto para este documento aún"
-            );
+            return new ExaminerEvaluationNotFoundResponse(false, "No has emitido veredicto para este documento aún");
         }
 
         // Obtener la evaluación de propuesta si existe
@@ -154,11 +165,10 @@ public class DocumentEditRequestService {
      * Ruta: GET /modalities/documents/{studentDocumentId}/examiner-final-evaluation
      */
     @Transactional(readOnly = true)
-    public Object getMyFinalDocumentEvaluation(Long studentDocumentId) {
-        User examiner = SecurityUtils.getCurrentUser();
+    public Object getMyFinalDocumentEvaluation(Long studentDocumentId, User examiner) {
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
-                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Documento no encontrado"));
 
         StudentModality studentModality = document.getStudentModality();
 
@@ -177,10 +187,7 @@ public class DocumentEditRequestService {
                 .orElse(null);
 
         if (review == null) {
-            return Map.of(
-                    "success", false,
-                    "message", "No has emitido veredicto para este documento aún"
-            );
+            return new ExaminerEvaluationNotFoundResponse(false, "No has emitido veredicto para este documento aún");
         }
 
         // Obtener la evaluación final (FinalDocumentEvaluation) si existe
@@ -218,12 +225,10 @@ public class DocumentEditRequestService {
      * Solo se permite si la modalidad no está cerrada/calificada.
      */
     @Transactional
-    public Map<String, Object> requestDocumentEdit(Long studentDocumentId, DocumentEditRequestDTO request) {
-
-        User student = SecurityUtils.getCurrentUser();
+    public EditRequestCreatedResponse requestDocumentEdit(Long studentDocumentId, DocumentEditRequestDTO request, User student) {
 
         StudentDocument document = studentDocumentRepository.findById(studentDocumentId)
-                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+                .orElseThrow(() -> new NotFoundException("Documento no encontrado"));
 
         StudentModality studentModality = document.getStudentModality();
 
@@ -244,15 +249,11 @@ public class DocumentEditRequestService {
             throw new ValidationException("Solo puedes solicitar edición de documentos que hayan sido aprobados por los jurados. Estado actual: " + document.getStatus());
         }
 
-        // Validar que la modalidad no esté en un estado final
+        // Validar que la modalidad esté en una fase que permita solicitar edición
         ModalityProcessStatus modalityStatus = studentModality.getStatus();
-        if (modalityStatus == ModalityProcessStatus.GRADED_APPROVED ||
-                modalityStatus == ModalityProcessStatus.GRADED_FAILED ||
-                modalityStatus == ModalityProcessStatus.MODALITY_CLOSED ||
-                modalityStatus == ModalityProcessStatus.MODALITY_CANCELLED ||
-                modalityStatus == ModalityProcessStatus.SEMINAR_CANCELED ||
-                modalityStatus == ModalityProcessStatus.CANCELLED_BY_CORRECTION_TIMEOUT) {
-            throw new ValidationException("No se puede solicitar edición de documentos en modalidades cerradas o calificadas");
+        if (modalityStatus != ModalityProcessStatus.EXAMINERS_ASSIGNED &&
+                modalityStatus != ModalityProcessStatus.PROPOSAL_APPROVED) {
+            throw new ValidationException("Solo puedes solicitar edición cuando la modalidad está en revisión de jurados o con propuesta aprobada");
         }
 
         // Validar que no haya ya una solicitud pendiente o en desempate para este documento
@@ -310,14 +311,14 @@ public class DocumentEditRequestService {
                 ))
         );
 
-        return Map.of(
-                "success", true,
-                "editRequestId", editRequest.getId(),
-                "documentId", document.getId(),
-                "documentName", document.getDocumentConfig().getDocumentName(),
-                "newDocumentStatus", DocumentStatus.EDIT_REQUESTED.name(),
-                "newModalityStatus", ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT.name(),
-                "message", "Solicitud de edición registrada correctamente. Los jurados evaluadores serán notificados para votar."
+        return new EditRequestCreatedResponse(
+                true,
+                editRequest.getId(),
+                document.getId(),
+                document.getDocumentConfig().getDocumentName(),
+                DocumentStatus.EDIT_REQUESTED.name(),
+                ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT.name(),
+                "Solicitud de edición registrada correctamente. Los jurados evaluadores serán notificados para votar."
         );
     }
 
@@ -331,12 +332,10 @@ public class DocumentEditRequestService {
      * - JURADO DE DESEMPATE vota → su decisión es definitiva
      */
     @Transactional
-    public Map<String, Object> resolveDocumentEditRequest(Long editRequestId, DocumentEditResolutionDTO request) {
-
-        User examiner = SecurityUtils.getCurrentUser();
+    public EditRequestResolutionResponse resolveDocumentEditRequest(Long editRequestId, DocumentEditResolutionDTO request, User examiner) {
 
         boolean hasExaminerRole = examiner.getRoles().stream()
-                .anyMatch(role -> role.getName().equals("EXAMINER"));
+                .anyMatch(role -> role.getName().equals(Roles.ROLE_EXAMINER));
         if (!hasExaminerRole) {
             throw new ForbiddenException("Solo los jurados pueden votar sobre solicitudes de edición de documentos");
         }
@@ -352,7 +351,7 @@ public class DocumentEditRequestService {
         }
 
         DocumentEditRequest editRequest = documentEditRequestRepository.findById(editRequestId)
-                .orElseThrow(() -> new RuntimeException("Solicitud de edición no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Solicitud de edición no encontrada"));
 
         // Solo se puede votar si la solicitud está PENDING o TIEBREAKER_REQUIRED
         if (editRequest.getStatus() != DocumentEditRequestStatus.PENDING &&
@@ -407,7 +406,7 @@ public class DocumentEditRequestService {
     /**
      * Procesa el consenso de votos sobre una solicitud de edición.
      */
-    private Map<String, Object> processEditRequestConsensus(
+    private EditRequestResolutionResponse processEditRequestConsensus(
             DocumentEditRequest editRequest,
             StudentDocument document,
             StudentModality studentModality,
@@ -443,17 +442,16 @@ public class DocumentEditRequestService {
                 .findByEditRequestId(editRequestId)
                 .stream()
                 .filter(v -> !v.getIsTiebreakerVote())
-                .collect(Collectors.toList());
+                .toList();
 
         // Si aún no han votado todos los jurados primarios, esperar
         if (primaryVotes.size() < 2) {
-            return Map.of(
-                    "success", true,
-                    "editRequestId", editRequestId,
-                    "message", "Veredicto registrado. Esperando el veredicto del otro jurado principal.",
-                    "votesReceived", primaryVotes.size(),
-                    "votesRequired", 2
-            );
+            return new EditRequestResolutionResponse(
+                    true,
+                    editRequestId,
+                    "Veredicto registrado. Esperando el veredicto del otro jurado principal.",
+                    primaryVotes.size(), 2,
+                    null, null, null, null, null, null, null, null);
         }
 
         // Ambos han votado — analizar resultado
@@ -510,19 +508,20 @@ public class DocumentEditRequestService {
                 ))
         );
 
-        return Map.of(
-                "success", true,
-                "editRequestId", editRequestId,
-                "newStatus", DocumentEditRequestStatus.TIEBREAKER_REQUIRED.name(),
-                "message", "Los jurados principales tienen votos divididos. El jurado de desempate deberá resolver la solicitud.",
-                "votes", buildVotesSummary(documentEditRequestVoteRepository.findByEditRequestId(editRequestId))
-        );
+        return new EditRequestResolutionResponse(
+                true,
+                editRequestId,
+                "Los jurados principales tienen votos divididos. El jurado de desempate deberá resolver la solicitud.",
+                null, null,
+                DocumentEditRequestStatus.TIEBREAKER_REQUIRED.name(),
+                buildVotesSummary(documentEditRequestVoteRepository.findByEditRequestId(editRequestId)),
+                null, null, null, null, null, null);
     }
 
     /**
      * Aplica la decisión final sobre la solicitud de edición (aprobada o rechazada).
      */
-    private Map<String, Object> applyFinalEditRequestDecision(
+    private EditRequestResolutionResponse applyFinalEditRequestDecision(
             DocumentEditRequest editRequest,
             StudentDocument document,
             StudentModality studentModality,
@@ -555,11 +554,22 @@ public class DocumentEditRequestService {
 
         // Actualizar el estado de la MODALIDAD
         // - Si se APRUEBA: la modalidad permanece en EDIT_REQUESTED_BY_STUDENT hasta que el estudiante resuba
-        // - Si se RECHAZA: la modalidad vuelve a EXAMINERS_ASSIGNED (estado antes de la solicitud)
+        // - Si se RECHAZA: la modalidad vuelve al estado previo a la solicitud (restaurado desde el historial)
         if (!approved) {
-            studentModality.setStatus(ModalityProcessStatus.PROPOSAL_APPROVED);
-            studentModality.setUpdatedAt(LocalDateTime.now());
-            studentModalityRepository.save(studentModality);
+            // ponytail: regla de historial — el primer entry es el EDIT_REQUESTED_BY_STUDENT escrito por
+            // requestDocumentEdit; se filtra y se toma el primer status distinto para restaurar el estado
+            // previo a la solicitud (fallback EXAMINERS_ASSIGNED). La transición escribe su propia historia.
+            List<ModalityProcessStatusHistory> history = historyRepository
+                    .findByStudentModalityIdOrderByChangeDateDesc(studentModality.getId());
+            ModalityProcessStatus previousStatus = history.stream()
+                    .map(ModalityProcessStatusHistory::getStatus)
+                    .filter(status -> status != ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT)
+                    .findFirst()
+                    .orElse(ModalityProcessStatus.EXAMINERS_ASSIGNED);
+
+            modalityStatusTransition.transition(studentModality, previousStatus, responsible,
+                    "Solicitud de edición rechazada" + (wasTiebreaker ? " por el jurado de desempate" : " por consenso de jurados principales") +
+                            ". La modalidad vuelve a su estado anterior: " + previousStatus);
         }
         // Si se aprueba, el estado sigue en EDIT_REQUESTED_BY_STUDENT; cambiará a EXAMINERS_ASSIGNED
         // cuando el estudiante resuba el documento (en uploadRequiredDocument)
@@ -578,19 +588,17 @@ public class DocumentEditRequestService {
         );
 
         // Trazabilidad en historial de la MODALIDAD
-        ModalityProcessStatus newModalityStatus = approved
-                ? ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT
-                : ModalityProcessStatus.EXAMINERS_ASSIGNED;
-
-        modalityStatusTransition.recordHistory(studentModality, newModalityStatus, responsible,
-                "Solicitud de edición del documento '" +
-                        document.getDocumentConfig().getDocumentName() + "' " +
-                        (approved ? "APROBADA" : "RECHAZADA") +
-                        (wasTiebreaker ? " por el jurado de desempate" : " por consenso de jurados principales") +
-                        (approved
-                                ? ". El estudiante puede resubir el documento con los cambios necesarios."
-                                : ". El documento permanece aprobado y la modalidad vuelve a su estado anterior.") +
-                        (finalNotes != null && !finalNotes.isBlank() ? " Observaciones: " + finalNotes : ""));
+        // Aprobación → recordHistory (el estado sigue en EDIT_REQUESTED_BY_STUDENT);
+        // rechazo → la historia ya fue escrita por transition (restauración del estado previo)
+        if (approved) {
+            modalityStatusTransition.recordHistory(studentModality, ModalityProcessStatus.EDIT_REQUESTED_BY_STUDENT, responsible,
+                    "Solicitud de edición del documento '" +
+                            document.getDocumentConfig().getDocumentName() + "' " +
+                            "APROBADA" +
+                            (wasTiebreaker ? " por el jurado de desempate" : " por consenso de jurados principales") +
+                            ". El estudiante puede resubir el documento con los cambios necesarios." +
+                            (finalNotes != null && !finalNotes.isBlank() ? " Observaciones: " + finalNotes : ""));
+        }
 
         // Notificar a los estudiantes del resultado
         applicationEventPublisher.publishEvent(
@@ -603,40 +611,37 @@ public class DocumentEditRequestService {
                 ))
         );
 
-        List<Map<String, Object>> votesSummary = buildVotesSummary(
+        List<EditRequestResolutionResponse.EditVoteSummary> votesSummary = buildVotesSummary(
                 documentEditRequestVoteRepository.findByEditRequestId(editRequest.getId())
         );
 
-        return Map.of(
-                "success", true,
-                "editRequestId", editRequest.getId(),
-                "documentId", document.getId(),
-                "documentName", document.getDocumentConfig().getDocumentName(),
-                "finalStatus", finalStatus.name(),
-                "newDocumentStatus", document.getStatus().name(),
-                "newModalityStatus", studentModality.getStatus().name(),
-                "resolvedByTiebreaker", wasTiebreaker,
-                "votes", votesSummary,
-                "message", approved
+        return new EditRequestResolutionResponse(
+                true,
+                editRequest.getId(),
+                approved
                         ? "Solicitud aprobada. El estudiante puede resubir el documento con los cambios."
-                        : "Solicitud rechazada. El documento permanece en estado aprobado."
-        );
+                        : "Solicitud rechazada. El documento permanece en estado aprobado.",
+                null, null, null, votesSummary,
+                document.getId(),
+                document.getDocumentConfig().getDocumentName(),
+                finalStatus.name(),
+                document.getStatus().name(),
+                studentModality.getStatus().name(),
+                wasTiebreaker);
     }
 
     /**
      * Construye un resumen de los votos de los jurados.
      */
-    private List<Map<String, Object>> buildVotesSummary(List<DocumentEditRequestVote> votes) {
-        return votes.stream().map(v -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("examinerName", v.getExaminer().getName() + " " + v.getExaminer().getLastName());
-            m.put("examinerEmail", v.getExaminer().getEmail());
-            m.put("decision", v.getDecision().name());
-            m.put("notes", v.getNotes());
-            m.put("isTiebreakerVote", v.getIsTiebreakerVote());
-            m.put("votedAt", v.getVotedAt());
-            return m;
-        }).collect(Collectors.toList());
+    private List<EditRequestResolutionResponse.EditVoteSummary> buildVotesSummary(List<DocumentEditRequestVote> votes) {
+        return votes.stream().map(v -> new EditRequestResolutionResponse.EditVoteSummary(
+                v.getExaminer().getName() + " " + v.getExaminer().getLastName(),
+                v.getExaminer().getEmail(),
+                v.getDecision().name(),
+                v.getNotes(),
+                v.getIsTiebreakerVote(),
+                v.getVotedAt()
+        )).toList();
     }
 
     /**
@@ -649,16 +654,14 @@ public class DocumentEditRequestService {
      * - Resultado final (si ya está resuelto)
      * Visible para todos los estados (PENDING, TIEBREAKER_REQUIRED, APPROVED, REJECTED).
      */
-    @Transactional
-    public Map<String, Object> getAllEditRequestsForExaminer(Long studentModalityId) {
-
-        User examiner = SecurityUtils.getCurrentUser();
+    @Transactional(readOnly = true)
+    public ExaminerEditRequestsResponse getAllEditRequestsForExaminer(Long studentModalityId, User examiner) {
 
         DefenseExaminer defenseExaminer = resourceAccessPolicy.requireAssignedExaminer(
                 studentModalityId, examiner, "No estás asignado como jurado a esta modalidad");
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         // Obtener todos los miembros activos
         List<StudentModalityMember> activeMembers = studentModalityMemberRepository
@@ -668,19 +671,30 @@ public class DocumentEditRequestService {
                 .map(m -> m.getStudent().getName() + " " + m.getStudent().getLastName() +
                         " (" + m.getStudent().getEmail() + ")" +
                         (Boolean.TRUE.equals(m.getIsLeader()) ? " – Líder" : ""))
-                .collect(Collectors.toList());
+                .toList();
 
         // Obtener TODAS las solicitudes de edición de la modalidad (todos los estados)
         List<DocumentEditRequest> allRequests = documentEditRequestRepository
                 .findByStudentModalityId(studentModalityId);
 
-        List<Map<String, Object>> requestDTOs = new ArrayList<>();
+        // Batch (T5.5): votos de todas las solicitudes en 1 query + jurados de la modalidad en 1 query
+        Map<Long, List<DocumentEditRequestVote>> votesByRequest = allRequests.isEmpty() ? Map.of()
+                : documentEditRequestVoteRepository
+                        .findByEditRequestIdIn(allRequests.stream().map(DocumentEditRequest::getId).toList())
+                        .stream()
+                        .collect(Collectors.groupingBy(v -> v.getEditRequest().getId()));
+
+        Map<Long, DefenseExaminer> examinerByUserId = defenseExaminerRepository
+                .findByStudentModalityId(studentModalityId)
+                .stream()
+                .collect(Collectors.toMap(de -> de.getExaminer().getId(), de -> de));
+
+        List<ExaminerEditRequestsResponse.EditRequestListItem> requestDTOs = new ArrayList<>();
 
         for (DocumentEditRequest req : allRequests) {
             StudentDocument doc = req.getStudentDocument();
 
-            List<DocumentEditRequestVote> votes = documentEditRequestVoteRepository
-                    .findByEditRequestId(req.getId());
+            List<DocumentEditRequestVote> votes = votesByRequest.getOrDefault(req.getId(), List.of());
 
             boolean alreadyVoted = votes.stream()
                     .anyMatch(v -> v.getExaminer().getId().equals(examiner.getId()));
@@ -690,23 +704,21 @@ public class DocumentEditRequestService {
                     .findFirst()
                     .orElse(null);
 
-            List<Map<String, Object>> voteDTOs = votes.stream().map(v -> {
-                Map<String, Object> voteMap = new LinkedHashMap<>();
-                voteMap.put("examinerName", v.getExaminer().getName() + " " + v.getExaminer().getLastName());
-                voteMap.put("examinerEmail", v.getExaminer().getEmail());
-                String examinerTypeLabel = defenseExaminerRepository
-                        .findByStudentModalityIdAndExaminerId(studentModalityId, v.getExaminer().getId())
+            List<ExaminerEditRequestsResponse.EditRequestVoteInfo> voteDTOs = votes.stream().map(v -> {
+                String examinerTypeLabel = Optional.ofNullable(examinerByUserId.get(v.getExaminer().getId()))
                         .map(de -> TranslationUtils.translateExaminerType(de.getExaminerType()))
                         .orElse("Jurado");
-                voteMap.put("examinerTypeLabel", examinerTypeLabel);
-                voteMap.put("decision", v.getDecision().name());
-                voteMap.put("decisionLabel", v.getDecision() == com.SIGMA.USCO.documents.entity.enums.EditRequestVoteDecision.APPROVED
-                        ? "Aprobado" : "Rechazado");
-                voteMap.put("notes", v.getNotes());
-                voteMap.put("isTiebreakerVote", v.getIsTiebreakerVote());
-                voteMap.put("votedAt", v.getVotedAt());
-                return voteMap;
-            }).collect(Collectors.toList());
+                return new ExaminerEditRequestsResponse.EditRequestVoteInfo(
+                        v.getExaminer().getName() + " " + v.getExaminer().getLastName(),
+                        v.getExaminer().getEmail(),
+                        examinerTypeLabel,
+                        v.getDecision().name(),
+                        v.getDecision() == EditRequestVoteDecision.APPROVED ? "Aprobado" : "Rechazado",
+                        v.getNotes(),
+                        v.getIsTiebreakerVote(),
+                        v.getVotedAt()
+                );
+            }).toList();
 
             String statusDesc = switch (req.getStatus()) {
                 case PENDING -> "Pendiente de votación por los jurados principales";
@@ -722,74 +734,67 @@ public class DocumentEditRequestService {
                 canVote = req.getStatus() == DocumentEditRequestStatus.PENDING && !alreadyVoted;
             }
 
-            Map<String, Object> requestMap = new LinkedHashMap<>();
-            requestMap.put("editRequestId", req.getId());
-            requestMap.put("documentId", doc.getId());
-            requestMap.put("documentName", doc.getDocumentConfig().getDocumentName());
-            requestMap.put("documentType", doc.getDocumentConfig().getDocumentType().name());
-            requestMap.put("currentDocumentStatus", doc.getStatus().name());
-            requestMap.put("requesterName", req.getRequester().getName() + " " + req.getRequester().getLastName());
-            requestMap.put("requesterEmail", req.getRequester().getEmail());
-            requestMap.put("reason", req.getReason());
-            requestMap.put("status", req.getStatus().name());
-            requestMap.put("statusDescription", statusDesc);
-            requestMap.put("createdAt", req.getCreatedAt());
-            requestMap.put("resolvedAt", req.getResolvedAt());
-            requestMap.put("finalResolutionNotes", req.getResolutionNotes());
-            requestMap.put("totalVotes", votes.size());
-            requestMap.put("votes", voteDTOs);
-            requestMap.put("authenticatedExaminerAlreadyVoted", alreadyVoted);
-            requestMap.put("authenticatedExaminerCanVote", canVote);
+            ExaminerEditRequestsResponse.EditRequestMyVote myVoteInfo = myVote != null
+                    ? new ExaminerEditRequestsResponse.EditRequestMyVote(
+                            myVote.getDecision().name(),
+                            myVote.getDecision() == EditRequestVoteDecision.APPROVED ? "Aprobado" : "Rechazado",
+                            myVote.getNotes(),
+                            myVote.getVotedAt())
+                    : null;
 
-            if (myVote != null) {
-                Map<String, Object> myVoteMap = new LinkedHashMap<>();
-                myVoteMap.put("decision", myVote.getDecision().name());
-                myVoteMap.put("decisionLabel", myVote.getDecision() == com.SIGMA.USCO.documents.entity.enums.EditRequestVoteDecision.APPROVED
-                        ? "Aprobado" : "Rechazado");
-                myVoteMap.put("notes", myVote.getNotes());
-                myVoteMap.put("votedAt", myVote.getVotedAt());
-                requestMap.put("myVote", myVoteMap);
-            } else {
-                requestMap.put("myVote", null);
-            }
-
-            requestDTOs.add(requestMap);
+            requestDTOs.add(new ExaminerEditRequestsResponse.EditRequestListItem(
+                    req.getId(),
+                    doc.getId(),
+                    doc.getDocumentConfig().getDocumentName(),
+                    doc.getDocumentConfig().getDocumentType().name(),
+                    doc.getStatus().name(),
+                    req.getRequester().getName() + " " + req.getRequester().getLastName(),
+                    req.getRequester().getEmail(),
+                    req.getReason(),
+                    req.getStatus().name(),
+                    statusDesc,
+                    req.getCreatedAt(),
+                    req.getResolvedAt(),
+                    req.getResolutionNotes(),
+                    votes.size(),
+                    voteDTOs,
+                    alreadyVoted,
+                    canVote,
+                    myVoteInfo
+            ));
         }
 
         // Información del jurado autenticado en contexto de esta modalidad
-        Map<String, Object> examinerContext = new LinkedHashMap<>();
-        examinerContext.put("examinerId", examiner.getId());
-        examinerContext.put("examinerName", examiner.getName() + " " + examiner.getLastName());
-        examinerContext.put("examinerEmail", examiner.getEmail());
-        examinerContext.put("examinerType", defenseExaminer.getExaminerType().name());
-        examinerContext.put("examinerTypeLabel", TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()));
-        examinerContext.put("isTiebreaker", defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER);
+        ExaminerEditRequestsResponse.ExaminerContext examinerContext = new ExaminerEditRequestsResponse.ExaminerContext(
+                examiner.getId(),
+                examiner.getName() + " " + examiner.getLastName(),
+                examiner.getEmail(),
+                defenseExaminer.getExaminerType().name(),
+                TranslationUtils.translateExaminerType(defenseExaminer.getExaminerType()),
+                defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER
+        );
 
         // Información de la modalidad
-        Map<String, Object> modalityInfo = new LinkedHashMap<>();
-        modalityInfo.put("studentModalityId", studentModality.getId());
-        modalityInfo.put("modalityName", studentModality.getProgramDegreeModality().getDegreeModality().getName());
-        modalityInfo.put("academicProgram", studentModality.getProgramDegreeModality().getAcademicProgram().getName());
-        modalityInfo.put("currentModalityStatus", studentModality.getStatus().name());
-        modalityInfo.put("students", studentNames);
+        ExaminerEditRequestsResponse.ModalityContext modalityInfo = new ExaminerEditRequestsResponse.ModalityContext(
+                studentModality.getId(),
+                studentModality.getProgramDegreeModality().getDegreeModality().getName(),
+                studentModality.getProgramDegreeModality().getAcademicProgram().getName(),
+                studentModality.getStatus().name(),
+                studentNames
+        );
 
         long pending = allRequests.stream().filter(r -> r.getStatus() == DocumentEditRequestStatus.PENDING).count();
         long tiebreakerRequired = allRequests.stream().filter(r -> r.getStatus() == DocumentEditRequestStatus.TIEBREAKER_REQUIRED).count();
         long approvedCount = allRequests.stream().filter(r -> r.getStatus() == DocumentEditRequestStatus.APPROVED).count();
         long rejectedCount = allRequests.stream().filter(r -> r.getStatus() == DocumentEditRequestStatus.REJECTED).count();
 
-        return Map.of(
-                "success", true,
-                "examiner", examinerContext,
-                "modality", modalityInfo,
-                "summary", Map.of(
-                        "total", allRequests.size(),
-                        "pending", pending,
-                        "tiebreakerRequired", tiebreakerRequired,
-                        "approved", approvedCount,
-                        "rejected", rejectedCount
-                ),
-                "editRequests", requestDTOs
+        return new ExaminerEditRequestsResponse(
+                true,
+                examinerContext,
+                modalityInfo,
+                new ExaminerEditRequestsResponse.EditRequestSummary(
+                        allRequests.size(), pending, tiebreakerRequired, approvedCount, rejectedCount),
+                requestDTOs
         );
     }
 
@@ -798,10 +803,8 @@ public class DocumentEditRequestService {
      * para que el jurado autenticado pueda revisarlas.
      * Incluye el estado de votación actual y los votos ya registrados.
      */
-@Transactional
-    public Map<String, Object> getPendingEditRequestsForExaminer(Long studentModalityId) {
-
-        User examiner = SecurityUtils.getCurrentUser();
+@Transactional(readOnly = true)
+    public PendingEditRequestsResponse getPendingEditRequestsForExaminer(Long studentModalityId, User examiner) {
 
         DefenseExaminer defenseExaminer = resourceAccessPolicy.requireAssignedExaminer(
                 studentModalityId, examiner, "No estás asignado como jurado a esta modalidad");
@@ -809,7 +812,7 @@ public class DocumentEditRequestService {
         boolean isTiebreaker = defenseExaminer.getExaminerType() == ExaminerType.TIEBREAKER_EXAMINER;
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         List<StudentDocument> docs = studentDocumentRepository.findByStudentModalityId(studentModalityId);
         List<DocumentEditRequestResponseDTO> result = new ArrayList<>();
@@ -826,7 +829,7 @@ public class DocumentEditRequestService {
                             return req.getStatus() == DocumentEditRequestStatus.PENDING;
                         }
                     })
-                    .collect(Collectors.toList());
+                    .toList();
 
             for (DocumentEditRequest req : requests) {
                 List<DocumentEditRequestVote> votes = documentEditRequestVoteRepository
@@ -844,7 +847,7 @@ public class DocumentEditRequestService {
                                 .isTiebreakerVote(v.getIsTiebreakerVote())
                                 .votedAt(v.getVotedAt())
                                 .build())
-                        .collect(Collectors.toList());
+                        .toList();
 
                 String statusDesc = switch (req.getStatus()) {
                     case PENDING -> "Pendiente de votación por los jurados principales";
@@ -875,12 +878,12 @@ public class DocumentEditRequestService {
             }
         }
 
-        return Map.of(
-                "success", true,
-                "studentModalityId", studentModalityId,
-                "examinerType", defenseExaminer.getExaminerType().name(),
-                "isTiebreaker", isTiebreaker,
-                "pendingEditRequests", result
+        return new PendingEditRequestsResponse(
+                true,
+                studentModalityId,
+                defenseExaminer.getExaminerType().name(),
+                isTiebreaker,
+                result
         );
     }
 
@@ -892,22 +895,16 @@ public class DocumentEditRequestService {
      * El estudiante autenticado obtiene TODAS sus solicitudes de edición de documentos,
      * agrupadas por modalidad, con el estado de votación de cada una.
      */
-    @Transactional
-    public Map<String, Object> getMyDocumentEditRequests() {
-
-        User student = SecurityUtils.getCurrentUser();
+    @Transactional(readOnly = true)
+    public MyEditRequestsResponse getMyDocumentEditRequests(User student) {
 
         List<DocumentEditRequest> requests = documentEditRequestRepository.findByRequesterId(student.getId());
 
         List<DocumentEditRequestResponseDTO> result = requests.stream()
                 .map(req -> buildEditRequestResponseDTO(req))
-                .collect(Collectors.toList());
+                .toList();
 
-        return Map.of(
-                "success", true,
-                "totalRequests", result.size(),
-                "editRequests", result
-        );
+        return new MyEditRequestsResponse(true, result.size(), result);
     }
 
     /**
@@ -915,10 +912,8 @@ public class DocumentEditRequestService {
      * asociadas a una modalidad específica (por studentModalityId).
      * Útil para ver el estado actualizado de sus solicitudes en la modalidad actual.
      */
-    @Transactional
-    public Map<String, Object> getMyDocumentEditRequestsByModality(Long studentModalityId) {
-
-        User student = SecurityUtils.getCurrentUser();
+    @Transactional(readOnly = true)
+    public ModalityEditRequestsResponse getMyDocumentEditRequestsByModality(Long studentModalityId, User student) {
 
         // Validar que el estudiante sea miembro activo de la modalidad
         boolean isActiveMember = studentModalityMemberRepository.isActiveMember(studentModalityId, student.getId());
@@ -931,26 +926,19 @@ public class DocumentEditRequestService {
 
         List<DocumentEditRequestResponseDTO> result = requests.stream()
                 .map(req -> buildEditRequestResponseDTO(req))
-                .collect(Collectors.toList());
+                .toList();
 
-        return Map.of(
-                "success", true,
-                "studentModalityId", studentModalityId,
-                "totalRequests", result.size(),
-                "editRequests", result
-        );
+        return new ModalityEditRequestsResponse(true, studentModalityId, result.size(), result);
     }
 
     /**
      * El estudiante autenticado obtiene el detalle de una solicitud de edición específica por ID.
      */
-    @Transactional
-    public Map<String, Object> getDocumentEditRequestDetail(Long editRequestId) {
-
-        User student = SecurityUtils.getCurrentUser();
+    @Transactional(readOnly = true)
+    public EditRequestDetailResponse getDocumentEditRequestDetail(Long editRequestId, User student) {
 
         DocumentEditRequest request = documentEditRequestRepository.findById(editRequestId)
-                .orElseThrow(() -> new RuntimeException("Solicitud de edición no encontrada"));
+                .orElseThrow(() -> new NotFoundException("Solicitud de edición no encontrada"));
 
         StudentModality studentModality = request.getStudentDocument().getStudentModality();
 
@@ -963,10 +951,7 @@ public class DocumentEditRequestService {
 
         DocumentEditRequestResponseDTO dto = buildEditRequestResponseDTO(request);
 
-        return Map.of(
-                "success", true,
-                "editRequest", dto
-        );
+        return new EditRequestDetailResponse(true, dto);
     }
 
     /**
@@ -988,7 +973,7 @@ public class DocumentEditRequestService {
                         .isTiebreakerVote(v.getIsTiebreakerVote())
                         .votedAt(v.getVotedAt())
                         .build())
-                .collect(Collectors.toList());
+                .toList();
 
         String statusDesc = switch (req.getStatus()) {
             case PENDING -> "Pendiente de votación por los jurados evaluadores";
@@ -1022,50 +1007,58 @@ public class DocumentEditRequestService {
      * @return lista de jurados o error si la modalidad no existe
      */
     @Transactional(readOnly = true)
-    public Map<String, Object> getExaminersForModality(Long studentModalityId) {
+    public ExaminerListResponse getExaminersForModality(Long studentModalityId, User user) {
         try {
             StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
-                    .orElseThrow(() -> new RuntimeException("Modalidad no encontrada"));
+                    .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
+
+            boolean isProgramAuthority = programAuthorityRepository.existsByUser_IdAndAcademicProgram_Id(
+                    user.getId(),
+                    studentModality.getAcademicProgram().getId()
+            );
+            boolean isAssignedExaminer = defenseExaminerRepository
+                    .findByStudentModalityIdAndExaminerId(studentModalityId, user.getId())
+                    .isPresent();
+
+            if (!isProgramAuthority && !isAssignedExaminer) {
+                throw new ForbiddenException("No autorizado para consultar los jurados de esta modalidad");
+            }
 
             List<DefenseExaminer> examiners = defenseExaminerRepository
                     .findByStudentModalityId(studentModalityId);
 
             if (examiners.isEmpty()) {
-                return Map.of(
-                        "success", true,
-                        "studentModalityId", studentModalityId,
-                        "examiners", List.of(),
-                        "message", "No hay jurados asignados a esta modalidad"
-                );
+                return new ExaminerListResponse(true, studentModalityId, List.of(),
+                        "No hay jurados asignados a esta modalidad", null, null, null);
             }
 
-            List<Map<String, Object>> examinersList = examiners.stream()
-                    .map(examiner -> Map.<String, Object>of(
-                            "examinerId", examiner.getExaminer().getId(),
-                            "examinerName", examiner.getExaminer().getName(),
-                            "examinerLastName", examiner.getExaminer().getLastName(),
-                            "examinerEmail", examiner.getExaminer().getEmail(),
-                            "examinerType", examiner.getExaminerType().name(),
-                            "examinerTypeDescription", TranslationUtils.translateExaminerType(examiner.getExaminerType()),
-                            "assignmentDate", examiner.getAssignmentDate()
-                    ))
-                    .collect(Collectors.toList());
+            List<ExaminerListResponse.ExaminerInfo> examinersList = examiners.stream()
+                    .map(examiner -> new ExaminerListResponse.ExaminerInfo(
+                            examiner.getExaminer().getId(),
+                            examiner.getExaminer().getName(),
+                            examiner.getExaminer().getLastName(),
+                            examiner.getExaminer().getEmail(),
+                            examiner.getExaminerType().name(),
+                            TranslationUtils.translateExaminerType(examiner.getExaminerType()),
+                            examiner.getAssignmentDate()))
+                    .toList();
 
-            return Map.of(
-                    "success", true,
-                    "studentModalityId", studentModalityId,
-                    "modalityName", studentModality.getProgramDegreeModality().getDegreeModality().getName(),
-                    "modalityStatus", studentModality.getStatus().name(),
-                    "examinersCount", examinersList.size(),
-                    "examiners", examinersList
+            return new ExaminerListResponse(
+                    true,
+                    studentModalityId,
+                    examinersList,
+                    null,
+                    studentModality.getProgramDegreeModality().getDegreeModality().getName(),
+                    studentModality.getStatus().name(),
+                    examinersList.size()
             );
 
         } catch (BusinessException e) {
             throw e;
         } catch (RuntimeException e) {
-            throw new ValidationException(e.getMessage());
+            throw new InternalException("Error al obtener los jurados", e);
         } catch (Exception e) {
-            throw new RuntimeException("Error al obtener los jurados: " + e.getMessage());
+            throw new InternalException("Error al obtener los jurados", e);
         }
     }
 }

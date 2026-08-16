@@ -1,15 +1,14 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.report.dto.*;
-import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,11 +35,10 @@ public class ComparisonReportService {
      * @return Reporte comparativo con estadísticas por tipo
      */
     @Transactional(readOnly = true)
-    public ModalityTypeComparisonReportDTO generateModalityTypeComparison(ModalityComparisonFilterDTO filters) {
+    public ModalityTypeComparisonReportDTO generateModalityTypeComparison(ModalityComparisonFilterDTO filters, String userEmail) {
         long startTime = System.currentTimeMillis();
 
         // Obtener usuario autenticado y su programa
-        String userEmail = SecurityUtils.getCurrentUser().getEmail();
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
         // Obtener modalidades según filtros (carga única del programa, filtros en memoria)
@@ -111,14 +109,14 @@ public class ComparisonReportService {
         // Filtrar por programa
         filteredModalities = filteredModalities.stream()
                 .filter(m -> m.getAcademicProgram().getId().equals(programId))
-                .collect(Collectors.toList());
+                .toList();
 
         // Filtrar por activas o todas
         if (filters != null && Boolean.TRUE.equals(filters.getOnlyActiveModalities())) {
             List<ModalityProcessStatus> activeStatuses = ReportUtils.getActiveStatuses();
             filteredModalities = filteredModalities.stream()
                     .filter(m -> activeStatuses.contains(m.getStatus()))
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
         // Filtrar por año y semestre si se especificó
@@ -126,12 +124,12 @@ public class ComparisonReportService {
             filteredModalities = filteredModalities.stream()
                     .filter(m -> m.getSelectionDate() != null &&
                                  m.getSelectionDate().getYear() == filters.getYear())
-                    .collect(Collectors.toList());
+                    .toList();
 
             if (filters.getSemester() != null) {
                 filteredModalities = filteredModalities.stream()
                         .filter(m -> ReportUtils.getSemesterFromDate(m.getSelectionDate()) == filters.getSemester())
-                        .collect(Collectors.toList());
+                        .toList();
             }
         }
 
@@ -229,10 +227,10 @@ public class ComparisonReportService {
 
                     // Contar individuales y grupales
                     long individual = typeModalities.stream()
-                            .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.INDIVIDUAL)
+                            .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.INDIVIDUAL)
                             .count();
                     long group = typeModalities.stream()
-                            .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.GROUP)
+                            .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.GROUP)
                             .count();
 
                     // Contar con/sin director
@@ -272,7 +270,7 @@ public class ComparisonReportService {
                 })
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(ModalityTypeComparisonReportDTO.ModalityTypeStatisticsDTO::getTotalModalities).reversed())
-                .collect(Collectors.toList());
+                .toList();
     }
 
     /**

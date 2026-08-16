@@ -1,10 +1,10 @@
 package com.SIGMA.USCO.documents.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Repository.DegreeModalityRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.repository.DegreeModalityRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 
@@ -16,11 +16,15 @@ import com.SIGMA.USCO.documents.entity.enums.DocumentType;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentStatusHistoryRepository;
+import com.SIGMA.USCO.common.exception.ConflictException;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.InternalException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
-import com.SIGMA.USCO.common.util.MimeTypeGuard;
-import com.SIGMA.USCO.common.util.ResourceAccessPolicy;
+import com.SIGMA.USCO.common.security.Roles;
+import com.SIGMA.USCO.shared.util.ResourceAccessPolicy;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
+import com.SIGMA.USCO.common.validation.FileValidator;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.io.FilenameUtils;
@@ -34,7 +38,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -63,6 +66,12 @@ public class DocumentService {
                         "La modalidad con ID " + request.getModalityId() + " no existe.")
                 );
 
+        // ponytail: unicidad de nombre dentro de la modalidad (solo docs activos)
+        if (requiredDocumentRepository.existsByModality_IdAndDocumentNameIgnoreCaseAndActiveTrue(
+                request.getModalityId(), request.getDocumentName())) {
+            throw new ValidationException("Ya existe un documento con ese nombre en la modalidad.");
+        }
+
         RequiredDocument document = RequiredDocument.builder()
                 .modality(modality)
                 .documentName(request.getDocumentName())
@@ -87,6 +96,12 @@ public class DocumentService {
                 .orElseThrow(() -> new NotFoundException(
                         "El documento obligatorio con ID " + documentId + " no existe."
                 ));
+
+        // ponytail: unicidad de nombre dentro de la modalidad, excluyendo este documento
+        if (requiredDocumentRepository.existsByModality_IdAndDocumentNameIgnoreCaseAndActiveTrueAndIdNot(
+                document.getModality().getId(), request.getDocumentName(), documentId)) {
+            throw new ValidationException("Ya existe un documento con ese nombre en la modalidad.");
+        }
 
         document.setDocumentName(request.getDocumentName());
         document.setDescription(request.getDescription());
@@ -131,20 +146,11 @@ public class DocumentService {
         return requiredDocumentRepository
                         .findByModalityIdAndActive(modalityId, true)
                         .stream()
-                        .map(doc -> RequiredDocumentDTO.builder()
-                                .id(doc.getId())
-                                .modalityId( doc.getModality().getId())
-                                .documentName(doc.getDocumentName())
-                                .description(doc.getDescription())
-                                .allowedFormat(doc.getAllowedFormat())
-                                .maxFileSizeMB(doc.getMaxFileSizeMB())
-                                .documentType(doc.getDocumentType())
-                                .active(doc.isActive())
-                                .requiresProposalEvaluation(doc.isRequiresProposalEvaluation())
-                                .build())
+                        .map(RequiredDocumentDTO::from)
                         .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<RequiredDocumentDTO>
     getRequiredDocumentsByModalityAndStatus(Long modalityId, boolean active) {
 
@@ -155,52 +161,13 @@ public class DocumentService {
         return requiredDocumentRepository
                         .findByModalityIdAndActive(modalityId, active)
                         .stream()
-                        .map(doc -> RequiredDocumentDTO.builder()
-                                .id(doc.getId())
-                                .documentName(doc.getDocumentName())
-                                .description(doc.getDescription())
-                                .allowedFormat(doc.getAllowedFormat())
-                                .maxFileSizeMB(doc.getMaxFileSizeMB())
-                                .documentType(doc.getDocumentType())
-                                .active(doc.isActive())
-                                .requiresProposalEvaluation(doc.isRequiresProposalEvaluation())
-                                .build())
+                        .map(RequiredDocumentDTO::from)
                         .toList();
     }
 
 
 
 
-
-    private String describeDocumentStatus(DocumentStatus status) {
-
-        return switch (status) {
-
-            case PENDING ->
-                    "Documento cargado y pendiente de revisión.";
-
-            case ACCEPTED_FOR_PROGRAM_HEAD_REVIEW ->
-                    "Documento aprobado por la jefatura del programa.";
-
-            case REJECTED_FOR_PROGRAM_HEAD_REVIEW ->
-                    "Documento rechazado por la jefatura del programa.";
-
-            case CORRECTIONS_REQUESTED_BY_PROGRAM_HEAD ->
-                    "La jefatura del programa solicitó correcciones.";
-
-            case ACCEPTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW ->
-                    "Documento aprobado por el Comité Curricular del programa.";
-
-            case REJECTED_FOR_PROGRAM_CURRICULUM_COMMITTEE_REVIEW ->
-                    "Documento rechazado por el Comité Curricular del programa.";
-
-            case CORRECTIONS_REQUESTED_BY_PROGRAM_CURRICULUM_COMMITTEE ->
-                    "El Comité Curricular del programa solicitó correcciones.";
-
-            default ->
-                    "Estado del documento no definido.";
-        };
-    }
 
     @Transactional(readOnly = true)
     public List<StatusHistoryDTO> getDocumentHistory(Long studentDocumentId, User currentUser) {
@@ -218,7 +185,7 @@ public class DocumentService {
                         .stream()
                         .map(h -> StatusHistoryDTO.builder()
                                 .status(h.getStatus().name())
-                                .description(describeDocumentStatus(h.getStatus()))
+                                .description(TranslationUtils.translateDocumentStatus(h.getStatus()))
                                 .changeDate(h.getChangeDate())
                                 .responsible(
                                         h.getResponsible() != null
@@ -254,7 +221,7 @@ public class DocumentService {
         // cancelaciones de terceros); restringir por programa requeriría inyectar más repos.
         boolean isStaff = current.getRoles().stream()
                 .anyMatch(role -> role.getName().equals("SUPERADMIN")
-                        || role.getName().equals("EXAMINER"));
+                        || role.getName().equals(Roles.ROLE_EXAMINER));
 
         if (!(isLeader || isDirector || isProgramAuthority || isStaff)) {
             throw new ForbiddenException("No autorizado");
@@ -273,7 +240,7 @@ public class DocumentService {
                 ));
     }
 
-    @Transactional
+    // T5.12: la I/O (Files.copy) queda fuera de la tx; solo la persistencia va en el método transaccional
     public void uploadCancellationDocument(Long studentModalityId, MultipartFile file, User currentUser) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
@@ -295,23 +262,27 @@ public class DocumentService {
                         "No se encontró configuración de documento de cancelación para esta modalidad"
                 ));
 
-        validateFile(file, cancellationDocumentConfig);
+        FileValidator.validateNotEmpty(file);
+        FileValidator.validateExtension(file, cancellationDocumentConfig.getAllowedFormat());
+        FileValidator.validateMime(file, FilenameUtils.getExtension(file.getOriginalFilename()).toUpperCase());
+        FileValidator.validateSize(file, cancellationDocumentConfig.getMaxFileSizeMB());
 
         String safeOriginal = FilenameUtils.getName(
                 file.getOriginalFilename() != null ? file.getOriginalFilename() : "");
-        safeOriginal = safeOriginal.replaceAll("[^a-zA-Z0-9._-]", "_");
+        safeOriginal = TranslationUtils.sanitizeFileName(safeOriginal);
         if (safeOriginal.isEmpty()) {
             safeOriginal = "documento";
         }
         String fileName = UUID.randomUUID() + "_" + safeOriginal;
 
         // Crear estructura de carpetas para documentos de cancelación
-        String modalityFolder = studentModality.getProgramDegreeModality()
-                .getDegreeModality().getName().replaceAll("[^a-zA-Z0-9]", "_");
-        String studentFolder = (studentModality.getLeader().getName() +
-                studentModality.getLeader().getLastName() + "_" +
-                studentModality.getLeader().getLastName() + "_" +
-                studentModality.getId()).replaceAll("[^a-zA-Z0-9]", "_");
+        String modalityFolder = TranslationUtils.sanitizeFileName(
+                studentModality.getProgramDegreeModality()
+                        .getDegreeModality().getName(), "[^a-zA-Z0-9]");
+        String studentFolder = TranslationUtils.studentFolder(
+                studentModality.getLeader().getName(),
+                studentModality.getLeader().getLastName(),
+                studentModality.getLeader().getId());
 
         Path destination = Paths.get(uploadDir, modalityFolder, studentFolder, "cancelaciones", fileName);
 
@@ -319,13 +290,21 @@ public class DocumentService {
             Files.createDirectories(destination.getParent());
             Files.copy(file.getInputStream(), destination, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
-            throw new RuntimeException("Error guardando el archivo: " + e.getMessage());
+            throw new InternalException("Error guardando el archivo", e);
         }
+
+        persistCancellationDocument(studentModality, cancellationDocumentConfig, fileName, destination.toString());
+    }
+
+    @Transactional
+    public void persistCancellationDocument(StudentModality studentModality,
+                                            RequiredDocument cancellationDocumentConfig,
+                                            String fileName, String filePath) {
 
         // Verificar si ya existe un documento de cancelación
         Optional<StudentDocument> existingDoc = studentDocumentRepository
                 .findByStudentModalityIdAndDocumentConfig_DocumentType(
-                        studentModalityId,
+                        studentModality.getId(),
                         DocumentType.CANCELLATION
                 )
                 .stream()
@@ -337,7 +316,7 @@ public class DocumentService {
             // Actualizar documento existente
             studentDocument = existingDoc.get();
             studentDocument.setFileName(fileName);
-            studentDocument.setFilePath(destination.toString());
+            studentDocument.setFilePath(filePath);
             studentDocument.setStatus(DocumentStatus.PENDING);
             studentDocument.setUploadDate(LocalDateTime.now());
         } else {
@@ -346,7 +325,7 @@ public class DocumentService {
                     .studentModality(studentModality)
                     .documentConfig(cancellationDocumentConfig)
                     .fileName(fileName)
-                    .filePath(destination.toString())
+                    .filePath(filePath)
                     .status(DocumentStatus.PENDING)
                     .uploadDate(LocalDateTime.now())
                     .build();
@@ -366,34 +345,4 @@ public class DocumentService {
         );
     }
 
-    private void validateFile(MultipartFile file, RequiredDocument config) {
-
-        if (file.isEmpty()) {
-            throw new ValidationException("Archivo vacío");
-        }
-
-        String extension = FilenameUtils.getExtension(file.getOriginalFilename())
-                .toUpperCase();
-
-        List<String> allowed =
-                Arrays.stream(config.getAllowedFormat().split(","))
-                        .map(String::trim)
-                        .map(String::toUpperCase)
-                        .toList();
-
-        if (!allowed.contains(extension)) {
-            throw new ValidationException("Formato no permitido");
-        }
-
-        if (!MimeTypeGuard.isMimeAllowed(file, extension)) {
-            throw new ValidationException("Formato no permitido");
-        }
-
-        long maxSizeBytes = config.getMaxFileSizeMB() * 1024L * 1024L;
-
-        if (file.getSize() > maxSizeBytes) {
-            throw new ValidationException("Archivo supera el tamaño permitido");
-        }
     }
-
-}

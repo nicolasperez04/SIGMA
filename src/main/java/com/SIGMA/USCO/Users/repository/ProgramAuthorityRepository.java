@@ -1,11 +1,10 @@
 package com.SIGMA.USCO.Users.repository;
 
-import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Users.entity.ProgramAuthority;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
-import java.util.Optional;
 
 public interface ProgramAuthorityRepository extends JpaRepository<ProgramAuthority,Long> {
 
@@ -15,19 +14,14 @@ public interface ProgramAuthorityRepository extends JpaRepository<ProgramAuthori
             ProgramRole role
     );
 
-    boolean existsByAcademicProgram_IdAndRole(
-            Long academicProgramId,
-            ProgramRole role
-    );
-
-
-
     List<ProgramAuthority> findByAcademicProgram_IdAndRole(
             Long academicProgramId,
             ProgramRole role
     );
 
     List<ProgramAuthority> findByUser_Id(Long userId);
+
+    List<ProgramAuthority> findByRole(ProgramRole role);
 
     List<ProgramAuthority> findAllByUser_IdIn(List<Long> userIds);
 

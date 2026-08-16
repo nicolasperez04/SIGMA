@@ -1,17 +1,19 @@
 package com.SIGMA.USCO.Users.service;
 
-import com.SIGMA.USCO.Users.Entity.*;
-import com.SIGMA.USCO.Users.Entity.enums.Status;
+import com.SIGMA.USCO.Users.entity.*;
+import com.SIGMA.USCO.Users.entity.enums.Status;
 import com.SIGMA.USCO.Users.dto.request.AuthRequest;
 import com.SIGMA.USCO.Users.dto.request.ResetPasswordRequest;
 import com.SIGMA.USCO.Users.repository.*;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.UnauthorizedException;
 import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.common.security.Roles;
 import com.SIGMA.USCO.config.EmailService;
 import com.SIGMA.USCO.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -21,13 +23,19 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Set;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
+
+    // ponytail: blacklist expiry = expiración del JWT (jwt.expiration=18000000ms=5h)
+    private static final Duration BLACKLIST_EXPIRATION = Duration.ofHours(5);
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -70,7 +78,7 @@ public class AuthService {
                     .body("Este correo ya está en uso");
         }
 
-        Role studentRole = roleRepository.findByName("STUDENT")
+        Role studentRole = roleRepository.findByName(Roles.ROLE_STUDENT)
                 .orElseThrow(() -> new NotFoundException("El rol STUDENT no existe en la base de datos."));
 
         User user = User.builder()
@@ -108,7 +116,7 @@ public class AuthService {
             return ResponseEntity.ok(token);
 
         } catch (AuthenticationException e) {
-            return ResponseEntity.badRequest()
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body("Credenciales incorrectas. Por favor, verifica tu correo institucional y contraseña.");
         }
     }
@@ -173,8 +181,13 @@ public class AuthService {
         }
 
         if (!blackListedTokenRepository.existsByToken(token)) {
+            LocalDateTime expiresAt = jwtService.getExpirationDate(token) != null
+                    ? jwtService.getExpirationDate(token).toInstant()
+                            .atZone(ZoneId.of("America/Bogota")).toLocalDateTime()
+                    : LocalDateTime.now().plus(BLACKLIST_EXPIRATION);
             BlackListedToken blackListedToken = BlackListedToken.builder()
                     .token(token)
+                    .expiresAt(expiresAt)
                     .build();
             blackListedTokenRepository.save(blackListedToken);
             return "Cierre de sesión exitoso.";

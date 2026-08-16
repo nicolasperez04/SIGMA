@@ -1,6 +1,8 @@
 package com.SIGMA.USCO.security;
 
 import com.SIGMA.USCO.Users.repository.BlackListedTokenRepository;
+import com.SIGMA.USCO.common.web.ApiResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -10,12 +12,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 @Component
 @RequiredArgsConstructor
 public class BlackListFilter extends OncePerRequestFilter {
 
     private final BlackListedTokenRepository blackListedTokenRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -32,7 +36,11 @@ public class BlackListFilter extends OncePerRequestFilter {
 
             if (blackListedTokenRepository.existsByToken(token)) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.getWriter().write("Por favor inicie sesion de nuevo.");
+                response.setHeader("WWW-Authenticate", "Bearer");
+                response.setContentType("application/json");
+                response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+                response.getWriter().write(objectMapper.writeValueAsString(
+                        ApiResponse.error("Su sesión fue cerrada. Por favor inicie sesión de nuevo.")));
                 return;
             }
         }

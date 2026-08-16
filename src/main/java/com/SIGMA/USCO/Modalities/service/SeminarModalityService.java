@@ -1,18 +1,28 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.Seminar;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.SeminarStatus;
-import com.SIGMA.USCO.Modalities.Repository.SeminarRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.entity.Seminar;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.SeminarStatus;
+import com.SIGMA.USCO.Modalities.repository.SeminarRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
 import com.SIGMA.USCO.Modalities.dto.SeminarDTO;
 import com.SIGMA.USCO.Modalities.dto.SeminarDetailDTO;
 import com.SIGMA.USCO.Modalities.dto.SeminarListDTO;
 import com.SIGMA.USCO.Modalities.dto.SeminarResponseDTO;
-import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Modalities.dto.response.CancelSeminarResponse;
+import com.SIGMA.USCO.Modalities.dto.response.CloseRegistrationsResponse;
+import com.SIGMA.USCO.Modalities.dto.response.CompleteSeminarResponse;
+import com.SIGMA.USCO.Modalities.dto.response.CreateSeminarResponse;
+import com.SIGMA.USCO.Modalities.dto.response.EnrollSeminarResponse;
+import com.SIGMA.USCO.Modalities.dto.response.SeminarDetailResponse;
+import com.SIGMA.USCO.Modalities.dto.response.SeminarListResponse;
+import com.SIGMA.USCO.Modalities.dto.response.SeminarResponse;
+import com.SIGMA.USCO.Modalities.dto.response.StartSeminarResponse;
+import com.SIGMA.USCO.Modalities.dto.response.UpdateSeminarResponse;
+import com.SIGMA.USCO.Users.entity.ProgramAuthority;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
@@ -21,10 +31,11 @@ import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.common.exception.BusinessException;
 import com.SIGMA.USCO.common.exception.ConflictException;
+import com.SIGMA.USCO.common.exception.InternalException;
 import com.SIGMA.USCO.common.exception.ValidationException;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
-import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
+
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,10 +43,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -48,12 +57,29 @@ public class SeminarModalityService {
     private final StudentProfileRepository studentProfileRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final ModalityStatusTransition modalityStatusTransition;
+
+    // ponytail: estados "en curso" de una modalidad de seminario (flujo hasta PROPOSAL_APPROVED);
+    // excluye finales (GRADED_*, MODALITY_CLOSED, CORRECTIONS_REJECTED_FINAL) y cancelaciones
+    // (CANCELLATION_*, MODALITY_CANCELLED, SEMINAR_CANCELED) — alinear con ReportUtils.ACTIVE_STATUSES si el negocio lo confirma
+    private static final List<ModalityProcessStatus> SEMINAR_CANCELLABLE_STATUSES = List.of(
+            ModalityProcessStatus.MODALITY_SELECTED,
+            ModalityProcessStatus.UNDER_REVIEW_PROGRAM_HEAD,
+            ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD,
+            ModalityProcessStatus.CORRECTIONS_SUBMITTED,
+            ModalityProcessStatus.CORRECTIONS_SUBMITTED_TO_PROGRAM_HEAD,
+            ModalityProcessStatus.CORRECTIONS_SUBMITTED_TO_COMMITTEE,
+            ModalityProcessStatus.READY_FOR_PROGRAM_CURRICULUM_COMMITTEE,
+            ModalityProcessStatus.UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE,
+            ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE,
+            ModalityProcessStatus.READY_FOR_DIRECTOR_ASSIGNMENT,
+            ModalityProcessStatus.READY_FOR_APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE,
+            ModalityProcessStatus.APPROVED_BY_PROGRAM_CURRICULUM_COMMITTEE,
+            ModalityProcessStatus.PROPOSAL_APPROVED);
 
     @Transactional
-    public Map<String, Object> createSeminar(SeminarDTO request) {
+    public CreateSeminarResponse createSeminar(SeminarDTO request, User user) {
         try {
-
-            User user = SecurityUtils.getCurrentUser();
 
 
             ProgramAuthority programAuthority = programAuthorityRepository
@@ -115,12 +141,12 @@ public class SeminarModalityService {
 
             seminar = seminarRepository.save(seminar);
 
-            return Map.of(
-                    "success", true,
-                    "message", "Seminario creado exitosamente",
-                    "seminarId", seminar.getId(),
-                    "programName", academicProgram.getName(),
-                    "seminarName", seminar.getName()
+            return new CreateSeminarResponse(
+                    true,
+                    "Seminario creado exitosamente",
+                    seminar.getId(),
+                    academicProgram.getName(),
+                    seminar.getName()
             );
 
         } catch (IllegalArgumentException e) {
@@ -128,15 +154,13 @@ public class SeminarModalityService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Error al crear el seminario: " + e.getMessage());
+            throw new InternalException("Error al crear el seminario", e);
         }
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> listActiveSeminarsWithSeats() {
+    public SeminarResponse listActiveSeminarsWithSeats(User user) {
         try {
-
-            User user = SecurityUtils.getCurrentUser();
 
 
             StudentProfile studentProfile = studentProfileRepository.findById(user.getId())
@@ -186,25 +210,22 @@ public class SeminarModalityService {
                     })
                     .toList();
 
-            return Map.of(
-                    "success", true,
-                    "seminars", seminarDTOs
-            );
+            return new SeminarResponse(true, seminarDTOs);
 
         } catch (IllegalArgumentException e) {
             log.error("Error de validación al listar seminarios: {}", e.getMessage());
             throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Error inesperado al listar seminarios: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al listar los seminarios: " + e.getMessage());
+            throw new InternalException("Error al listar los seminarios", e);
         }
     }
 
     @Transactional
-    public Map<String, Object> enrollInSeminar(Long seminarId) {
+    public EnrollSeminarResponse enrollInSeminar(Long seminarId, User user) {
         try {
-
-            User user = SecurityUtils.getCurrentUser();
 
 
             StudentProfile studentProfile = studentProfileRepository.findById(user.getId())
@@ -286,31 +307,31 @@ public class SeminarModalityService {
 
             int availableSeats = seminar.getMaxParticipants() - seminar.getCurrentParticipants();
 
-            return Map.of(
-                    "success", true,
-                    "message", "Te has inscrito exitosamente en el seminario",
-                    "seminarName", seminar.getName(),
-                    "enrollmentDate", LocalDateTime.now(),
-                    "currentParticipants", seminar.getCurrentParticipants(),
-                    "maxParticipants", seminar.getMaxParticipants(),
-                    "availableSeats", availableSeats
+            return new EnrollSeminarResponse(
+                    true,
+                    "Te has inscrito exitosamente en el seminario",
+                    seminar.getName(),
+                    LocalDateTime.now(),
+                    seminar.getCurrentParticipants(),
+                    seminar.getMaxParticipants(),
+                    availableSeats
             );
 
         } catch (IllegalArgumentException e) {
 
             throw new ValidationException(e.getMessage());
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
 
-            throw new RuntimeException("Error al inscribirse en el seminario: " + e.getMessage());
+            throw new InternalException("Error al inscribirse en el seminario", e);
         }
     }
 
 
     @Transactional(readOnly = true)
-    public Map<String, Object> FgetSeminarDetailForProgramHead(Long seminarId) {
+    public SeminarDetailResponse getSeminarDetailForProgramHead(Long seminarId, User user) {
         try {
-
-            User user = SecurityUtils.getCurrentUser();
 
 
             Seminar seminar = seminarRepository.findById(seminarId)
@@ -386,7 +407,7 @@ public class SeminarModalityService {
                                 .build();
                     })
                     .filter(java.util.Objects::nonNull)
-                    .collect(Collectors.toList());
+                    .toList();
 
             int availableSeats = seminar.getMaxParticipants() - seminar.getCurrentParticipants();
             double fillPercentage = (seminar.getCurrentParticipants() * 100.0) / seminar.getMaxParticipants();
@@ -416,25 +437,21 @@ public class SeminarModalityService {
                     .enrolledStudents(enrolledStudentDTOs)
                     .build();
 
-            return Map.of(
-                    "success", true,
-                    "seminar", detailDTO
-            );
+            return new SeminarDetailResponse(true, detailDTO);
 
         } catch (IllegalArgumentException e) {
             throw new ValidationException(e.getMessage());
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Error al obtener el detalle del seminario: " + e.getMessage());
+            throw new InternalException("Error al obtener el detalle del seminario", e);
         }
     }
 
 
     @Transactional(readOnly = true)
-    public Map<String, Object> listSeminarsForProgramHead(String status, Boolean active) {
+    public SeminarListResponse listSeminarsForProgramHead(String status, Boolean active, User user) {
         try {
-            User user = SecurityUtils.getCurrentUser();
 
             Long userProgramId = programAuthorityRepository
                     .findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
@@ -493,28 +510,23 @@ public class SeminarModalityService {
                                 .isFull(isFull)
                                 .build();
                     })
-                    .collect(Collectors.toList());
+                    .toList();
 
-            return Map.of(
-                    "success", true,
-                    "seminars", seminarDTOs,
-                    "total", seminarDTOs.size()
-            );
+            return new SeminarListResponse(true, seminarDTOs, seminarDTOs.size());
 
         } catch (IllegalArgumentException e) {
             throw new ValidationException(e.getMessage());
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Error al listar seminarios: " + e.getMessage());
+            throw new InternalException("Error al listar seminarios", e);
         }
     }
 
 
     @Transactional
-    public Map<String, Object> startSeminar(Long seminarId) {
+    public StartSeminarResponse startSeminar(Long seminarId, User user) {
         try {
-            User user = SecurityUtils.getCurrentUser();
 
             Long userProgramId = programAuthorityRepository
 .findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
@@ -563,7 +575,7 @@ public class SeminarModalityService {
             for (StudentProfile studentProfile : enrolledStudents) {
                 User student = userRepository.findById(studentProfile.getId()).orElse(null);
                 if (student != null && student.getEmail() != null) {
-                    applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.SEMINAR_STARTED, 0L, null, Map.of(
+                    applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.SEMINAR_STARTED, null, null, Map.of(
                             ModalityEvent.KEY_RECIPIENT_EMAIL, student.getEmail(),
                             ModalityEvent.KEY_RECIPIENT_NAME, student.getName() + " " + student.getLastName(),
                             ModalityEvent.KEY_SEMINAR_NAME, seminar.getName(),
@@ -575,15 +587,15 @@ public class SeminarModalityService {
                 }
             }
 
-            return Map.of(
-                    "success", true,
-                    "message", "Seminario iniciado exitosamente",
-                    "seminarId", seminar.getId(),
-                    "seminarName", seminar.getName(),
-                    "status", seminar.getStatus().name(),
-                    "startDate", seminar.getStartDate(),
-                    "enrolledStudents", enrolledStudents.size(),
-                    "emailsSent", emailsSent
+            return new StartSeminarResponse(
+                    true,
+                    "Seminario iniciado exitosamente",
+                    seminar.getId(),
+                    seminar.getName(),
+                    seminar.getStatus().name(),
+                    seminar.getStartDate(),
+                    enrolledStudents.size(),
+                    emailsSent
             );
 
         } catch (IllegalArgumentException e) {
@@ -591,16 +603,15 @@ public class SeminarModalityService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Error al iniciar el seminario: " + e.getMessage());
+            throw new InternalException("Error al iniciar el seminario", e);
         }
     }
 
 
 
     @Transactional
-    public Map<String, Object> cancelSeminar(Long seminarId, String reason) {
+    public CancelSeminarResponse cancelSeminar(Long seminarId, String reason, User user) {
         try {
-            User user = SecurityUtils.getCurrentUser();
 
             Long userProgramId = programAuthorityRepository
                     .findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
@@ -636,8 +647,12 @@ public class SeminarModalityService {
             for (StudentProfile studentProfile : enrolledStudents) {
                 List<StudentModality> modalities = studentModalityRepository.findByLeaderId(studentProfile.getId());
                 for (StudentModality modality : modalities) {
-                    modality.setStatus(ModalityProcessStatus.MODALITY_CANCELLED);
-                    studentModalityRepository.save(modality);
+                    if (SEMINAR_CANCELLABLE_STATUSES.contains(modality.getStatus())
+                            && modality.getProgramDegreeModality().getDegreeModality().getName()
+                                    .equalsIgnoreCase("SEMINARIO DE GRADO")) {
+                        modalityStatusTransition.transition(modality, ModalityProcessStatus.MODALITY_CANCELLED, null,
+                                "Modalidad cancelada por cancelación del seminario: " + seminar.getName());
+                    }
                 }
             }
 
@@ -651,7 +666,7 @@ public class SeminarModalityService {
             for (StudentProfile studentProfile : enrolledStudents) {
                 User student = userRepository.findById(studentProfile.getId()).orElse(null);
                 if (student != null && student.getEmail() != null) {
-                    applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.SEMINAR_CANCELLED, 0L, null, Map.of(
+                    applicationEventPublisher.publishEvent(new ModalityEvent(NotificationType.SEMINAR_CANCELLED, null, null, Map.of(
                             ModalityEvent.KEY_RECIPIENT_EMAIL, student.getEmail(),
                             ModalityEvent.KEY_RECIPIENT_NAME, student.getName() + " " + student.getLastName(),
                             ModalityEvent.KEY_SEMINAR_NAME, seminar.getName(),
@@ -663,14 +678,14 @@ public class SeminarModalityService {
                 }
             }
 
-            return Map.of(
-                    "success", true,
-                    "message", "Seminario cancelado exitosamente",
-                    "seminarId", seminar.getId(),
-                    "seminarName", seminar.getName(),
-                    "status", seminar.getStatus().name(),
-                    "previouslyEnrolledStudents", enrolledStudents.size(),
-                    "emailsSent", emailsSent
+            return new CancelSeminarResponse(
+                    true,
+                    "Seminario cancelado exitosamente",
+                    seminar.getId(),
+                    seminar.getName(),
+                    seminar.getStatus().name(),
+                    enrolledStudents.size(),
+                    emailsSent
             );
 
         } catch (IllegalArgumentException e) {
@@ -678,14 +693,13 @@ public class SeminarModalityService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Error al cancelar el seminario: " + e.getMessage());
+            throw new InternalException("Error al cancelar el seminario", e);
         }
     }
 
     @Transactional
-    public Map<String, Object> updateSeminar(Long seminarId, SeminarDTO request) {
+    public UpdateSeminarResponse updateSeminar(Long seminarId, SeminarDTO request, User user) {
         try {
-            User user = SecurityUtils.getCurrentUser();
 
             Long userProgramId = programAuthorityRepository
                     .findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
@@ -761,23 +775,24 @@ public class SeminarModalityService {
             seminar.setUpdatedAt(LocalDateTime.now());
             seminarRepository.save(seminar);
 
-            Map<String, Object> seminarData = new HashMap<>();
-            seminarData.put("id", seminar.getId());
-            seminarData.put("name", seminar.getName());
-            seminarData.put("description", seminar.getDescription() != null ? seminar.getDescription() : "");
-            seminarData.put("totalCost", seminar.getTotalCost());
-            seminarData.put("minParticipants", seminar.getMinParticipants());
-            seminarData.put("maxParticipants", seminar.getMaxParticipants());
-            seminarData.put("currentParticipants", seminar.getCurrentParticipants());
-            seminarData.put("totalHours", seminar.getTotalHours());
-            seminarData.put("status", seminar.getStatus().name());
-            seminarData.put("active", seminar.isActive());
-            seminarData.put("updatedAt", seminar.getUpdatedAt());
+            UpdateSeminarResponse.SeminarSummary seminarData = new UpdateSeminarResponse.SeminarSummary(
+                    seminar.getId(),
+                    seminar.getName(),
+                    seminar.getDescription() != null ? seminar.getDescription() : "",
+                    seminar.getTotalCost(),
+                    seminar.getMinParticipants(),
+                    seminar.getMaxParticipants(),
+                    seminar.getCurrentParticipants(),
+                    seminar.getTotalHours(),
+                    seminar.getStatus().name(),
+                    seminar.isActive(),
+                    seminar.getUpdatedAt()
+            );
 
-            return Map.of(
-                    "success", true,
-                    "message", "Seminario actualizado exitosamente",
-                    "seminar", seminarData
+            return new UpdateSeminarResponse(
+                    true,
+                    "Seminario actualizado exitosamente",
+                    seminarData
             );
 
         } catch (IllegalArgumentException e) {
@@ -785,14 +800,13 @@ public class SeminarModalityService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Error al actualizar el seminario: " + e.getMessage());
+            throw new InternalException("Error al actualizar el seminario", e);
         }
     }
 
     @Transactional
-    public Map<String, Object> closeRegistrations(Long seminarId) {
+    public CloseRegistrationsResponse closeRegistrations(Long seminarId, User user) {
         try {
-            User user = SecurityUtils.getCurrentUser();
 
             Long userProgramId = programAuthorityRepository
                     .findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
@@ -836,15 +850,15 @@ public class SeminarModalityService {
             seminar.setUpdatedAt(LocalDateTime.now());
             seminarRepository.save(seminar);
 
-            return Map.of(
-                    "success", true,
-                    "message", "Inscripciones cerradas exitosamente",
-                    "seminarId", seminar.getId(),
-                    "seminarName", seminar.getName(),
-                    "status", seminar.getStatus().name(),
-                    "currentParticipants", seminar.getCurrentParticipants(),
-                    "maxParticipants", seminar.getMaxParticipants(),
-                    "updatedAt", seminar.getUpdatedAt()
+            return new CloseRegistrationsResponse(
+                    true,
+                    "Inscripciones cerradas exitosamente",
+                    seminar.getId(),
+                    seminar.getName(),
+                    seminar.getStatus().name(),
+                    seminar.getCurrentParticipants(),
+                    seminar.getMaxParticipants(),
+                    seminar.getUpdatedAt()
             );
 
         } catch (IllegalArgumentException e) {
@@ -852,14 +866,13 @@ public class SeminarModalityService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Error al cerrar inscripciones del seminario: " + e.getMessage());
+            throw new InternalException("Error al cerrar inscripciones del seminario", e);
         }
     }
 
     @Transactional
-    public Map<String, Object> completeSeminar(Long seminarId) {
+    public CompleteSeminarResponse completeSeminar(Long seminarId, User user) {
         try {
-            User user = SecurityUtils.getCurrentUser();
 
             Long userProgramId = programAuthorityRepository
                     .findByUser_IdAndRole(user.getId(), ProgramRole.PROGRAM_HEAD)
@@ -894,15 +907,15 @@ public class SeminarModalityService {
             seminar.setUpdatedAt(LocalDateTime.now());
             seminarRepository.save(seminar);
 
-            return Map.of(
-                    "success", true,
-                    "message", "Seminario completado exitosamente",
-                    "seminarId", seminar.getId(),
-                    "seminarName", seminar.getName(),
-                    "status", seminar.getStatus().name(),
-                    "startDate", seminar.getStartDate(),
-                    "endDate", seminar.getEndDate(),
-                    "totalParticipants", seminar.getCurrentParticipants()
+            return new CompleteSeminarResponse(
+                    true,
+                    "Seminario completado exitosamente",
+                    seminar.getId(),
+                    seminar.getName(),
+                    seminar.getStatus().name(),
+                    seminar.getStartDate(),
+                    seminar.getEndDate(),
+                    seminar.getCurrentParticipants()
             );
 
         } catch (IllegalArgumentException e) {
@@ -910,7 +923,7 @@ public class SeminarModalityService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException("Error al completar el seminario: " + e.getMessage());
+            throw new InternalException("Error al completar el seminario", e);
         }
     }
 }

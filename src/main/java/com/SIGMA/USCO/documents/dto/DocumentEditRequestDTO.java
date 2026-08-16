@@ -12,6 +12,7 @@ public class DocumentEditRequestDTO {
 
     /** Motivo o justificación de la solicitud de edición */
     @NotBlank(message = "El motivo de la solicitud es obligatorio")
-    @Size(min = 20, max = 2000, message = "El motivo debe tener entre 20 y 2000 caracteres")
+    // ponytail: max alineado con @Column(length=200000) de DocumentEditRequest.reason (texto libre de justificación)
+    @Size(min = 20, max = 200000, message = "El motivo debe tener entre 20 y 200000 caracteres")
     private String reason;
 }

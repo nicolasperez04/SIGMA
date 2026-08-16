@@ -1,10 +1,12 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
+import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.report.dto.*;
 import lombok.RequiredArgsConstructor;
@@ -24,18 +26,24 @@ public class DirectorReportService {
     private final StudentModalityRepository studentModalityRepository;
     private final StudentModalityMemberRepository studentModalityMemberRepository;
     private final StudentProfileRepository studentProfileRepository;
+    private final ProgramAuthorityRepository programAuthorityRepository;
 
 
     @Transactional(readOnly = true)
     public DirectorsByModalityReportDTO generateDirectorsByModalityReport(String modalityType) {
+        // Obtener usuario autenticado y su programa
+        AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
+
         // Obtener todas las modalidades activas
         List<StudentModality> allModalities = studentModalityRepository
-                .findByStatusIn(ReportUtils.getActiveStatuses());
+                .findByStatusIn(ReportUtils.getActiveStatuses()).stream()
+                .filter(m -> m.getAcademicProgram().getId().equals(userProgram.getId()))
+                .toList();
 
         // Filtrar por tipo de modalidad
         List<StudentModality> modalities = allModalities.stream()
                 .filter(m -> m.getProgramDegreeModality().getDegreeModality().getName().equalsIgnoreCase(modalityType))
-                .collect(Collectors.toList());
+                .toList();
 
         // Agrupar por director
         Map<Long, List<StudentModality>> modalitiesByDirector = modalities.stream()
@@ -63,13 +71,13 @@ public class DirectorReportService {
                             .flatMap(modality -> ReportUtils.buildStudentInfos(
                                     membersByModality.getOrDefault(modality.getId(), List.of()),
                                     studentProfileRepository).stream())
-                            .collect(Collectors.toList());
+                            .toList();
 
                     // Tipos de modalidades que dirige
                     List<String> modalityTypes = directorModalities.stream()
                             .map(m -> m.getProgramDegreeModality().getDegreeModality().getName())
                             .distinct()
-                            .collect(Collectors.toList());
+                            .toList();
 
                     return DirectorWorkloadDTO.builder()
                             .directorId(directorId)
@@ -83,7 +91,7 @@ public class DirectorReportService {
                             .build();
                 })
                 .sorted(Comparator.comparing(DirectorWorkloadDTO::getActiveProjects).reversed())
-                .collect(Collectors.toList());
+                .toList();
 
         // Generar estadísticas
         DirectorStatisticsDTO statistics = generateDirectorStatistics(directors);

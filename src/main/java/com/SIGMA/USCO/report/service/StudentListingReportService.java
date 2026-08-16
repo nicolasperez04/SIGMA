@@ -1,18 +1,17 @@
 package com.SIGMA.USCO.report.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
-import com.SIGMA.USCO.common.util.TranslationUtils;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import com.SIGMA.USCO.report.dto.*;
-import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,17 +40,16 @@ public class StudentListingReportService {
      * @return Reporte completo de estudiantes
      */
     @Transactional(readOnly = true)
-    public StudentListingReportDTO generateStudentListingReport(StudentListingFilterDTO filters) {
+    public StudentListingReportDTO generateStudentListingReport(StudentListingFilterDTO filters, String userEmail) {
         long startTime = System.currentTimeMillis();
 
         // Obtener usuario autenticado y su programa
-        String userEmail = SecurityUtils.getCurrentUser().getEmail();
         AcademicProgram userProgram = ReportUtils.getAuthenticatedUserProgram(programAuthorityRepository);
 
         // Obtener todas las modalidades del programa
         List<StudentModality> allModalities = studentModalityRepository.findForProgramHead(List.of(userProgram.getId())).stream()
                 .filter(m -> m.getAcademicProgram().getId().equals(userProgram.getId()))
-                .collect(Collectors.toList());
+                .toList();
 
         // Aplicar filtros
         List<StudentModality> filteredModalities = applyFilters(allModalities, filters);
@@ -60,7 +58,7 @@ public class StudentListingReportService {
         StudentListingReportDTO.AppliedFiltersDTO appliedFilters = buildAppliedFilters(filters);
 
         // Construir detalles de estudiantes
-        List<StudentListingReportDTO.StudentDetailDTO> studentDetails = buildStudentDetails(filteredModalities);
+        List<StudentListingReportDTO.StudentDetailDTO> studentDetails = buildStudentDetails(filteredModalities, filters);
 
         // Generar resumen ejecutivo
         StudentListingReportDTO.ExecutiveSummaryDTO executiveSummary = buildStudentExecutiveSummary(studentDetails, filteredModalities);
@@ -131,7 +129,7 @@ public class StudentListingReportService {
                 .filter(m -> ReportUtils.filterByModalityTypeFilter(m, filters.getModalityTypeFilter()))
                 .filter(m -> filterByDirector(m, filters.getHasDirector()))
                 .filter(m -> filterByTimelineStatus(m, filters.getTimelineStatus()))
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private boolean filterByStatus(StudentModality modality, List<String> statuses) {
@@ -208,6 +206,10 @@ public class StudentListingReportService {
             filterParts.add("Con director: " + (filters.getHasDirector() ? "Sí" : "No"));
         }
 
+        if (Boolean.TRUE.equals(filters.getIncludeInactive())) {
+            filterParts.add("Incluye estudiantes inactivos");
+        }
+
         String description = filterParts.isEmpty() ?
                 "Sin filtros aplicados" :
                 String.join(" | ", filterParts);
@@ -225,12 +227,20 @@ public class StudentListingReportService {
     /**
      * Construye detalles de estudiantes
      */
-    private List<StudentListingReportDTO.StudentDetailDTO> buildStudentDetails(List<StudentModality> modalities) {
+    private List<StudentListingReportDTO.StudentDetailDTO> buildStudentDetails(List<StudentModality> modalities,
+                                                                            StudentListingFilterDTO filters) {
         List<StudentListingReportDTO.StudentDetailDTO> details = new ArrayList<>();
 
+        boolean includeInactive = Boolean.TRUE.equals(filters != null ? filters.getIncludeInactive() : null);
         List<Long> modalityIds = modalities.stream().map(StudentModality::getId).toList();
-        Map<Long, List<StudentModalityMember>> membersByModality =
-                ReportUtils.loadActiveMembersByModalityIds(modalityIds, studentModalityMemberRepository);
+        Map<Long, List<StudentModalityMember>> membersByModality;
+        if (includeInactive) {
+            membersByModality = studentModalityMemberRepository.findByStudentModalityIdIn(modalityIds).stream()
+                    .collect(Collectors.groupingBy(m -> m.getStudentModality().getId()));
+        } else {
+            membersByModality =
+                    ReportUtils.loadActiveMembersByModalityIds(modalityIds, studentModalityMemberRepository);
+        }
         List<Long> allUserIds = membersByModality.values().stream()
                 .flatMap(List::stream)
                 .map(StudentModalityMember::getStudent)
@@ -262,7 +272,7 @@ public class StudentListingReportService {
                                 User memberUser = m.getStudent();
                                 return memberUser != null ? memberUser.getName() + " " + memberUser.getLastName() : "N/D";
                             })
-                            .collect(Collectors.toList());
+                            .toList();
                 }
 
                 // Calcular días en modalidad
@@ -283,7 +293,7 @@ public class StudentListingReportService {
                         .lastName(user.getLastName())
                         .email(user.getEmail())
                         .phone(null) // Campo no disponible en User
-                        .academicStatus("ACTIVE") // Campo no disponible, valor por defecto
+                        .academicStatus(includeInactive ? member.getStatus().name() : "ACTIVE") // valor por defecto para solo-activos
                         .cumulativeAverage(profile.getGpa())
                         .completedCredits(profile.getApprovedCredits() != null ? profile.getApprovedCredits().intValue() : null)
                         .totalCredits(null) // Campo no disponible
@@ -438,11 +448,11 @@ public class StudentListingReportService {
 
         long activeCount = students.stream()
                 .filter(s -> ReportUtils.getActiveStatuses().stream()
-                        .anyMatch(status -> status.name().equals(s.getModalityStatus())))
+                        .anyMatch(status -> TranslationUtils.translateModalityProcessStatus(status).equals(s.getModalityStatus())))
                 .count();
 
         long completedCount = students.stream()
-                .filter(s -> "GRADED_APPROVED".equals(s.getModalityStatus()))
+                .filter(s -> TranslationUtils.translateModalityProcessStatus(ModalityProcessStatus.GRADED_APPROVED).equals(s.getModalityStatus()))
                 .count();
 
         return StudentListingReportDTO.ExecutiveSummaryDTO.builder()
@@ -467,7 +477,7 @@ public class StudentListingReportService {
             List<StudentModality> modalities) {
 
         long individualCount = modalities.stream()
-                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.Entity.enums.ModalityType.INDIVIDUAL)
+                .filter(m -> m.getModalityType() == com.SIGMA.USCO.Modalities.entity.enums.ModalityType.INDIVIDUAL)
                 .count();
 
         long groupCount = modalities.size() - individualCount;
@@ -593,6 +603,19 @@ public class StudentListingReportService {
     private List<StudentListingReportDTO.ModalityStatisticsDTO> buildModalityStatistics(
             List<StudentModality> modalities) {
 
+        // Batch fuera del loop (1 query de miembros + 1 de perfiles para toda la sección)
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(
+                        modalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
+        List<Long> allUserIds = membersByModality.values().stream()
+                .flatMap(List::stream)
+                .map(StudentModalityMember::getStudent)
+                .filter(Objects::nonNull)
+                .map(User::getId)
+                .distinct()
+                .toList();
+        Map<Long, StudentProfile> profilesByUser = ReportUtils.loadProfilesByUserIds(allUserIds, studentProfileRepository);
+
         Map<String, List<StudentModality>> groupedByType = modalities.stream()
                 .collect(Collectors.groupingBy(m -> m.getProgramDegreeModality().getDegreeModality().getName()));
 
@@ -636,23 +659,10 @@ public class StudentListingReportService {
                             .orElse(0);
 
                     // Calcular GPA promedio de estudiantes en esta modalidad
-                    List<Long> typeModalityIds = typeModalities.stream().map(StudentModality::getId).toList();
-                    Map<Long, List<StudentModalityMember>> membersByType =
-                            ReportUtils.loadActiveMembersByModalityIds(typeModalityIds, studentModalityMemberRepository);
-                    List<Long> typeUserIds = membersByType.values().stream()
-                            .flatMap(List::stream)
-                            .map(StudentModalityMember::getStudent)
-                            .filter(Objects::nonNull)
-                            .map(User::getId)
-                            .distinct()
-                            .toList();
-                    Map<Long, StudentProfile> typeProfiles =
-                            ReportUtils.loadProfilesByUserIds(typeUserIds, studentProfileRepository);
-
                     List<Double> gpas = new ArrayList<>();
                     for (StudentModality modality : typeModalities) {
-                        for (StudentModalityMember member : membersByType.getOrDefault(modality.getId(), List.of())) {
-                            StudentProfile profile = typeProfiles.get(member.getStudent().getId());
+                        for (StudentModalityMember member : membersByModality.getOrDefault(modality.getId(), List.of())) {
+                            StudentProfile profile = profilesByUser.get(member.getStudent().getId());
                             if (profile != null && profile.getGpa() != null) {
                                 gpas.add(profile.getGpa());
                             }
@@ -674,7 +684,7 @@ public class StudentListingReportService {
                             .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                             .limit(3)
                             .map(e -> e.getKey() + " (" + e.getValue() + ")")
-                            .collect(Collectors.toList());
+                            .toList();
 
                     return StudentListingReportDTO.ModalityStatisticsDTO.builder()
                             .modalityType(typeName)
@@ -691,7 +701,7 @@ public class StudentListingReportService {
                             .build();
                 })
                 .sorted(Comparator.comparing(StudentListingReportDTO.ModalityStatisticsDTO::getTotalStudents).reversed())
-                .collect(Collectors.toList());
+                .toList();
     }
 
     /**
@@ -728,7 +738,7 @@ public class StudentListingReportService {
                             .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                             .limit(3)
                             .map(Map.Entry::getKey)
-                            .collect(Collectors.toList());
+                            .toList();
 
                     // Determinar tendencia (simplificada - basada en cantidad)
                     String trend = "STABLE";
@@ -752,7 +762,7 @@ public class StudentListingReportService {
                             .build();
                 })
                 .sorted(Comparator.comparing(StudentListingReportDTO.StatusStatisticsDTO::getStudentCount).reversed())
-                .collect(Collectors.toList());
+                .toList();
     }
 
     /**
@@ -760,6 +770,19 @@ public class StudentListingReportService {
      */
     private List<StudentListingReportDTO.SemesterStatisticsDTO> buildSemesterStatistics(
             List<StudentModality> modalities) {
+
+        // Batch fuera del loop (1 query de miembros + 1 de perfiles para toda la sección)
+        Map<Long, List<StudentModalityMember>> membersByModality =
+                ReportUtils.loadActiveMembersByModalityIds(
+                        modalities.stream().map(StudentModality::getId).toList(), studentModalityMemberRepository);
+        List<Long> allUserIds = membersByModality.values().stream()
+                .flatMap(List::stream)
+                .map(StudentModalityMember::getStudent)
+                .filter(Objects::nonNull)
+                .map(User::getId)
+                .distinct()
+                .toList();
+        Map<Long, StudentProfile> profilesByUser = ReportUtils.loadProfilesByUserIds(allUserIds, studentProfileRepository);
 
         Map<String, List<StudentModality>> groupedBySemester = modalities.stream()
                 .filter(m -> m.getSelectionDate() != null)
@@ -789,23 +812,10 @@ public class StudentListingReportService {
                             (completed * 100.0) / semesterModalities.size() : 0.0;
 
                     // Calcular GPA promedio de estudiantes en este semestre
-                    List<Long> semesterModalityIds = semesterModalities.stream().map(StudentModality::getId).toList();
-                    Map<Long, List<StudentModalityMember>> membersBySemester =
-                            ReportUtils.loadActiveMembersByModalityIds(semesterModalityIds, studentModalityMemberRepository);
-                    List<Long> semesterUserIds = membersBySemester.values().stream()
-                            .flatMap(List::stream)
-                            .map(StudentModalityMember::getStudent)
-                            .filter(Objects::nonNull)
-                            .map(User::getId)
-                            .distinct()
-                            .toList();
-                    Map<Long, StudentProfile> semesterProfiles =
-                            ReportUtils.loadProfilesByUserIds(semesterUserIds, studentProfileRepository);
-
                     List<Double> semesterGPAs = new ArrayList<>();
                     for (StudentModality modality : semesterModalities) {
-                        for (StudentModalityMember member : membersBySemester.getOrDefault(modality.getId(), List.of())) {
-                            StudentProfile profile = semesterProfiles.get(member.getStudent().getId());
+                        for (StudentModalityMember member : membersByModality.getOrDefault(modality.getId(), List.of())) {
+                            StudentProfile profile = profilesByUser.get(member.getStudent().getId());
                             if (profile != null && profile.getGpa() != null) {
                                 semesterGPAs.add(profile.getGpa());
                             }
@@ -826,7 +836,7 @@ public class StudentListingReportService {
                             .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                             .limit(3)
                             .map(Map.Entry::getKey)
-                            .collect(Collectors.toList());
+                            .toList();
 
                     return StudentListingReportDTO.SemesterStatisticsDTO.builder()
                             .semester(period)
@@ -842,7 +852,7 @@ public class StudentListingReportService {
                 })
                 .sorted(Comparator.comparing(StudentListingReportDTO.SemesterStatisticsDTO::getYear)
                         .thenComparing(StudentListingReportDTO.SemesterStatisticsDTO::getStudentCount).reversed())
-                .collect(Collectors.toList());
+                .toList();
     }
 
     /**
@@ -855,7 +865,7 @@ public class StudentListingReportService {
         if (filters == null || filters.getSortBy() == null) {
             return students.stream()
                     .sorted(Comparator.comparing(StudentListingReportDTO.StudentDetailDTO::getFullName))
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
         Comparator<StudentListingReportDTO.StudentDetailDTO> comparator = null;
@@ -888,6 +898,6 @@ public class StudentListingReportService {
 
         return students.stream()
                 .sorted(comparator)
-                .collect(Collectors.toList());
+                .toList();
     }
 }

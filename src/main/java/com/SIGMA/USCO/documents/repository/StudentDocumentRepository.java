@@ -15,8 +15,6 @@ public interface StudentDocumentRepository extends JpaRepository<StudentDocument
             Long documentConfigId
     );
 
-    Optional<StudentDocument> findByStudentModalityIdAndDocumentConfig_DocumentName(Long studentModalityId, String documentName);
-
     /**
      * Busca documentos por modalidad del estudiante y tipo de documento
      *

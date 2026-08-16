@@ -1,14 +1,20 @@
 package com.SIGMA.USCO.academic.entity;
 
-import com.SIGMA.USCO.Users.Entity.User;
+import com.SIGMA.USCO.Users.entity.User;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 @Entity
-@Data
+@Getter
+@Setter
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(onlyExplicitlyIncluded = true)
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -16,6 +22,8 @@ import lombok.NoArgsConstructor;
 public class StudentProfile {
     @Id
     @Column(name = "user_id")
+    @EqualsAndHashCode.Include
+    @ToString.Include
     private Long id;
 
     @OneToOne
@@ -32,9 +40,13 @@ public class StudentProfile {
     private Faculty faculty;
 
 
+    @ToString.Include
     private Long approvedCredits;
+    @ToString.Include
     private Double gpa;            // Grade Point Average (promedio)
+    @ToString.Include
     private Long semester;
+    @ToString.Include
     private String studentCode;
 
 }

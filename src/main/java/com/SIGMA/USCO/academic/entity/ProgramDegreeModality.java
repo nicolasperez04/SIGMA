@@ -1,17 +1,23 @@
 package com.SIGMA.USCO.academic.entity;
 
-import com.SIGMA.USCO.Modalities.Entity.DegreeModality;
+import com.SIGMA.USCO.Modalities.entity.DegreeModality;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Builder
-@Data
+@Getter
+@Setter
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(onlyExplicitlyIncluded = true)
 @AllArgsConstructor
 @NoArgsConstructor
 @Table(name = "program_degree_modalities")
@@ -19,6 +25,8 @@ public class ProgramDegreeModality {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @EqualsAndHashCode.Include
+    @ToString.Include
     private Long id;
 
     @ManyToOne(optional = false)
@@ -29,8 +37,10 @@ public class ProgramDegreeModality {
     @JoinColumn(name = "degree_modality_id")
     private DegreeModality degreeModality;
 
+    @ToString.Include
     private Long creditsRequired;
 
+    @ToString.Include
     private boolean active = true;
 
     /**
@@ -42,18 +52,12 @@ public class ProgramDegreeModality {
      */
     @Column(name = "requires_defense_process", nullable = false)
     @Builder.Default
+    @ToString.Include
     private boolean requiresDefenseProcess = true;
 
+    @ToString.Include
     private LocalDateTime createdAt;
+    @ToString.Include
     private LocalDateTime updatedAt;
 
-    @Override
-    public String toString() {
-        return "ProgramDegreeModality{" +
-                "id=" + id +
-                ", creditsRequired=" + creditsRequired +
-                ", active=" + active +
-                ", requiresDefenseProcess=" + requiresDefenseProcess +
-                '}';
-    }
 }

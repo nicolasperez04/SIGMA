@@ -1,15 +1,18 @@
 package com.SIGMA.USCO.notifications.controller;
 
-import com.SIGMA.USCO.Modalities.Entity.AcademicCertificate;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
-import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
+import com.SIGMA.USCO.Modalities.entity.AcademicCertificate;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.security.Permissions;
 import com.SIGMA.USCO.notifications.service.AcademicCertificatePdfService;
+import com.SIGMA.USCO.notifications.service.CertificatePdfSupport;
 import com.SIGMA.USCO.security.SecurityUtils;
+import com.SIGMA.USCO.shared.util.ResourceAccessPolicy;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.access.prepost.PreAuthorize;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -22,6 +25,7 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,11 +41,12 @@ import java.util.List;
 @RequestMapping("/certificate")
 @RequiredArgsConstructor
 @SecurityRequirement(name = "bearer-jwt")
+@Profile("dev")
 public class AcademicCertificateTestController {
 
     private final AcademicCertificatePdfService certificatePdfService;
     private final StudentModalityRepository studentModalityRepository;
-    private final ProgramAuthorityRepository programAuthorityRepository;
+    private final ResourceAccessPolicy resourceAccessPolicy;
 
     @Operation(
             summary = "Generar certificado académico",
@@ -56,17 +61,26 @@ public class AcademicCertificateTestController {
     })
     @GetMapping("/{studentModalityId}")
     @PreAuthorize("isAuthenticated()")
+    @Transactional(readOnly = true)
     public ResponseEntity<InputStreamResource> generateTestCertificate(
             @Parameter(description = "ID de la modalidad del estudiante") @PathVariable Long studentModalityId) throws IOException {
         StudentModality modality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
 
         User current = SecurityUtils.getCurrentUser();
-        if (!isAuthorizedForCertificate(modality, current)) {
+        boolean authorized =
+                resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireLeader(modality, current, "No autorizado"))
+                || resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireActiveMember(modality.getId(), current, "No autorizado"))
+                || resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireAssignedExaminer(modality.getId(), current, "No autorizado"))
+                || resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireProjectDirector(modality, current, "No autorizado"))
+                || current.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals(Permissions.PERM_VIEW_REPORT))
+                || resourceAccessPolicy.tryRequire(() -> resourceAccessPolicy.requireProgramAuthorityIn(current, modality.getAcademicProgram().getId(),
+                        List.of(ProgramRole.PROGRAM_HEAD, ProgramRole.PROGRAM_CURRICULUM_COMMITTEE), "No autorizado"));
+        if (!authorized) {
             throw new ForbiddenException("No está autorizado para descargar este certificado.");
         }
 
-        boolean isComplete = isCompleteModality(modality);
+        boolean isComplete = CertificatePdfSupport.isCompleteModality(modality);
 
         AcademicCertificate certificate;
         if (isComplete) {
@@ -81,36 +95,6 @@ public class AcademicCertificateTestController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + pdfPath.getFileName())
                 .contentType(MediaType.APPLICATION_PDF)
                 .body(resource);
-    }
-
-    /**
-     * Determina si la modalidad es "completa" (tiene sustentación programada, jurados asignados
-     * o director de proyecto). Si no tiene ninguno, se considera simplificada (aprobada por comité).
-     */
-    private boolean isCompleteModality(StudentModality modality) {
-        boolean hasDefenseDate = modality.getDefenseDate() != null;
-        boolean hasExaminers = modality.getDefenseExaminers() != null && !modality.getDefenseExaminers().isEmpty();
-        boolean hasDirector = modality.getProjectDirector() != null;
-        return hasDefenseDate || hasExaminers || hasDirector;
-    }
-
-    private boolean isAuthorizedForCertificate(StudentModality modality, User current) {
-        boolean isLeader = modality.getLeader() != null
-                && modality.getLeader().getId().equals(current.getId());
-        boolean isDirector = modality.getProjectDirector() != null
-                && modality.getProjectDirector().getId().equals(current.getId());
-        boolean isExaminer = modality.getDefenseExaminers() != null
-                && modality.getDefenseExaminers().stream()
-                .anyMatch(de -> de.getExaminer() != null
-                        && de.getExaminer().getId().equals(current.getId()));
-        boolean isStaff = current.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("PERM_VIEW_REPORT"));
-        boolean isProgramAuthority = modality.getAcademicProgram() != null
-                && programAuthorityRepository.existsByUser_IdAndAcademicProgram_IdAndRoleIn(
-                current.getId(),
-                modality.getAcademicProgram().getId(),
-                List.of(ProgramRole.PROGRAM_HEAD, ProgramRole.PROGRAM_CURRICULUM_COMMITTEE));
-        return isLeader || isDirector || isExaminer || isStaff || isProgramAuthority;
     }
 }
 

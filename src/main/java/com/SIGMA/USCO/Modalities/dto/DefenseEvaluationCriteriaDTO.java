@@ -1,8 +1,8 @@
 package com.SIGMA.USCO.Modalities.dto;
 
-import com.SIGMA.USCO.Modalities.Entity.enums.CriteriaRating;
-import com.SIGMA.USCO.Modalities.Entity.enums.DefenseRubricType;
-import com.SIGMA.USCO.Modalities.Entity.enums.ProposedMention;
+import com.SIGMA.USCO.Modalities.entity.enums.CriteriaRating;
+import com.SIGMA.USCO.Modalities.entity.enums.DefenseRubricType;
+import com.SIGMA.USCO.Modalities.entity.enums.ProposedMention;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

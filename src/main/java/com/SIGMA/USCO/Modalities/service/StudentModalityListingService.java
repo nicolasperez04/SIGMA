@@ -1,37 +1,40 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.DefenseEvaluationCriteria;
-import com.SIGMA.USCO.Modalities.Entity.DefenseExaminer;
-import com.SIGMA.USCO.Modalities.Entity.DegreeModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.StudentModalityMember;
-import com.SIGMA.USCO.Modalities.Entity.enums.ExaminerType;
-import com.SIGMA.USCO.Modalities.Entity.enums.MemberStatus;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.DefenseEvaluationCriteriaRepository;
-import com.SIGMA.USCO.Modalities.Repository.DefenseExaminerRepository;
-import com.SIGMA.USCO.Modalities.Repository.ModalityProcessStatusHistoryRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityMemberRepository;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.entity.DefenseEvaluationCriteria;
+import com.SIGMA.USCO.Modalities.entity.DefenseExaminer;
+import com.SIGMA.USCO.Modalities.entity.DegreeModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.StudentModalityMember;
+import com.SIGMA.USCO.Modalities.entity.enums.ExaminerType;
+import com.SIGMA.USCO.Modalities.entity.enums.MemberStatus;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.DefenseEvaluationCriteriaRepository;
+import com.SIGMA.USCO.Modalities.repository.DefenseExaminerRepository;
+import com.SIGMA.USCO.Modalities.repository.ModalityProcessStatusHistoryRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityMemberRepository;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
 import com.SIGMA.USCO.Modalities.dto.ModalityListDTO;
 import com.SIGMA.USCO.Modalities.dto.ModalityMemberDTO;
 import com.SIGMA.USCO.Modalities.dto.ModalityStatusHistoryDTO;
 import com.SIGMA.USCO.Modalities.dto.StudentModalityDTO;
+import com.SIGMA.USCO.Modalities.dto.StudentModalityHistoryDTO;
+import com.SIGMA.USCO.Modalities.dto.response.ProgramStudentsResponse;
 import com.SIGMA.USCO.Modalities.dto.response.StudentModalityExaminerDTO;
-import com.SIGMA.USCO.Users.Entity.ProgramAuthority;
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.Entity.enums.ProgramRole;
+import com.SIGMA.USCO.Users.entity.ProgramAuthority;
+import com.SIGMA.USCO.Users.entity.User;
+import com.SIGMA.USCO.Users.entity.enums.ProgramRole;
 import com.SIGMA.USCO.Users.repository.ProgramAuthorityRepository;
 import com.SIGMA.USCO.Users.repository.UserRepository;
 import com.SIGMA.USCO.academic.entity.AcademicHistoryPdf;
 import com.SIGMA.USCO.academic.entity.AcademicProgram;
 import com.SIGMA.USCO.academic.entity.StudentProfile;
-import com.SIGMA.USCO.academic.repository.AcademicHistoryPdfRepository;
 import com.SIGMA.USCO.academic.repository.StudentProfileRepository;
 import com.SIGMA.USCO.common.exception.BusinessException;
 import com.SIGMA.USCO.common.exception.ForbiddenException;
+import com.SIGMA.USCO.common.exception.InternalException;
 import com.SIGMA.USCO.common.exception.NotFoundException;
 import com.SIGMA.USCO.common.exception.ValidationException;
+import com.SIGMA.USCO.shared.util.TranslationUtils;
 import com.SIGMA.USCO.documents.dto.DetailDocumentDTO;
 import com.SIGMA.USCO.documents.entity.RequiredDocument;
 import com.SIGMA.USCO.documents.entity.StudentDocument;
@@ -43,7 +46,7 @@ import com.SIGMA.USCO.documents.entity.enums.EditRequestVoteDecision;
 import com.SIGMA.USCO.documents.entity.enums.ExaminerDocumentDecision;
 import com.SIGMA.USCO.documents.repository.RequiredDocumentRepository;
 import com.SIGMA.USCO.documents.repository.StudentDocumentRepository;
-import com.SIGMA.USCO.security.SecurityUtils;
+
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -56,7 +59,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -76,7 +78,6 @@ public class StudentModalityListingService {
     private final StudentDocumentRepository studentDocumentRepository;
     private final StudentProfileRepository studentProfileRepository;
     private final ProgramAuthorityRepository programAuthorityRepository;
-    private final AcademicHistoryPdfRepository academicHistoryPdfRepository;
 
     private record StatusFlags(boolean canUploadDocuments, boolean canRequestCancellation,
                                boolean canSubmitCorrections, boolean hasDefenseScheduled,
@@ -97,10 +98,20 @@ public class StudentModalityListingService {
                 status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
                 status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE;
 
-        boolean canRequestCancellation = status != ModalityProcessStatus.MODALITY_CLOSED &&
+        // ponytail: duplicado deliberado de CancellationService.requestCancellation (M3/M4) —
+        // los guards están partidos en 2 ifs con mensajes distintos; una constante compartida
+        // obligaría a fusionarlos. Mantener ambas listas sincronizadas al editar cualquiera.
+        boolean canRequestCancellation = status != ModalityProcessStatus.CANCELLATION_REQUESTED &&
+                status != ModalityProcessStatus.CANCELLATION_APPROVED_BY_PROJECT_DIRECTOR &&
+                status != ModalityProcessStatus.MODALITY_CANCELLED &&
+                status != ModalityProcessStatus.SEMINAR_CANCELED &&
+                status != ModalityProcessStatus.CANCELLED_WITHOUT_REPROVAL &&
+                status != ModalityProcessStatus.CANCELLED_BY_CORRECTION_TIMEOUT &&
+                status != ModalityProcessStatus.CORRECTIONS_REJECTED_FINAL &&
                 status != ModalityProcessStatus.GRADED_APPROVED &&
                 status != ModalityProcessStatus.GRADED_FAILED &&
-                !status.name().startsWith("CANCELLED");
+                status != ModalityProcessStatus.MODALITY_CLOSED &&
+                status != ModalityProcessStatus.PENDING_DISTINCTION_COMMITTEE_REVIEW;
 
         boolean canSubmitCorrections = (status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD ||
                 status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE) &&
@@ -151,7 +162,7 @@ public class StudentModalityListingService {
                                         ? h.getResponsible().getEmail()
                                         : "Sistema"
                         )
-                        .observations(h.getObservations())
+                        .observations(TranslationUtils.localizeObservations(h.getObservations()))
                         .build()
                 )
                 .sorted((h1, h2) -> h2.getChangeDate().compareTo(h1.getChangeDate())) // Ordenar de más reciente a más antiguo
@@ -201,11 +212,18 @@ public class StudentModalityListingService {
     }
 
     private List<ModalityMemberDTO> mapMembers(List<StudentModalityMember> activeMembers) {
+        List<Long> userIds = activeMembers.stream()
+                .map(member -> member.getStudent().getId())
+                .distinct()
+                .toList();
+        Map<Long, StudentProfile> profilesByUserId = userIds.isEmpty() ? Map.of()
+                : studentProfileRepository.findAllByUserIdIn(userIds)
+                        .stream()
+                        .collect(Collectors.toMap(StudentProfile::getId, p -> p));
+
         return activeMembers.stream()
                 .map(member -> {
-                    StudentProfile memberProfile = studentProfileRepository
-                            .findByUserId(member.getStudent().getId())
-                            .orElse(null);
+                    StudentProfile memberProfile = profilesByUserId.get(member.getStudent().getId());
 
                     return ModalityMemberDTO.builder()
                             .memberId(member.getId())
@@ -310,9 +328,7 @@ public class StudentModalityListingService {
     }
 
     @Transactional(readOnly = true)
-    public StudentModalityDTO getCurrentStudentModality() {
-
-        User student = SecurityUtils.getCurrentUser();
+    public StudentModalityDTO getCurrentStudentModality(User student) {
 
         StudentModality studentModality = studentModalityRepository
                 .findTopByStudentIdOrderByUpdatedAtDesc(student.getId())
@@ -382,7 +398,9 @@ public class StudentModalityListingService {
                         .modalityDescription(modality.getDescription())
                         .creditsRequired(studentModality.getProgramDegreeModality()
                                 .getCreditsRequired())
-                        .modalityType(null)
+                        .modalityType(studentModality.getModalityType() != null
+                                ? studentModality.getModalityType().name()
+                                : null)
 
                         .currentStatus(status.name())
                         .currentStatusDescription(ModalityServiceUtils.describeModalityStatus(status))
@@ -426,9 +444,21 @@ public class StudentModalityListingService {
     }
 
     @Transactional(readOnly = true)
-    public List<ModalityListDTO> getAllStudentModalitiesForProgramHead(List<ModalityProcessStatus> statuses, String name) {
+    public List<StudentModalityHistoryDTO> getCompletedModalitiesHistory(User student) {
+        return studentModalityRepository
+                .findHistoryByStudentIdOrderBySelectionDateDesc(student.getId())
+                .stream()
+                .map(sm -> new StudentModalityHistoryDTO(
+                        sm.getId(),
+                        sm.getProgramDegreeModality().getDegreeModality().getId(),
+                        sm.getProgramDegreeModality().getDegreeModality().getName(),
+                        sm.getStatus().name(),
+                        sm.getSelectionDate()))
+                .toList();
+    }
 
-        User programHead = SecurityUtils.getCurrentUser();
+    @Transactional(readOnly = true)
+    public List<ModalityListDTO> getAllStudentModalitiesForProgramHead(List<ModalityProcessStatus> statuses, String name, User programHead) {
 
         List<Long> programIds = programAuthorityRepository
                         .findByUser_Id(programHead.getId())
@@ -470,6 +500,8 @@ public class StudentModalityListingService {
                             .findForProgramHead(programIds);
         }
 
+        Map<Long, List<StudentModalityMember>> membersByModality = loadActiveMembersByModalities(modalities);
+
         List<ModalityListDTO> response =
                 modalities.stream()
                         .map(sm -> {
@@ -480,7 +512,8 @@ public class StudentModalityListingService {
                                     status == ModalityProcessStatus.MODALITY_SELECTED ||
                                             status == ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD;
 
-                            return toModalityList(sm, status, pending);
+                            return toModalityList(sm, status, pending,
+                                    membersByModality.getOrDefault(sm.getId(), List.of()));
                         })
                         .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                         .toList();
@@ -489,9 +522,7 @@ public class StudentModalityListingService {
     }
 
     @Transactional(readOnly = true)
-    public List<ModalityListDTO> getAllStudentModalitiesForProgramCurriculumCommittee(List<ModalityProcessStatus> statuses, String name) {
-
-        User committeeMember = SecurityUtils.getCurrentUser();
+    public List<ModalityListDTO> getAllStudentModalitiesForProgramCurriculumCommittee(List<ModalityProcessStatus> statuses, String name, User committeeMember) {
 
         List<Long> programIds = programAuthorityRepository
                 .findByUser_Id(committeeMember.getId())
@@ -533,6 +564,8 @@ public class StudentModalityListingService {
                     .findForProgramHeadWithStatus(programIds, finalStatuses);
         }
 
+        Map<Long, List<StudentModalityMember>> membersByModality = loadActiveMembersByModalities(modalities);
+
         List<ModalityListDTO> response =
                 modalities.stream()
                         .map(sm -> {
@@ -544,7 +577,8 @@ public class StudentModalityListingService {
                                             status == ModalityProcessStatus.UNDER_REVIEW_PROGRAM_CURRICULUM_COMMITTEE ||
                                             status == ModalityProcessStatus.DEFENSE_REQUESTED_BY_PROJECT_DIRECTOR;
 
-                            return toModalityList(sm, status, pending);
+                            return toModalityList(sm, status, pending,
+                                    membersByModality.getOrDefault(sm.getId(), List.of()));
                         })
                         .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                         .toList();
@@ -553,9 +587,7 @@ public class StudentModalityListingService {
     }
 
     @Transactional(readOnly = true)
-    public List<ModalityListDTO> getAllStudentModalitiesForProjectDirector(List<ModalityProcessStatus> statuses, String name) {
-
-        User projectDirector = SecurityUtils.getCurrentUser();
+    public List<ModalityListDTO> getAllStudentModalitiesForProjectDirector(List<ModalityProcessStatus> statuses, String name, User projectDirector) {
 
         List<ProgramAuthority> directorAuthorities = programAuthorityRepository
                 .findByUser_Id(projectDirector.getId())
@@ -586,6 +618,8 @@ public class StudentModalityListingService {
                     .findForProjectDirector(projectDirector.getId());
         }
 
+        Map<Long, List<StudentModalityMember>> membersByModality = loadActiveMembersByModalities(modalities);
+
         List<ModalityListDTO> response = modalities.stream()
                 .map(sm -> {
                     ModalityProcessStatus status = sm.getStatus();
@@ -594,7 +628,8 @@ public class StudentModalityListingService {
                             status == ModalityProcessStatus.PROPOSAL_APPROVED ||
                             status == ModalityProcessStatus.CANCELLATION_REQUESTED;
 
-                    return toModalityList(sm, status, pending);
+                    return toModalityList(sm, status, pending,
+                            membersByModality.getOrDefault(sm.getId(), List.of()));
                 })
                 .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                 .toList();
@@ -603,9 +638,7 @@ public class StudentModalityListingService {
     }
 
     @Transactional(readOnly = true)
-    public List<ModalityListDTO> getAllStudentModalitiesForExaminer(List<ModalityProcessStatus> statuses, String name) {
-
-        User examiner = SecurityUtils.getCurrentUser();
+    public List<ModalityListDTO> getAllStudentModalitiesForExaminer(List<ModalityProcessStatus> statuses, String name, User examiner) {
 
         List<DefenseExaminer> examinerAssignments = defenseExaminerRepository
                 .findByExaminerId(examiner.getId());
@@ -633,6 +666,8 @@ public class StudentModalityListingService {
                     .findForExaminer(examiner.getId());
         }
 
+        Map<Long, List<StudentModalityMember>> membersByModality = loadActiveMembersByModalities(modalities);
+
         List<ModalityListDTO> response = modalities.stream()
                 .map(sm -> {
                     ModalityProcessStatus status = sm.getStatus();
@@ -640,7 +675,8 @@ public class StudentModalityListingService {
                     boolean pending =
                             status == ModalityProcessStatus.DEFENSE_SCHEDULED;
 
-                    return toModalityList(sm, status, pending);
+                    return toModalityList(sm, status, pending,
+                            membersByModality.getOrDefault(sm.getId(), List.of()));
                 })
                 .sorted(Comparator.comparing(ModalityListDTO::getLastUpdatedAt).reversed())
                 .toList();
@@ -649,9 +685,7 @@ public class StudentModalityListingService {
     }
 
     @Transactional(readOnly = true)
-    public StudentModalityDTO getStudentModalityDetailForProgramHead(Long studentModalityId) {
-
-        User programHead = SecurityUtils.getCurrentUser();
+    public StudentModalityDTO getStudentModalityDetailForProgramHead(Long studentModalityId, User programHead) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -705,8 +739,7 @@ public class StudentModalityListingService {
     }
 
     @Transactional(readOnly = true)
-    public StudentModalityDTO getStudentModalityDetailForCommittee(Long studentModalityId) {
-        User committeeMember = SecurityUtils.getCurrentUser();
+    public StudentModalityDTO getStudentModalityDetailForCommittee(Long studentModalityId, User committeeMember) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -760,9 +793,7 @@ public class StudentModalityListingService {
     }
 
     @Transactional(readOnly = true)
-    public StudentModalityDTO getStudentModalityDetailForProjectDirector(Long studentModalityId) {
-
-        User projectDirector = SecurityUtils.getCurrentUser();
+    public StudentModalityDTO getStudentModalityDetailForProjectDirector(Long studentModalityId, User projectDirector) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -810,9 +841,7 @@ public class StudentModalityListingService {
     }
 
     @Transactional(readOnly = true)
-    public StudentModalityExaminerDTO getStudentModalityDetailForExaminer(Long studentModalityId) {
-
-        User examiner = SecurityUtils.getCurrentUser();
+    public StudentModalityExaminerDTO getStudentModalityDetailForExaminer(Long studentModalityId, User examiner) {
 
         StudentModality studentModality = studentModalityRepository.findById(studentModalityId)
                 .orElseThrow(() -> new NotFoundException("Modalidad no encontrada"));
@@ -1028,10 +1057,9 @@ public class StudentModalityListingService {
      * @param studentName (opcional) filtro parcial por nombre, apellido o nombre completo
      */
 @Transactional(readOnly = true)
-    public Map<String, Object> getProgramStudentsForCommittee(String studentName) {
+    public ProgramStudentsResponse getProgramStudentsForCommittee(String studentName, User currentUser) {
         try {
             // 1. Resolver usuario autenticado desde el contexto de seguridad
-            User currentUser = SecurityUtils.getCurrentUser();
 
             // 2. Verificar que tiene rol COMMITTEE en al menos un programa
             List<ProgramAuthority> authorities = programAuthorityRepository
@@ -1042,7 +1070,21 @@ public class StudentModalityListingService {
             }
 
             // 3. Obtener el programa académico del comité
-            AcademicProgram program = authorities.get(0).getAcademicProgram();
+            // Selección determinista (patrón ReportUtils.getAuthenticatedUserProgram):
+            // único → ese; múltiples → prefiere PROGRAM_HEAD si hay exactamente 1; si no → error.
+            AcademicProgram program;
+            if (authorities.size() == 1) {
+                program = authorities.get(0).getAcademicProgram();
+            } else {
+                List<ProgramAuthority> programHeads = authorities.stream()
+                        .filter(pa -> pa.getRole() == ProgramRole.PROGRAM_HEAD)
+                        .toList();
+                if (programHeads.size() == 1) {
+                    program = programHeads.get(0).getAcademicProgram();
+                } else {
+                    throw new ForbiddenException("El usuario tiene más de un programa académico asignado; no se puede determinar el programa");
+                }
+            }
 
             // 4. Obtener todos los perfiles de estudiantes del programa
             List<StudentProfile> profiles = studentProfileRepository
@@ -1062,7 +1104,7 @@ public class StudentModalityListingService {
             }
 
             // 5. Construir la respuesta — ordenado por ID de usuario DESC (más reciente arriba)
-            List<Map<String, Object>> students = profileStream
+            List<ProgramStudentsResponse.StudentSummary> students = profileStream
                     .sorted(Comparator.comparing((StudentProfile sp) -> sp.getUser().getId()).reversed())
                     .map(sp -> {
                         User u = sp.getUser();
@@ -1095,65 +1137,54 @@ public class StudentModalityListingService {
                                         Comparator.nullsLast(Comparator.naturalOrder())))
                                 .orElse(null);
 
-                        Map<String, Object> row = new LinkedHashMap<>();
-                        row.put("studentId", u.getId());
-                        row.put("studentCode", sp.getStudentCode());
-                        row.put("name", u.getName());
-                        row.put("lastName", u.getLastName());
-                        row.put("fullName", u.getName() + " " + u.getLastName());
-                        row.put("email", u.getEmail());
-                        row.put("semester", sp.getSemester());
-                        row.put("gpa", sp.getGpa());
-                        row.put("approvedCredits", sp.getApprovedCredits());
-                        row.put("totalModalities", allModalities.size());
-
-                        if (activeModality != null) {
-                            row.put("activeModalityId", activeModality.getId());
-                            row.put("activeModalityName",
-                                    activeModality.getProgramDegreeModality().getDegreeModality().getName());
-                            row.put("activeModalityStatus", activeModality.getStatus().name());
-                            row.put("activeModalityStatusDescription",
-                                    ModalityServiceUtils.describeModalityStatus(activeModality.getStatus()));
-                            row.put("activeModalityDirector",
-                                    activeModality.getProjectDirector() != null
-                                            ? activeModality.getProjectDirector().getName() + " "
-                                              + activeModality.getProjectDirector().getLastName()
-                                            : null);
-                        } else {
-                            row.put("activeModalityId", null);
-                            row.put("activeModalityName", null);
-                            row.put("activeModalityStatus", null);
-                            row.put("activeModalityStatusDescription", null);
-                            row.put("activeModalityDirector", null);
-                        }
-
-                        return row;
+                        return new ProgramStudentsResponse.StudentSummary(
+                                u.getId(),
+                                sp.getStudentCode(),
+                                u.getName(),
+                                u.getLastName(),
+                                u.getName() + " " + u.getLastName(),
+                                u.getEmail(),
+                                sp.getSemester(),
+                                sp.getGpa(),
+                                sp.getApprovedCredits(),
+                                allModalities.size(),
+                                activeModality != null ? activeModality.getId() : null,
+                                activeModality != null
+                                        ? activeModality.getProgramDegreeModality().getDegreeModality().getName()
+                                        : null,
+                                activeModality != null ? activeModality.getStatus().name() : null,
+                                activeModality != null
+                                        ? ModalityServiceUtils.describeModalityStatus(activeModality.getStatus())
+                                        : null,
+                                activeModality != null && activeModality.getProjectDirector() != null
+                                        ? activeModality.getProjectDirector().getName() + " "
+                                          + activeModality.getProjectDirector().getLastName()
+                                        : null
+                        );
                     })
-                    .collect(Collectors.toList());
+                    .toList();
 
-            return Map.of(
-                    "success", true,
-                    "academicProgramId", program.getId(),
-                    "academicProgramName", program.getName(),
-                    "totalStudents", students.size(),
-                    "students", students
+            return new ProgramStudentsResponse(
+                    true,
+                    program.getId(),
+                    program.getName(),
+                    students.size(),
+                    students
             );
 
         } catch (BusinessException e) {
             throw e;
         } catch (RuntimeException e) {
             log.error("Error al obtener estudiantes del programa para comité: {}", e.getMessage(), e);
-            throw new ValidationException(e.getMessage());
+            throw new InternalException("Error al obtener estudiantes del programa", e);
         } catch (Exception e) {
             log.error("Error inesperado al obtener estudiantes del programa: {}", e.getMessage(), e);
-            throw new RuntimeException("Error al obtener los estudiantes: " + e.getMessage());
+            throw new InternalException("Error al obtener los estudiantes", e);
         }
     }
 
-    private ModalityListDTO toModalityList(StudentModality sm, ModalityProcessStatus status, boolean pending) {
-        List<StudentModalityMember> activeMembers = studentModalityMemberRepository
-                .findByStudentModalityIdAndStatus(sm.getId(), MemberStatus.ACTIVE);
-
+    private ModalityListDTO toModalityList(StudentModality sm, ModalityProcessStatus status, boolean pending,
+                                           List<StudentModalityMember> activeMembers) {
         String studentNames = activeMembers.stream()
                 .map(member -> member.getStudent().getName() + " " + member.getStudent().getLastName())
                 .collect(Collectors.joining(", "));
@@ -1162,9 +1193,14 @@ public class StudentModalityListingService {
                 .map(member -> member.getStudent().getEmail())
                 .collect(Collectors.joining(", "));
 
+        String studentLastNames = activeMembers.stream()
+                .map(member -> member.getStudent().getLastName())
+                .collect(Collectors.joining(", "));
+
         return ModalityListDTO.builder()
                 .studentModalityId(sm.getId())
                 .studentName(studentNames)
+                .studentLastName(studentLastNames)
                 .studentEmail(studentEmails)
                 .modalityName(sm.getProgramDegreeModality().getDegreeModality().getName())
                 .currentStatus(status.name())
@@ -1172,6 +1208,16 @@ public class StudentModalityListingService {
                 .lastUpdatedAt(sm.getUpdatedAt())
                 .hasPendingActions(pending)
                 .build();
+    }
+
+    private Map<Long, List<StudentModalityMember>> loadActiveMembersByModalities(List<StudentModality> modalities) {
+        List<Long> modalityIds = modalities.stream()
+                .map(StudentModality::getId)
+                .toList();
+        return studentModalityMemberRepository
+                .findByStudentModalityIdInAndStatus(modalityIds, MemberStatus.ACTIVE)
+                .stream()
+                .collect(Collectors.groupingBy(m -> m.getStudentModality().getId()));
     }
 
 }

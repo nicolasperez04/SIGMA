@@ -1,6 +1,6 @@
 package com.SIGMA.USCO.Users.repository;
 
-import com.SIGMA.USCO.Users.Entity.PasswordResetToken;
+import com.SIGMA.USCO.Users.entity.PasswordResetToken;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;

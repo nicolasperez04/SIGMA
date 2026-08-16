@@ -1,103 +1,86 @@
 package com.SIGMA.USCO.notifications.service;
 
-import com.SIGMA.USCO.Users.Entity.User;
-import com.SIGMA.USCO.Users.repository.UserRepository;
+import com.SIGMA.USCO.Users.entity.User;
 import com.SIGMA.USCO.common.exception.NotFoundException;
+import com.SIGMA.USCO.common.web.OperationResultResponse;
+import com.SIGMA.USCO.notifications.dto.NotificationResponse;
+import com.SIGMA.USCO.notifications.dto.UnreadCountResponse;
 import com.SIGMA.USCO.notifications.entity.Notification;
 import com.SIGMA.USCO.notifications.repository.NotificationRepository;
-import com.SIGMA.USCO.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
-    private final UserRepository userRepository;
-
-    private User getCurrentUser() {
-        return SecurityUtils.getCurrentUser();
-    }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> getMyNotifications() {
+    public List<NotificationResponse> getMyNotifications(User user, Integer page, Integer size) {
 
-        User user = getCurrentUser();
+        // ponytail: paginación opcional y contract-safe — sin page/size devuelve la lista completa (comportamiento previo)
+        Pageable pageable = (page != null && size != null)
+                ? PageRequest.of(page, size)
+                : Pageable.unpaged();
 
         List<Notification> notifications =
-                notificationRepository.findByRecipient_IdOrderByCreatedAtDesc(user.getId());
+                notificationRepository.findByRecipient_IdOrderByCreatedAtDesc(user.getId(), pageable);
 
         return notifications.stream()
-                .map(n -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("id", n.getId());
-                    map.put("type", n.getType());
-                    map.put("subject", n.getSubject());
-                    map.put("message", n.getMessage());
-                    map.put("createdAt", n.getCreatedAt());
-                    map.put("read", n.isRead());
-                    map.put(
-                            "studentModalityId",
-                            n.getStudentModality() != null
-                                    ? n.getStudentModality().getId()
-                                    : null
-                    );
-                    map.put("invitationId", n.getInvitationId());
-                    return map;
-                })
+                .map(n -> new NotificationResponse(
+                        n.getId(),
+                        n.getType(),
+                        n.getSubject(),
+                        n.getMessage(),
+                        n.getCreatedAt(),
+                        n.isRead(),
+                        n.getStudentModality() != null ? n.getStudentModality().getId() : null,
+                        n.getInvitationId()
+                ))
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> getUnreadCount() {
-
-        User user = getCurrentUser();
+    public UnreadCountResponse getUnreadCount(User user) {
 
         long count = notificationRepository.countByRecipient_IdAndReadFalse(user.getId());
 
-        return Map.of("unreadCount", count);
+        return new UnreadCountResponse(count);
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> getNotificationDetail(Long notificationId) {
+    public NotificationResponse getNotificationDetail(User user, Long notificationId) {
 
-        User user = getCurrentUser();
         Notification notification = notificationRepository.findByIdAndRecipient_Id(notificationId, user.getId())
                         .orElseThrow(() ->
                                 new NotFoundException("Notificación no encontrada")
                         );
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("id", notification.getId());
-        response.put("type", notification.getType());
-        response.put("subject", notification.getSubject());
-        response.put("message", notification.getMessage());
-        response.put("createdAt", notification.getCreatedAt());
-        response.put("read", notification.isRead());
-        response.put("studentModalityId",
+        return new NotificationResponse(
+                notification.getId(),
+                notification.getType(),
+                notification.getSubject(),
+                notification.getMessage(),
+                notification.getCreatedAt(),
+                notification.isRead(),
                 notification.getStudentModality() != null
                         ? notification.getStudentModality().getId()
-                        : null
-        );
-        response.put("invitationId",
+                        : null,
                 notification.getInvitationId() != null
                         ? notification.getInvitationId()
                         : null
         );
-
-        return response;
     }
 
-    public Map<String, Object> markAsRead(Long notificationId) {
-
-        User user = getCurrentUser();
+    @Transactional
+    public OperationResultResponse markAsRead(User user, Long notificationId) {
 
         Notification notification = notificationRepository.findByIdAndRecipient_Id(notificationId, user.getId())
                         .orElseThrow(() ->
@@ -110,9 +93,6 @@ public class NotificationService {
             notificationRepository.save(notification);
         }
 
-        return Map.of(
-                "success", true,
-                "message", "Notificación marcada como leída"
-        );
+        return new OperationResultResponse(true, "Notificación marcada como leída");
     }
 }

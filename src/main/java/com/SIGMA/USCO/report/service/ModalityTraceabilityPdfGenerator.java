@@ -5,7 +5,6 @@ import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.*;
 import org.springframework.stereotype.Service;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
 
@@ -14,7 +13,7 @@ import java.util.List;
  * Diseñado para que el Comité de Currículo tenga visibilidad total en tiempo real.
  */
 @Service
-public class ModalityTraceabilityPdfGenerator {
+public class ModalityTraceabilityPdfGenerator extends BaseReportPdfGenerator {
 
     // ── Paleta específica (colores no compartidos con InstitutionalPdfHeader) ──
     private static final BaseColor ROW_ALT        = new BaseColor(238, 235, 228);
@@ -34,7 +33,6 @@ public class ModalityTraceabilityPdfGenerator {
     private static final Font FONT_VALUE_AMBER  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8f, AMBER);
     private static final Font FONT_TABLE_HDR    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8f, InstitutionalPdfHeader.WHITE);
     private static final Font FONT_TABLE_CELL   = FontFactory.getFont(FontFactory.HELVETICA, 8f, InstitutionalPdfHeader.TEXT_BLACK);
-    private static final Font FONT_FOOTER       = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 7f, TEXT_GRAY_LIGHT);
     private static final Font FONT_COVER_TITLE  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22f, InstitutionalPdfHeader.INST_RED);
     private static final Font FONT_COVER_SUB    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13f, InstitutionalPdfHeader.TEXT_GRAY);
     private static final Font FONT_COVER_SMALL  = FontFactory.getFont(FontFactory.HELVETICA, 9f, TEXT_GRAY_LIGHT);
@@ -47,50 +45,39 @@ public class ModalityTraceabilityPdfGenerator {
     public byte[] generatePdf(ModalityTraceabilityReportDTO report)
             throws DocumentException, IOException {
 
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        Document doc = new Document(PageSize.A4, 45, 45, 40, 50);
-        PdfWriter writer = PdfWriter.getInstance(doc, out);
-
-        // Pie de página en cada hoja
-        writer.setPageEvent(new FooterEvent(report));
-
-        doc.open();
+        PdfSession session = openDocument(PageSize.A4, 45, 45, 40, 50, report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
 
         // ── 1. Portada ─────────────────────────────────────────────────────
-        addCoverPage(doc, report);
+        addCoverPage(session.document(), report);
 
         // ── 2. Resumen ejecutivo ───────────────────────────────────────────
-        doc.newPage();
-        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
-        addSummarySection(doc, report);
+        newPageWithFullHeader(session, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
+        addSummarySection(session.document(), report);
 
         // ── 3. Información general de la modalidad ─────────────────────────
-        doc.newPage();
-        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
-        addGeneralInfoSection(doc, report);
+        newPageWithFullHeader(session, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
+        addGeneralInfoSection(session.document(), report);
 
         // ── 4. Integrantes ─────────────────────────────────────────────────
-        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
-        addMembersSection(doc, report);
+        InstitutionalPdfHeader.addHeader(session.document(), report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
+        addMembersSection(session.document(), report);
 
         // ── 5. Director y Jurados ──────────────────────────────────────────
-        addDirectorAndExaminersSection(doc, report);
+        addDirectorAndExaminersSection(session.document(), report);
 
         // ── 6. Documentos ─────────────────────────────────────────────────
-        doc.newPage();
-        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
-        addDocumentsSection(doc, report);
+        newPageWithFullHeader(session, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
+        addDocumentsSection(session.document(), report);
 
         // ── 7. Historial de trazabilidad ───────────────────────────────────
-        doc.newPage();
-        InstitutionalPdfHeader.addHeader(doc, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
-        addStatusHistorySection(doc, report);
+        newPageWithFullHeader(session, report.getFacultyName(), report.getAcademicProgramName(), "Reporte de Trazabilidad \u2014 Modalidad #" + report.getStudentModalityId());
+        addStatusHistorySection(session.document(), report);
 
         // ── 8. Sustentación y resultado final ──────────────────────────────
-        addDefenseAndResultSection(doc, report);
+        addDefenseAndResultSection(session.document(), report);
 
-        doc.close();
-        return out.toByteArray();
+        close(session);
+        return session.out().toByteArray();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -768,49 +755,6 @@ public class ModalityTraceabilityPdfGenerator {
     private String truncate(String s, int maxLen) {
         if (s == null) return "—";
         return s.length() > maxLen ? s.substring(0, maxLen) + "…" : s;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Pie de página en cada hoja
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private static class FooterEvent extends PdfPageEventHelper {
-        private final ModalityTraceabilityReportDTO report;
-
-        FooterEvent(ModalityTraceabilityReportDTO report) {
-            this.report = report;
-        }
-
-        @Override
-        public void onEndPage(PdfWriter writer, Document document) {
-            try {
-                PdfContentByte cb = writer.getDirectContent();
-                Rectangle pageSize = document.getPageSize();
-                float y = document.bottomMargin() - 10f;
-
-                // Línea dorada
-                cb.setColorStroke(new BaseColor(213, 203, 160));
-                cb.setLineWidth(1f);
-                cb.moveTo(document.leftMargin(), y + 12f);
-                cb.lineTo(pageSize.getWidth() - document.rightMargin(), y + 12f);
-                cb.stroke();
-
-                // Texto del pie
-                Font footerFont = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 7f, new BaseColor(130, 130, 130));
-                String leftText = "SIGMA — Reporte de Trazabilidad | Modalidad #"
-                        + (report.getStudentModalityId() != null ? report.getStudentModalityId() : "")
-                        + " | " + report.getAcademicProgramName();
-                String rightText = "Página " + writer.getPageNumber()
-                        + " | Universidad Surcolombiana";
-
-                ColumnText.showTextAligned(cb, Element.ALIGN_LEFT,
-                        new Phrase(leftText, footerFont),
-                        document.leftMargin(), y, 0);
-                ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT,
-                        new Phrase(rightText, footerFont),
-                        pageSize.getWidth() - document.rightMargin(), y, 0);
-            } catch (Exception ignored) {}
-        }
     }
 }
 

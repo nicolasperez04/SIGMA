@@ -38,6 +38,9 @@ public class CorsConfig {
         // Permitir credenciales (JWT / cookies)
         config.setAllowCredentials(true);
 
+        // Headers expuestos al frontend (nombre de archivo en downloads PDF/actas)
+        config.setExposedHeaders(List.of("Content-Disposition"));
+
         UrlBasedCorsConfigurationSource source =
                 new UrlBasedCorsConfigurationSource();
 

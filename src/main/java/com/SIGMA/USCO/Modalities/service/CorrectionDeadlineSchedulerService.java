@@ -1,9 +1,9 @@
 package com.SIGMA.USCO.Modalities.service;
 
-import com.SIGMA.USCO.Modalities.Entity.StudentModality;
-import com.SIGMA.USCO.Modalities.Entity.enums.ModalityProcessStatus;
-import com.SIGMA.USCO.Modalities.Repository.StudentModalityRepository;
-import com.SIGMA.USCO.notifications.event.ModalityEvent;
+import com.SIGMA.USCO.Modalities.entity.StudentModality;
+import com.SIGMA.USCO.Modalities.entity.enums.ModalityProcessStatus;
+import com.SIGMA.USCO.Modalities.repository.StudentModalityRepository;
+import com.SIGMA.USCO.Modalities.event.ModalityEvent;
 import com.SIGMA.USCO.notifications.entity.enums.NotificationType;
 import org.springframework.context.ApplicationEventPublisher;
 import lombok.RequiredArgsConstructor;
@@ -58,7 +58,8 @@ public class CorrectionDeadlineSchedulerService {
         List<StudentModality> modalitiesWithCorrections = studentModalityRepository.findByStatusIn(
                 List.of(
                         ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD,
-                        ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE
+                        ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE,
+                        ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS
                 )
         );
 
@@ -77,6 +78,16 @@ public class CorrectionDeadlineSchedulerService {
 
             if (modality.getCorrectionRequestDate() == null || modality.getCorrectionDeadline() == null) {
                 log.warn("⚠️ Modalidad {} no tiene fechas de corrección configuradas. Saltando...", modality.getId());
+                continue;
+            }
+
+            // ponytail: re-check de estado antes de transicionar por timeout/recordatorio — evita que un
+            // cambio concurrente (resubida/aprobación) sea pisado por el scheduler con datos cargados antes
+            if (modality.getStatus() != ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_HEAD &&
+                    modality.getStatus() != ModalityProcessStatus.CORRECTIONS_REQUESTED_PROGRAM_CURRICULUM_COMMITTEE &&
+                    modality.getStatus() != ModalityProcessStatus.CORRECTIONS_REQUESTED_EXAMINERS) {
+                log.info("⚠️ Modalidad {} ya no está en estado de corrección ({}). Saltando...",
+                        modality.getId(), modality.getStatus());
                 continue;
             }
 
